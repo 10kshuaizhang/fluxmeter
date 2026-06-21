@@ -3,7 +3,7 @@
 ## Getting Started
 
 ```bash
-git clone https://github.com/YOUR_USER/fluxmeter.git
+git clone https://github.com/10kshuaizhang/fluxmeter.git
 cd fluxmeter
 make demo  # Verify everything works
 ```

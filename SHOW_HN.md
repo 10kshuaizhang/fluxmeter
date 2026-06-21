@@ -51,4 +51,4 @@ That said, if you don't need sub-second enforcement, store-then-query is simpler
 
 `make demo` runs everything.
 
-GitHub: [link]
+GitHub: https://github.com/10kshuaizhang/fluxmeter

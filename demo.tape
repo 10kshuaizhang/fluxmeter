@@ -54,6 +54,6 @@ Type ""
 Enter
 Type "# Balance deducted in real time. Alerts emitted to Kafka on exhaustion."
 Enter
-Type "# github.com/YOUR_USER/fluxmeter"
+Type "# github.com/10kshuaizhang/fluxmeter"
 Enter
 Sleep 3s

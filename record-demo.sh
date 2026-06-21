@@ -52,7 +52,7 @@ echo ""
 echo ""
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  FluxMeter — github.com/YOUR_USER/fluxmeter"
+echo "  FluxMeter — github.com/10kshuaizhang/fluxmeter"
 echo "  make demo  — try it yourself"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 

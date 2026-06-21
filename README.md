@@ -43,7 +43,7 @@ The pre-request check uses a three-layer resilience stack (in-process cache → 
 ## Quick Start
 
 ```bash
-git clone https://github.com/YOUR_USER/fluxmeter.git
+git clone https://github.com/10kshuaizhang/fluxmeter.git
 cd fluxmeter
 make demo
 ```
