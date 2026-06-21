@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fluxmeter.dev/schema/token-event-v1.json",
+  "title": "FluxMeter Token Event v1",
+  "description": "One LLM API call's token usage. Kafka topic: token-events. Key: customerId.",
+  "type": "object",
+  "required": ["customerId", "modelId", "timestamp"],
+  "additionalProperties": false,
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "description": "Unique event ID (UUID). Used for deduplication."
+    },
+    "customerId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Tenant/customer identifier for billing."
+    },
+    "requestId": {
+      "type": "string",
+      "description": "Provider request ID (e.g. chatcmpl-xxx)."
+    },
+    "spanId": {
+      "type": "string",
+      "description": "Observability span ID for this LLM call."
+    },
+    "parentSpanId": {
+      "type": "string",
+      "description": "Parent span — links child calls to an agent run."
+    },
+    "provider": {
+      "type": "string",
+      "default": "openai",
+      "description": "Provider slug: openai, anthropic, google, azure, custom."
+    },
+    "modelId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Model name (e.g. gpt-4o, claude-sonnet-4)."
+    },
+    "inputTokens": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Prompt/input tokens."
+    },
+    "outputTokens": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Completion/output tokens."
+    },
+    "cacheReadTokens": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Cached input tokens read from prompt cache."
+    },
+    "cacheWriteTokens": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Tokens written to prompt cache."
+    },
+    "reasoningTokens": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Internal reasoning tokens (o1, o3)."
+    },
+    "embeddingTokens": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Embedding API tokens."
+    },
+    "timestamp": {
+      "type": "integer",
+      "description": "Event time in epoch milliseconds (not ingestion time)."
+    },
+    "latencyMs": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Provider response latency in milliseconds."
+    },
+    "sessionId": {
+      "type": "string",
+      "description": "Conversation or user session ID."
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["production", "staging", "development"],
+      "description": "Deployment environment tag."
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Arbitrary string key-value context."
+    }
+  }
+}

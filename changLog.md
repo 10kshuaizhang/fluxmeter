@@ -6,6 +6,27 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.1.0] — 2026-06-21
+
+### Added
+- **OpenCore repo split**: `spec/` (JSON Schema, OpenAPI, semantic conventions, pricing template)
+- **Community layer**: `contrib/` with provider mappings, pricing snapshot, CONTRIBUTING
+- **JavaScript SDK**: `sdk/js` (`@fluxmeter/client`) — HTTP ingest + optional Kafka
+- **Lite demo**: `docker-compose-lite.yml` + `make demo-lite` — Redis + API + Grafana, no Flink/Kafka
+- **Lite aggregation**: `api/lite_aggregate.py` — per-event Redis counters matching full stack key schema
+- **Spec validation**: `scripts/validate-spec.sh`, `make validate-spec`
+- **Engine docs**: `src/README.md` — reference implementation boundary
+
+### Changed
+- API Dockerfile builds from repo root (includes `spec/` for `/openapi.yaml`)
+- README: OpenCore layout, lite vs full quick start, JS SDK examples
+- Java engine version **1.1.0**
+
+### Notes
+- Python SDK remains at `sdk/python` (`pip install fluxmeter` 1.0.0 on PyPI); JS SDK build with `cd sdk/js && npm run build`
+
+---
+
 ## [1.0.0] — 2026-06-21
 
 ### Added

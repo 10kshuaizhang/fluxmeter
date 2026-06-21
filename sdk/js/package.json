@@ -1,0 +1,33 @@
+{
+  "name": "@fluxmeter/client",
+  "version": "1.0.0",
+  "description": "JavaScript/TypeScript SDK for FluxMeter AI token billing",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["ai", "llm", "metering", "billing", "openai", "anthropic"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/10kshuaizhang/fluxmeter",
+    "directory": "sdk/js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  },
+  "optionalDependencies": {
+    "kafkajs": "^2.2.4"
+  }
+}

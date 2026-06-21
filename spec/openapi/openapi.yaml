@@ -1,0 +1,427 @@
+openapi: 3.0.3
+info:
+  title: FluxMeter API
+  description: |
+    Real-time token usage queries, HTTP ingest, and budget enforcement.
+    Implements the FluxMeter open spec — see `spec/schema/` and `spec/openapi/`.
+  version: 1.1.0
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: http://localhost:8000
+    description: Local demo
+security:
+  - ApiKeyAuth: []
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /ingest:
+    post:
+      summary: Ingest single token event
+      description: Accepts token-event-v1 JSON. Lite mode writes Redis directly; full stack produces to Kafka.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenEvent"
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  eventId:
+                    type: string
+  /ingest/batch:
+    post:
+      summary: Batch ingest (max 1000)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              maxItems: 1000
+              items:
+                $ref: "#/components/schemas/TokenEvent"
+      responses:
+        "202":
+          description: Accepted
+        "400":
+          description: Batch too large
+  /usage/global:
+    get:
+      summary: Global aggregated usage
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GlobalUsage"
+  /usage/customer/{customer_id}:
+    get:
+      summary: Per-customer usage
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerUsage"
+        "404":
+          description: Customer not found
+  /usage/customer/{customer_id}/model/{model_id}:
+    get:
+      summary: Per-model usage for customer
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: model_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelUsage"
+  /usage/span/{span_id}:
+    get:
+      summary: Agent span cost attribution
+      parameters:
+        - name: span_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpanUsage"
+  /usage/customer/{customer_id}/spans:
+    get:
+      summary: Top expensive spans for customer
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    span_id:
+                      type: string
+                    cost_usd:
+                      type: number
+  /budget/{customer_id}:
+    get:
+      summary: Get budget status
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerBudget"
+    post:
+      summary: Set or reset prepaid budget
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BudgetSetRequest"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerBudget"
+  /budget/{customer_id}/check:
+    get:
+      summary: Pre-request budget guardrail (<10ms)
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: estimated_cost_usd
+          in: query
+          schema:
+            type: number
+            default: 0
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BudgetCheckResponse"
+  /budget/{customer_id}/topup:
+    post:
+      summary: Add credits
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: amount_usd
+          in: query
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Topup applied
+  /budget/{customer_id}/reserve:
+    post:
+      summary: Pessimistic pre-deduction for streaming
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: estimated_cost_usd
+          in: query
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Reserve result
+  /budget/{customer_id}/reconcile:
+    post:
+      summary: Reconcile after streaming completes
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: reserved_usd
+          in: query
+          required: true
+          schema:
+            type: number
+        - name: actual_usd
+          in: query
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Reconciled
+  /rerate/preview:
+    post:
+      summary: Preview retroactive re-rating
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReRateRequest"
+      responses:
+        "200":
+          description: Preview result
+  /rerate/apply:
+    post:
+      summary: Apply retroactive re-rating
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReRateRequest"
+      responses:
+        "202":
+          description: Applied
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    TokenEvent:
+      $ref: "../schema/token-event-v1.json"
+    GlobalUsage:
+      type: object
+      properties:
+        total_events:
+          type: integer
+        total_tokens:
+          type: integer
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        total_cost_usd:
+          type: number
+        last_window_end:
+          type: integer
+          nullable: true
+    CustomerUsage:
+      type: object
+      properties:
+        customer_id:
+          type: string
+        total_tokens:
+          type: integer
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        cache_read_tokens:
+          type: integer
+        reasoning_tokens:
+          type: integer
+        event_count:
+          type: integer
+        cost_usd:
+          type: number
+    ModelUsage:
+      type: object
+      properties:
+        model_id:
+          type: string
+        total_tokens:
+          type: integer
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        cost_usd:
+          type: number
+    CustomerBudget:
+      type: object
+      properties:
+        customer_id:
+          type: string
+        balance_usd:
+          type: number
+        total_spent_usd:
+          type: number
+        alert_threshold_usd:
+          type: number
+          nullable: true
+        is_exhausted:
+          type: boolean
+    BudgetSetRequest:
+      type: object
+      required:
+        - balance_usd
+      properties:
+        balance_usd:
+          type: number
+        alert_threshold_usd:
+          type: number
+        max_rpm:
+          type: integer
+    BudgetCheckResponse:
+      type: object
+      properties:
+        allowed:
+          type: boolean
+        balance_usd:
+          type: number
+          nullable: true
+        reason:
+          type: string
+        source:
+          type: string
+          enum: [redis, cache, policy]
+    SpanUsage:
+      type: object
+      properties:
+        span_id:
+          type: string
+        customer_id:
+          type: string
+          nullable: true
+        total_tokens:
+          type: integer
+        call_count:
+          type: integer
+        cost_usd:
+          type: number
+        duration_ms:
+          type: integer
+    ReRateRequest:
+      type: object
+      required:
+        - model_id
+        - old_input_price
+        - new_input_price
+        - old_output_price
+        - new_output_price
+      properties:
+        model_id:
+          type: string
+        old_input_price:
+          type: number
+        new_input_price:
+          type: number
+        old_output_price:
+          type: number
+        new_output_price:
+          type: number
+        start_timestamp:
+          type: integer
+        end_timestamp:
+          type: integer

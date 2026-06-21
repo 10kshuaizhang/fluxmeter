@@ -2,7 +2,7 @@
 
 Open source real-time metering and budget enforcement for AI token billing.
 
-**v1.0.0** | **1M+ events/sec** | **<10ms budget check** | **Multi-provider** | **Zero data loss**
+**v1.1.0** | **Open spec + SDKs** | **1M+ events/sec** | **<10ms budget check** | **Multi-provider**
 
 ![FluxMeter Demo](demo.gif)
 
@@ -13,6 +13,16 @@ Open source real-time metering and budget enforcement for AI token billing.
 - **Anyone who's been burned** by a runaway agent loop spending $500 in 30 seconds before the billing system noticed
 
 If your customers prepay for tokens and you need to cut them off the instant they run out — not 30 seconds later — FluxMeter does that.
+
+## Repository layout (OpenCore)
+
+| Layer | Path | Purpose |
+|-------|------|---------|
+| **Spec** | [`spec/`](spec/) | Event schema, OpenAPI, semantic conventions |
+| **SDKs** | [`sdk/python/`](sdk/python/), [`sdk/js/`](sdk/js/) | Python + JS clients |
+| **Community** | [`contrib/`](contrib/) | Provider mappings, pricing, connectors |
+| **Engine** | [`src/`](src/) | Flink reference implementation (aggregation, budget enforcement) |
+| **Demo** | `make demo-lite` or `make demo` | Lite (API→Redis) or Full (Kafka→Flink→Redis) |
 
 ## Budget Enforcement (the core feature)
 
@@ -42,9 +52,17 @@ The pre-request check uses a three-layer resilience stack (in-process cache → 
 
 ## Quick Start
 
+**Lite** (1 minute, no Flink):
+
 ```bash
 git clone https://github.com/10kshuaizhang/fluxmeter.git
 cd fluxmeter
+make demo-lite
+```
+
+**Full** (Kafka + Flink + 1M eps benchmark):
+
+```bash
 make demo
 ```
 
@@ -62,11 +80,13 @@ from fluxmeter import FluxMeter
 
 meter = FluxMeter(kafka_brokers="localhost:9094")
 meter.track_openai("cust_123", openai_response, latency_ms=1200)
-meter.track_anthropic("cust_123", anthropic_response)
+```
 
-# Streaming: heartbeat events every 2s during long responses
-for chunk in meter.wrap_stream(stream, "cust_123", "gpt-4o"):
-    process(chunk)
+**JavaScript SDK** (HTTP or Kafka):
+```typescript
+import { FluxMeter } from "@fluxmeter/client";
+const meter = new FluxMeter({ apiUrl: "http://localhost:8000" });
+await meter.trackOpenAI("cust_123", openaiResponse);
 ```
 
 **HTTP API** (zero dependencies — any language, curl, serverless):
@@ -79,7 +99,8 @@ curl -X POST localhost:8000/ingest \
 **Direct Kafka** (highest throughput — any Kafka client library):
 ```
 Topic: token-events
-Format: JSON, keyed by customerId
+Format: JSON per spec/schema/token-event-v1.json, keyed by customerId
+OpenAPI: spec/openapi/openapi.yaml
 ```
 
 ## Query API
@@ -183,11 +204,14 @@ Estimated cost: ~$1,550/month for 100K events/sec on AWS.
 ## Makefile
 
 ```bash
-make demo        # Build + start + submit job + generate
-make start       # Start infrastructure
+make demo-lite   # Lite: Redis + API + Grafana
+make demo        # Full: build + start + submit job + generate
+make start-lite  # Start lite stack only
+make start       # Start full infrastructure
 make submit-job  # Submit Flink job
 make generate    # Run load generator
 make benchmark   # Streaming vs batch comparison
+make validate-spec # Validate schema + OpenAPI artifacts
 make stop        # Stop containers
 make clean       # Stop + remove volumes + clean
 ```

@@ -8,14 +8,22 @@ from typing import Optional
 
 import redis
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from auth import require_admin_key, require_api_key
+from lite_aggregate import aggregate_event
 
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="0.6.1",
+    version="1.1.0",
+)
+
+LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"
+SPEC_OPENAPI_PATH = os.getenv(
+    "FLUXMETER_OPENAPI_PATH",
+    os.path.join(os.path.dirname(__file__), "..", "spec", "openapi", "openapi.yaml"),
 )
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -122,7 +130,17 @@ class ModelUsage(BaseModel):
 def health():
     r = get_redis()
     r.ping()
-    return {"status": "ok"}
+    return {"status": "ok", "mode": "lite" if LITE_MODE else "full"}
+
+
+@app.get("/openapi.yaml")
+def get_openapi_spec():
+    """Serve canonical OpenAPI spec from spec/openapi/openapi.yaml."""
+    try:
+        with open(SPEC_OPENAPI_PATH, encoding="utf-8") as f:
+            return Response(content=f.read(), media_type="application/yaml")
+    except OSError:
+        raise HTTPException(status_code=404, detail="OpenAPI spec file not found")
 
 
 # --- Ingest Endpoints ---
@@ -160,13 +178,19 @@ def ingest_event(event: IngestEvent):
     """
     import json, uuid
 
-    producer = get_kafka_producer()
     event_dict = event.model_dump(exclude_none=True)
     if "eventId" not in event_dict:
         event_dict["eventId"] = str(uuid.uuid4())
     if "timestamp" not in event_dict:
         event_dict["timestamp"] = int(time.time() * 1000)
 
+    if LITE_MODE:
+        r = get_redis()
+        if not aggregate_event(r, event_dict):
+            return {"status": "duplicate", "eventId": event_dict["eventId"]}
+        return {"status": "accepted", "eventId": event_dict["eventId"], "mode": "lite"}
+
+    producer = get_kafka_producer()
     value = json.dumps(event_dict).encode("utf-8")
     producer.produce(KAFKA_TOPIC, key=event.customerId.encode("utf-8"), value=value)
     producer.poll(0)
@@ -186,9 +210,26 @@ def ingest_batch(events: list[IngestEvent]):
     if len(events) > 1000:
         raise HTTPException(status_code=400, detail="Max 1000 events per batch")
 
-    producer = get_kafka_producer()
     event_ids = []
 
+    if LITE_MODE:
+        r = get_redis()
+        for event in events:
+            event_dict = event.model_dump(exclude_none=True)
+            if "eventId" not in event_dict:
+                event_dict["eventId"] = str(uuid.uuid4())
+            if "timestamp" not in event_dict:
+                event_dict["timestamp"] = int(time.time() * 1000)
+            if aggregate_event(r, event_dict):
+                event_ids.append(event_dict["eventId"])
+        return {
+            "status": "accepted",
+            "count": len(event_ids),
+            "event_ids": event_ids,
+            "mode": "lite",
+        }
+
+    producer = get_kafka_producer()
     for event in events:
         event_dict = event.model_dump(exclude_none=True)
         if "eventId" not in event_dict:
