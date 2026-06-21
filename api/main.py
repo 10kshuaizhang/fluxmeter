@@ -25,7 +25,7 @@ from lite_aggregate import aggregate_event
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="1.2.0",
+    version="1.3.0",
 )
 
 LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"

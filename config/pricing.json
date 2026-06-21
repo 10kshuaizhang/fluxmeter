@@ -1,0 +1,36 @@
+{
+  "version": "1",
+  "effective_date": "2025-06-01",
+  "cache_read_multiplier": 0.5,
+  "models": {
+    "gpt-4o": { "input_per_m": 2.50, "output_per_m": 10.00 },
+    "gpt-4o-mini": { "input_per_m": 0.15, "output_per_m": 0.60 },
+    "o1": { "input_per_m": 15.00, "output_per_m": 60.00 },
+    "o3-mini": { "input_per_m": 1.10, "output_per_m": 4.40 },
+    "claude-opus-4": { "input_per_m": 15.00, "output_per_m": 75.00 },
+    "claude-sonnet-4": { "input_per_m": 3.00, "output_per_m": 15.00 },
+    "claude-haiku-4": { "input_per_m": 0.80, "output_per_m": 4.00 },
+    "gemini-1.5-pro": { "input_per_m": 3.50, "output_per_m": 10.50 },
+    "gemini-1.5-flash": { "input_per_m": 0.075, "output_per_m": 0.30 },
+    "text-embedding-3-small": { "embedding_per_m": 0.02 },
+    "text-embedding-3-large": { "embedding_per_m": 0.13 }
+  },
+  "defaults": {
+    "input_per_m": 1.00,
+    "output_per_m": 3.00,
+    "embedding_per_m": 0.10
+  },
+  "prefix_models": [
+    "gpt-4o-mini",
+    "gpt-4o",
+    "o3-mini",
+    "o1",
+    "claude-opus-4",
+    "claude-sonnet-4",
+    "claude-haiku-4",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash",
+    "text-embedding-3-large",
+    "text-embedding-3-small"
+  ]
+}
