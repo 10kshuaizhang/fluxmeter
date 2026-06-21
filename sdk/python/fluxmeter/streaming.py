@@ -57,6 +57,7 @@ class StreamingWrapper:
 
         self._output_chunks = 0
         self._estimated_output_tokens = 0
+        self._last_emitted_output_tokens = 0
         self._last_heartbeat = time.time()
         self._start_time = time.time()
         self._finished = False
@@ -110,12 +111,16 @@ class StreamingWrapper:
 
     def _emit_heartbeat(self) -> None:
         """Emit a partial usage event (heartbeat) during streaming."""
+        delta = self._estimated_output_tokens - self._last_emitted_output_tokens
+        if delta <= 0:
+            return
+        self._last_emitted_output_tokens = self._estimated_output_tokens
         self._meter.track(
             customer_id=self._customer_id,
             model_id=self._model_id,
             provider=self._provider,
             input_tokens=0,  # Only count input once in final event
-            output_tokens=self._estimated_output_tokens,
+            output_tokens=delta,
             parent_span_id=self._parent_span_id,
             session_id=self._session_id,
             environment=self._environment,

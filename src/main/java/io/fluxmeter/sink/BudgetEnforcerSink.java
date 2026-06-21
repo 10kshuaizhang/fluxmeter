@@ -12,9 +12,6 @@ import org.apache.kafka.common.serialization.StringSerializer;
 
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.JedisPoolConfig;
-import redis.clients.jedis.Pipeline;
-import redis.clients.jedis.Response;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -23,14 +20,8 @@ import java.util.Properties;
 /**
  * Combined sink: writes aggregated usage to Redis AND enforces budget limits.
  *
- * For each window aggregate:
- * 1. Increments usage counters in Redis (same as RedisSink)
- * 2. Deducts cost from customer's prepaid balance (INCRBYFLOAT negative)
- * 3. Checks remaining balance against thresholds
- * 4. Publishes alerts/kill signals to Kafka when thresholds crossed
- *
- * Budget setup: SET budget:cust_123:balance_usd "100.00"
- * Optional:     SET budget:cust_123:alert_threshold_usd "10.00"
+ * All counter writes, idempotency, and budget deduction run in one Lua EVAL
+ * so a crash mid-flight cannot leave counters updated without budget deduction.
  */
 public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
 
@@ -43,35 +34,42 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
     private transient KafkaProducer<String, String> alertProducer;
     private transient ObjectMapper mapper;
 
-    // Default alert threshold: warn when 10% of balance remaining
     private static final double DEFAULT_ALERT_THRESHOLD_PERCENT = 0.10;
 
-    // Lua script for atomic: counter writes + budget deduction + threshold check.
-    // All in one EVAL so crash between counter write and budget deduction is impossible.
-    // KEYS[1]=balance_key, KEYS[2]=threshold_key, KEYS[3]=customer_cost_key, KEYS[4]=initial_balance_key
-    // ARGV[1]=cost, ARGV[2]=default_threshold_pct, ARGV[3]=total_tokens, ARGV[4]=event_count
-    private static final String BUDGET_LUA_SCRIPT =
-            "local balance_key = KEYS[1]\n" +
-            "local threshold_key = KEYS[2]\n" +
-            "local cost_key = KEYS[3]\n" +
-            "local initial_key = KEYS[4]\n" +
-            "local cost = tonumber(ARGV[1])\n" +
-            "local default_threshold_pct = tonumber(ARGV[2])\n" +
-            // Increment customer cost counter (always, even without budget)
-            "redis.call('INCRBYFLOAT', cost_key, ARGV[1])\n" +
-            // Budget check
-            "local balance = tonumber(redis.call('GET', balance_key))\n" +
+    // KEYS[1]=idempotency ... [19]=global:last_window, [20]=cache_read, [21]=reasoning
+    private static final String SINK_LUA_SCRIPT =
+            "if redis.call('SET', KEYS[1], '1', 'NX', 'EX', '3600') == false then\n" +
+            "  return {'SKIP', '0', '0'}\n" +
+            "end\n" +
+            "redis.call('INCRBY', KEYS[2], ARGV[1])\n" +
+            "redis.call('INCRBY', KEYS[3], ARGV[2])\n" +
+            "redis.call('INCRBY', KEYS[4], ARGV[3])\n" +
+            "redis.call('INCRBY', KEYS[5], ARGV[4])\n" +
+            "redis.call('INCRBY', KEYS[6], ARGV[1])\n" +
+            "redis.call('INCRBY', KEYS[7], ARGV[2])\n" +
+            "redis.call('INCRBY', KEYS[8], ARGV[3])\n" +
+            "redis.call('INCRBYFLOAT', KEYS[9], ARGV[5])\n" +
+            "redis.call('INCRBYFLOAT', KEYS[10], ARGV[5])\n" +
+            "if tonumber(ARGV[6]) > 0 then redis.call('INCRBY', KEYS[20], ARGV[6]) end\n" +
+            "if tonumber(ARGV[7]) > 0 then redis.call('INCRBY', KEYS[21], ARGV[7]) end\n" +
+            "redis.call('INCRBY', KEYS[11], ARGV[3])\n" +
+            "redis.call('INCRBY', KEYS[12], ARGV[1])\n" +
+            "redis.call('INCRBY', KEYS[13], ARGV[2])\n" +
+            "redis.call('INCRBY', KEYS[14], ARGV[4])\n" +
+            "redis.call('INCRBYFLOAT', KEYS[15], ARGV[5])\n" +
+            "redis.call('SET', KEYS[19], ARGV[9])\n" +
+            "local balance = tonumber(redis.call('GET', KEYS[16]))\n" +
             "if balance == nil then return {'NONE', '0', '0'} end\n" +
+            "local cost = tonumber(ARGV[5])\n" +
             "local new_balance = balance - cost\n" +
-            "redis.call('SET', balance_key, tostring(new_balance))\n" +
-            // Threshold: use explicit config, or 10% of INITIAL balance (not current)
-            "local threshold_str = redis.call('GET', threshold_key)\n" +
+            "redis.call('SET', KEYS[16], tostring(new_balance))\n" +
+            "local threshold_str = redis.call('GET', KEYS[17])\n" +
             "local threshold\n" +
             "if threshold_str then\n" +
             "  threshold = tonumber(threshold_str)\n" +
             "else\n" +
-            "  local initial = tonumber(redis.call('GET', initial_key) or '0')\n" +
-            "  threshold = initial * default_threshold_pct\n" +
+            "  local initial = tonumber(redis.call('GET', KEYS[18]) or '0')\n" +
+            "  threshold = initial * tonumber(ARGV[8])\n" +
             "end\n" +
             "if new_balance <= 0 then\n" +
             "  return {'EXHAUSTED', tostring(new_balance), tostring(balance)}\n" +
@@ -90,16 +88,14 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
 
     @Override
     public void open(Configuration parameters) {
-        JedisPoolConfig config = new JedisPoolConfig();
-        config.setMaxTotal(8);
-        pool = new JedisPool(config, redisHost, redisPort);
+        pool = RedisConnections.createPool(redisHost, redisPort, 8);
 
         Properties props = new Properties();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBrokers);
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.ACKS_CONFIG, "1");
-        props.put(ProducerConfig.LINGER_MS_CONFIG, 0); // Send alerts immediately
+        props.put(ProducerConfig.LINGER_MS_CONFIG, 0);
         alertProducer = new KafkaProducer<>(props);
 
         mapper = new ObjectMapper();
@@ -113,64 +109,48 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
             String modelKey = customerKey + ":model:" + agg.getModelId();
             String budgetKey = "budget:" + customerId;
 
-            // --- Idempotency check: skip if this window was already applied ---
             String windowId = customerId + "|" + agg.getModelId() + "|" + agg.getWindowStart();
             String idempotencyKey = "applied:" + windowId;
-            // SET NX with 1-hour TTL — returns OK only if key didn't exist
-            String setResult = jedis.set(idempotencyKey, "1", new redis.clients.jedis.params.SetParams().nx().ex(3600));
-            if (setResult == null) {
-                return; // Already applied — skip (exactly-once guarantee)
-            }
 
-            // --- Phase 1: Write usage counters (pipeline for non-budget keys) ---
-            Pipeline pipe = jedis.pipelined();
-
-            pipe.incrBy(customerKey + ":input_tokens", agg.getInputTokens());
-            pipe.incrBy(customerKey + ":output_tokens", agg.getOutputTokens());
-            pipe.incrBy(customerKey + ":total_tokens", agg.getTotalTokens());
-            pipe.incrBy(customerKey + ":event_count", agg.getEventCount());
-
-            pipe.incrBy(modelKey + ":input_tokens", agg.getInputTokens());
-            pipe.incrBy(modelKey + ":output_tokens", agg.getOutputTokens());
-            pipe.incrBy(modelKey + ":total_tokens", agg.getTotalTokens());
-            pipe.incrByFloat(modelKey + ":cost_usd", agg.getCostUsd());
-
-            if (agg.getCacheReadTokens() > 0) {
-                pipe.incrBy(customerKey + ":cache_read_tokens", agg.getCacheReadTokens());
-            }
-            if (agg.getReasoningTokens() > 0) {
-                pipe.incrBy(customerKey + ":reasoning_tokens", agg.getReasoningTokens());
-            }
-
-            pipe.incrBy("global:total_tokens", agg.getTotalTokens());
-            pipe.incrBy("global:input_tokens", agg.getInputTokens());
-            pipe.incrBy("global:output_tokens", agg.getOutputTokens());
-            pipe.incrBy("global:total_events", agg.getEventCount());
-            pipe.incrByFloat("global:total_cost_usd", agg.getCostUsd());
-            pipe.set("global:last_window_end", String.valueOf(agg.getWindowEnd()));
-
-            pipe.sync();
-
-            // --- Phase 2: Budget enforcement + customer cost (atomic via Lua) ---
-            // The Lua script atomically: increments customer cost_usd AND deducts budget.
-            // This prevents the crash-between-counter-and-deduct race condition.
             @SuppressWarnings("unchecked")
             java.util.List<String> result = (java.util.List<String>) jedis.eval(
-                    BUDGET_LUA_SCRIPT,
-                    4, // number of keys
+                    SINK_LUA_SCRIPT,
+                    21,
+                    idempotencyKey,
+                    customerKey + ":input_tokens",
+                    customerKey + ":output_tokens",
+                    customerKey + ":total_tokens",
+                    customerKey + ":event_count",
+                    modelKey + ":input_tokens",
+                    modelKey + ":output_tokens",
+                    modelKey + ":total_tokens",
+                    modelKey + ":cost_usd",
+                    customerKey + ":cost_usd",
+                    "global:total_tokens",
+                    "global:input_tokens",
+                    "global:output_tokens",
+                    "global:total_events",
+                    "global:total_cost_usd",
                     budgetKey + ":balance_usd",
                     budgetKey + ":alert_threshold_usd",
-                    customerKey + ":cost_usd",
                     budgetKey + ":initial_balance_usd",
-                    String.valueOf(agg.getCostUsd()),
-                    String.valueOf(DEFAULT_ALERT_THRESHOLD_PERCENT),
+                    "global:last_window_end",
+                    customerKey + ":cache_read_tokens",
+                    customerKey + ":reasoning_tokens",
+                    String.valueOf(agg.getInputTokens()),
+                    String.valueOf(agg.getOutputTokens()),
                     String.valueOf(agg.getTotalTokens()),
-                    String.valueOf(agg.getEventCount())
+                    String.valueOf(agg.getEventCount()),
+                    String.valueOf(agg.getCostUsd()),
+                    String.valueOf(agg.getCacheReadTokens()),
+                    String.valueOf(agg.getReasoningTokens()),
+                    String.valueOf(DEFAULT_ALERT_THRESHOLD_PERCENT),
+                    String.valueOf(agg.getWindowEnd())
             );
 
             String status = result.get(0);
-            if ("NONE".equals(status)) {
-                return; // No budget configured
+            if ("SKIP".equals(status) || "NONE".equals(status)) {
+                return;
             }
 
             double newBalance = Double.parseDouble(result.get(1));

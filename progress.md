@@ -2,8 +2,8 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history.
 
-**Current version:** 1.0.0-rc1
-**Current phase:** Release candidate — all features, tests, optimizations, and production issues addressed
+**Current version:** 1.0.0-rc3
+**Current phase:** Release candidate — code review remediation (15 findings)
 **Design status:** APPROVED (2026-06-16)
 
 ---
@@ -23,7 +23,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Week 4f | Streaming metering + retroactive re-rating | Done |
 | Week 4g | HTTP ingest endpoint + e2e verification | Done |
 | Week 4h | Performance optimization (OptimizedRedisSink, batching, hash consolidation) | Done |
-| Week 4i | Integration tests (10 scenarios, 14 passed) | Done |
+| Week 4i | Integration tests (15 scenarios, 15 passed) | Done |
 | Next | Open source launch, marketing | Not started |
 
 ---
@@ -117,6 +117,9 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-06-21** — Prod overlay E2E: 20/20 passed (5 auth + 15 integration). Budget accuracy skip replaced with poll/watermark helpers; idempotency stabilized under Flink backlog. Still rc3.
+- **2026-06-21** — Code review fixes #1–#4: WAL per-event ack + flush drain, Redis password wiring, Flink checkpoint volume permissions. Version 1.0.0-rc3.
+- **2026-06-21** — Code review remediation (15 findings): pricing fix, model normalization, WAL dedup, atomic BudgetEnforcerSink, API auth, docker-compose.prod.yml. Version 1.0.0-rc2.
 - **2026-06-20** — Fixed 10 production issues: SHA-256 idempotency (collision-safe), Lua threshold semantic (initial balance), WAL batch fsync, schema compatibility, float→microdollars (long), re-rate async, session window docs. Version 1.0.0-rc1.
 - **2026-06-20** — Three-layer resilient budget check: in-process cache (0.01ms) → Redis (1-5ms) → fail policy (open/closed). Hot path never blocks on infra failure. Version 0.9.1.
 - **2026-06-20** — Week 4i: integration test suite (10 scenarios, 14 passed). Correctness verified: budget accuracy, idempotency, rate limits, pricing, re-rating, spans, HTTP ingest, zero-token edge case.

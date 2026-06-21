@@ -39,6 +39,8 @@ class WriteAheadLog:
         self._lock = threading.Lock()
         self._pending_count = 0
         self._flushed_count = 0
+        # Byte offset successfully sent to Kafka per file (avoids duplicate replay)
+        self._send_offsets: dict[str, int] = {}
 
         self._rotate_if_needed()
 
@@ -51,20 +53,84 @@ class WriteAheadLog:
             self._file_handle.write(line)
             self._file_handle.flush()
             self._pending_count += 1
-            # Batch fsync: every 100 writes for true durability
             if self._pending_count % 100 == 0:
                 os.fsync(self._file_handle.fileno())
 
     def pending_files(self) -> list[Path]:
-        """List WAL files that have unflushed events (oldest first)."""
+        """List WAL files that may have unsent events (oldest first)."""
         files = sorted(self._dir.glob("wal-*.jsonl"))
         return files
+
+    def get_send_offset(self, file_path: Path) -> int:
+        """Return byte offset of last successfully sent event in this file."""
+        return self._send_offsets.get(str(file_path), 0)
+
+    def advance_send_offset(self, file_path: Path, new_offset: int) -> None:
+        """Record how many bytes have been successfully sent from file_path."""
+        with self._lock:
+            self._send_offsets[str(file_path)] = new_offset
+
+    def read_next_event_from_offset(
+        self, file_path: Path, byte_offset: int
+    ) -> tuple[dict | None, int]:
+        """Read at most one event from byte_offset. Returns (event, new_offset)."""
+        try:
+            with open(file_path, "r") as f:
+                f.seek(byte_offset)
+                line = f.readline()
+                if not line:
+                    return None, byte_offset
+                stripped = line.strip()
+                if not stripped:
+                    return None, f.tell()
+                try:
+                    return json.loads(stripped), f.tell()
+                except json.JSONDecodeError:
+                    return None, f.tell()
+        except FileNotFoundError:
+            return None, byte_offset
+
+    def read_events_from_offset(self, file_path: Path, byte_offset: int) -> tuple[list[dict], int]:
+        """Read events starting at byte_offset. Returns (events, new_byte_offset)."""
+        events: list[dict] = []
+        new_offset = byte_offset
+        try:
+            with open(file_path, "r") as f:
+                f.seek(byte_offset)
+                while True:
+                    line_start = f.tell()
+                    line = f.readline()
+                    if not line:
+                        break
+                    stripped = line.strip()
+                    if stripped:
+                        try:
+                            events.append(json.loads(stripped))
+                            new_offset = f.tell()
+                        except json.JSONDecodeError:
+                            new_offset = f.tell()
+                            continue
+                    else:
+                        new_offset = line_start + len(line)
+        except FileNotFoundError:
+            pass
+        return events, new_offset
+
+    def is_fully_sent(self, file_path: Path) -> bool:
+        """True if all bytes in file have been sent to Kafka."""
+        try:
+            size = file_path.stat().st_size
+        except FileNotFoundError:
+            return True
+        return self.get_send_offset(file_path) >= size and size > 0
 
     def mark_flushed(self, file_path: Path, count: int) -> None:
         """Mark a WAL file as fully flushed to Kafka. Deletes it."""
         with self._lock:
             if file_path == self._current_file:
-                return  # Don't delete the active file
+                return
+            key = str(file_path)
+            self._send_offsets.pop(key, None)
             try:
                 file_path.unlink()
                 self._flushed_count += count
@@ -73,18 +139,7 @@ class WriteAheadLog:
 
     def read_events(self, file_path: Path) -> list[dict]:
         """Read all events from a WAL file."""
-        events = []
-        try:
-            with open(file_path, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            events.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            continue  # Skip corrupted lines
-        except FileNotFoundError:
-            pass
+        events, _ = self.read_events_from_offset(file_path, 0)
         return events
 
     def _rotate_if_needed(self) -> None:
@@ -97,11 +152,9 @@ class WriteAheadLog:
             except FileNotFoundError:
                 pass
 
-        # Close old file
         if self._file_handle:
             self._file_handle.close()
 
-        # Create new file with timestamp name
         ts = int(time.time() * 1000)
         self._current_file = self._dir / f"wal-{ts}.jsonl"
         self._file_handle = open(self._current_file, "a")

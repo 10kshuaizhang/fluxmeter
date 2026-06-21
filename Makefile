@@ -1,6 +1,6 @@
 .PHONY: build demo start stop clean generate submit-job benchmark
 
-JAR = build/libs/fluxmeter-0.7.0.jar
+JAR = $(shell ls -t build/libs/fluxmeter-*.jar 2>/dev/null | head -1)
 
 # Build the fat JAR
 build:

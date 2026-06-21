@@ -7,8 +7,10 @@ import time
 from typing import Optional
 
 import redis
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
+
+from auth import require_admin_key, require_api_key
 
 app = FastAPI(
     title="FluxMeter API",
@@ -18,10 +20,16 @@ app = FastAPI(
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or None
 KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "kafka:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "token-events")
 
-pool = redis.ConnectionPool(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+pool = redis.ConnectionPool(
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    password=REDIS_PASSWORD,
+    decode_responses=True,
+)
 
 # --- Layer 1: In-process budget cache (always available, 0.01ms) ---
 _budget_cache: dict[str, dict] = {}  # {customer_id: {"balance": float, "ts": float, "max_rpm": int}}
@@ -140,7 +148,7 @@ class IngestEvent(BaseModel):
     timestamp: Optional[int] = None
 
 
-@app.post("/ingest", status_code=202)
+@app.post("/ingest", status_code=202, dependencies=[Depends(require_api_key)])
 def ingest_event(event: IngestEvent):
     """Ingest a single token usage event via HTTP.
 
@@ -166,7 +174,7 @@ def ingest_event(event: IngestEvent):
     return {"status": "accepted", "eventId": event_dict["eventId"]}
 
 
-@app.post("/ingest/batch", status_code=202)
+@app.post("/ingest/batch", status_code=202, dependencies=[Depends(require_api_key)])
 def ingest_batch(events: list[IngestEvent]):
     """Ingest multiple events in one HTTP call (max 1000 per batch).
 
@@ -196,7 +204,7 @@ def ingest_batch(events: list[IngestEvent]):
     return {"status": "accepted", "count": len(events), "event_ids": event_ids}
 
 
-@app.get("/usage/global", response_model=GlobalUsage)
+@app.get("/usage/global", response_model=GlobalUsage, dependencies=[Depends(require_api_key)])
 def get_global_usage():
     """Global aggregated usage across all customers."""
     r = get_redis()
@@ -210,7 +218,7 @@ def get_global_usage():
     )
 
 
-@app.get("/usage/customer/{customer_id}", response_model=CustomerUsage)
+@app.get("/usage/customer/{customer_id}", response_model=CustomerUsage, dependencies=[Depends(require_api_key)])
 def get_customer_usage(customer_id: str):
     """Usage for a specific customer."""
     r = get_redis()
@@ -230,7 +238,7 @@ def get_customer_usage(customer_id: str):
     )
 
 
-@app.get("/usage/customer/{customer_id}/model/{model_id}", response_model=ModelUsage)
+@app.get("/usage/customer/{customer_id}/model/{model_id}", response_model=ModelUsage, dependencies=[Depends(require_api_key)])
 def get_customer_model_usage(customer_id: str, model_id: str):
     """Per-model usage breakdown for a customer."""
     r = get_redis()
@@ -247,7 +255,7 @@ def get_customer_model_usage(customer_id: str, model_id: str):
     )
 
 
-@app.get("/budget/{customer_id}", response_model=CustomerBudget)
+@app.get("/budget/{customer_id}", response_model=CustomerBudget, dependencies=[Depends(require_api_key)])
 def get_customer_budget(customer_id: str):
     """Get customer's current budget status."""
     r = get_redis()
@@ -265,7 +273,7 @@ def get_customer_budget(customer_id: str):
     )
 
 
-@app.post("/budget/{customer_id}", response_model=CustomerBudget)
+@app.post("/budget/{customer_id}", response_model=CustomerBudget, dependencies=[Depends(require_admin_key)])
 def set_customer_budget(customer_id: str, req: BudgetSetRequest):
     """Set or reset a customer's prepaid budget."""
     r = get_redis()
@@ -279,7 +287,7 @@ def set_customer_budget(customer_id: str, req: BudgetSetRequest):
     return get_customer_budget(customer_id)
 
 
-@app.get("/budget/{customer_id}/check")
+@app.get("/budget/{customer_id}/check", dependencies=[Depends(require_api_key)])
 def check_budget(customer_id: str, estimated_cost_usd: float = 0.0):
     """Pre-request guardrail gate. Call BEFORE sending an LLM request.
 
@@ -366,7 +374,7 @@ def check_budget(customer_id: str, estimated_cost_usd: float = 0.0):
         # Default: fail-open (allow). Configurable per customer in Redis
         # (budget:{id}:fail_policy = "open" | "closed") — but Redis is down,
         # so we use the global default.
-        fail_policy = os.getenv("BUDGET_FAIL_POLICY", "open")
+        fail_policy = os.getenv("BUDGET_FAIL_POLICY", "closed")
         if fail_policy == "closed":
             return {"allowed": False, "balance_usd": None,
                     "reason": "redis_unavailable_fail_closed", "source": "policy"}
@@ -374,7 +382,7 @@ def check_budget(customer_id: str, estimated_cost_usd: float = 0.0):
                 "reason": "redis_unavailable_fail_open", "source": "policy"}
 
 
-@app.post("/budget/{customer_id}/topup")
+@app.post("/budget/{customer_id}/topup", dependencies=[Depends(require_admin_key)])
 def topup_customer_budget(customer_id: str, amount_usd: float):
     """Add credits to a customer's balance."""
     if amount_usd <= 0:
@@ -397,7 +405,7 @@ class SpanUsage(BaseModel):
     duration_ms: int
 
 
-@app.get("/usage/span/{span_id}", response_model=SpanUsage)
+@app.get("/usage/span/{span_id}", response_model=SpanUsage, dependencies=[Depends(require_api_key)])
 def get_span_usage(span_id: str):
     """Get aggregated cost and usage for an agent span (group of related LLM calls)."""
     r = get_redis()
@@ -415,7 +423,7 @@ def get_span_usage(span_id: str):
     )
 
 
-@app.get("/usage/customer/{customer_id}/spans")
+@app.get("/usage/customer/{customer_id}/spans", dependencies=[Depends(require_api_key)])
 def get_customer_top_spans(customer_id: str, limit: int = 10):
     """Top N most expensive agent spans for a customer (sorted by cost)."""
     r = get_redis()
@@ -435,7 +443,7 @@ class ReRateRequest(BaseModel):
     end_timestamp: Optional[int] = None
 
 
-@app.post("/rerate/preview")
+@app.post("/rerate/preview", dependencies=[Depends(require_admin_key)])
 def preview_rerate(req: ReRateRequest):
     """Preview retroactive re-rating adjustment without applying.
 
@@ -479,7 +487,7 @@ def preview_rerate(req: ReRateRequest):
     }
 
 
-@app.post("/rerate/apply", status_code=202)
+@app.post("/rerate/apply", status_code=202, dependencies=[Depends(require_admin_key)])
 def apply_rerate(req: ReRateRequest):
     """Apply retroactive re-rating: adjust cost_usd for all affected customers.
     NOTE: For large customer bases (>10K), this runs synchronously but should
@@ -534,7 +542,7 @@ def apply_rerate(req: ReRateRequest):
     }
 
 
-@app.post("/budget/{customer_id}/reserve")
+@app.post("/budget/{customer_id}/reserve", dependencies=[Depends(require_admin_key)])
 def reserve_budget(customer_id: str, estimated_cost_usd: float):
     """Pessimistic pre-deduction for streaming responses.
 
@@ -567,7 +575,7 @@ def reserve_budget(customer_id: str, estimated_cost_usd: float):
     }
 
 
-@app.post("/budget/{customer_id}/reconcile")
+@app.post("/budget/{customer_id}/reconcile", dependencies=[Depends(require_admin_key)])
 def reconcile_budget(customer_id: str, reserved_usd: float, actual_usd: float):
     """Reconcile a pre-deduction after streaming response completes.
 

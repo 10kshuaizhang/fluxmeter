@@ -6,6 +6,43 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.0.0-rc3] — 2026-06-21
+
+### Fixed
+- **WAL partial batch duplicate**: flush sends one event at a time; offset advances only after Kafka ack
+- **WAL exit data loss**: `flush()` drains WAL synchronously before close
+- **Redis password in prod**: `REDIS_PASSWORD` wired to API (`ConnectionPool`) and all Java sinks via `RedisConnections`
+- **Checkpoint disabled in submit-job**: Flink containers chown checkpoint volume; removed `CHECKPOINT_DIR=` override from Makefile
+- **Integration test flakiness**: budget accuracy uses 180s poll + multi-model watermarks; idempotency reordered before heavy load with keepalive watermarks; `push_watermarks` aligned to 10s Flink window (12s interval)
+
+### Notes
+- **Prod overlay E2E**: 20/20 passed (5 prod auth + 15 integration) on `docker-compose.prod.yml` stack
+
+---
+
+## [1.0.0-rc2] — 2026-06-21
+
+### Fixed
+- **Fractional model pricing**: `calculateEventCostMicro` uses `Math.round(tokens * pricePerM)` — sub-$1/M models no longer bill as $0
+- **Model ID normalization**: versioned IDs (e.g. `gpt-4o-2024-08-06`) map to canonical pricing keys via prefix match
+- **Streaming heartbeat double-billing**: Flink filters `_heartbeat` metadata; SDK heartbeats emit delta tokens only
+- **WAL duplicate Kafka sends**: WAL-enabled clients send only via flush loop with byte-offset tracking
+- **BudgetEnforcerSink crash window**: single Lua script atomically sets idempotency key, writes counters, and deducts budget
+- **OptimizedRedisSink global counters**: global totals accumulated only for windows that pass idempotency check
+- **Event-level dedup**: `UsageAggregate` tracks `seenEventIds` per window (bounded by window event count)
+
+### Added
+- **API authentication**: `X-API-Key` header via `FLUXMETER_API_KEY` / `FLUXMETER_ADMIN_KEY`; demo mode via `FLUXMETER_AUTH_OPTIONAL=true`
+- **`docker-compose.prod.yml`**: Redis password, API key enforcement, Grafana anonymous disabled, fail-closed budget policy
+
+### Changed
+- **Default `BUDGET_FAIL_POLICY`**: `closed` in API (docker-compose demo sets `open` explicitly)
+
+### Notes
+- Addresses 15 findings from Bugbot + Security Review (2026-06-21)
+
+---
+
 ## [1.0.0-rc1] — 2026-06-20
 
 ### Fixed (10 production issues)

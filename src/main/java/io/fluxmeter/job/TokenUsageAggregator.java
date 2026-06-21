@@ -74,12 +74,11 @@ public class TokenUsageAggregator {
                 .withTimestampAssigner((event, ts) -> event.getTimestamp())
                 .withIdleness(Duration.ofSeconds(30));
 
-        // Null/invalid filter only. Dedup handled at sink level (Redis SET NX).
-        // Flink-level dedup removed: keying by eventId creates unbounded state
-        // (1 key per event × TTL window = OOM at production throughput).
+        // Null/invalid filter + exclude streaming heartbeats (observability only, not billable).
         DataStream<TokenEvent> events = env
                 .fromSource(source, watermarkStrategy, "Kafka Token Events")
-                .filter(event -> event != null && event.getCustomerId() != null && event.getModelId() != null);
+                .filter(event -> event != null && event.getCustomerId() != null && event.getModelId() != null)
+                .filter(event -> !isHeartbeat(event));
 
         // Windowed aggregation. Late events (after watermark passes window end)
         // go to DLQ for reprocessing. No allowedLateness — avoids window re-fire
@@ -137,9 +136,18 @@ public class TokenUsageAggregator {
         env.execute("FluxMeter - Token Usage Aggregator");
     }
 
+    /** Streaming heartbeats carry cumulative tokens for dashboards; exclude from billing. */
+    static boolean isHeartbeat(TokenEvent event) {
+        if (event.getMetadata() == null) {
+            return false;
+        }
+        return "true".equals(event.getMetadata().get("_heartbeat"));
+    }
+
     /**
      * Incremental aggregation: pre-aggregates events as they arrive.
      * Only one UsageAggregate is kept in memory per key per window.
+     * Event-level dedup via seenEventIds in UsageAggregate (bounded per window).
      */
     public static class UsageAggregateFunction
             implements AggregateFunction<TokenEvent, UsageAggregate, UsageAggregate> {

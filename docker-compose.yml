@@ -54,7 +54,7 @@ services:
         state.savepoints.dir: file:///opt/flink/checkpoints
       CHECKPOINT_DIR: "file:///opt/flink/checkpoints"
     volumes:
-      - flink-checkpoints:/opt/flink/checkpoints
+      - ./flink-checkpoints:/opt/flink/checkpoints
     deploy:
       resources:
         limits:
@@ -74,7 +74,7 @@ services:
         state.backend: hashmap
         state.checkpoints.dir: file:///opt/flink/checkpoints
     volumes:
-      - flink-checkpoints:/opt/flink/checkpoints
+      - ./flink-checkpoints:/opt/flink/checkpoints
     deploy:
       resources:
         limits:
@@ -94,7 +94,7 @@ services:
         state.backend: hashmap
         state.checkpoints.dir: file:///opt/flink/checkpoints
     volumes:
-      - flink-checkpoints:/opt/flink/checkpoints
+      - ./flink-checkpoints:/opt/flink/checkpoints
     deploy:
       resources:
         limits:
@@ -128,6 +128,8 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       KAFKA_BROKERS: kafka:9092
+      FLUXMETER_AUTH_OPTIONAL: "true"
+      BUDGET_FAIL_POLICY: "open"
     depends_on:
       - redis
       - kafka
@@ -158,4 +160,3 @@ services:
 
 volumes:
   redis-data:
-  flink-checkpoints:

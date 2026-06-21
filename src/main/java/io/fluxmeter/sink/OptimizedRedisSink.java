@@ -55,9 +55,7 @@ public class OptimizedRedisSink extends RichSinkFunction<UsageAggregate> {
 
     @Override
     public void open(Configuration parameters) {
-        JedisPoolConfig config = new JedisPoolConfig();
-        config.setMaxTotal(4);
-        pool = new JedisPool(config, host, port);
+        pool = RedisConnections.createPool(host, port, 4);
         buffer = new ArrayList<>(batchSize);
         resetBatchCounters();
     }
@@ -65,14 +63,6 @@ public class OptimizedRedisSink extends RichSinkFunction<UsageAggregate> {
     @Override
     public void invoke(UsageAggregate agg, Context context) {
         buffer.add(agg);
-
-        // Accumulate global counters locally (no Redis call yet)
-        batchTotalTokens += agg.getTotalTokens();
-        batchInputTokens += agg.getInputTokens();
-        batchOutputTokens += agg.getOutputTokens();
-        batchTotalEvents += agg.getEventCount();
-        batchTotalCost += agg.getCostUsd();
-        batchLastWindowEnd = Math.max(batchLastWindowEnd, agg.getWindowEnd());
 
         if (buffer.size() >= batchSize) {
             flush();
@@ -108,6 +98,13 @@ public class OptimizedRedisSink extends RichSinkFunction<UsageAggregate> {
                 UsageAggregate agg = buffer.get(i);
                 String customerKey = "customer:" + agg.getCustomerId();
                 String modelKey = customerKey + ":model:" + agg.getModelId();
+
+                batchTotalTokens += agg.getTotalTokens();
+                batchInputTokens += agg.getInputTokens();
+                batchOutputTokens += agg.getOutputTokens();
+                batchTotalEvents += agg.getEventCount();
+                batchTotalCost += agg.getCostUsd();
+                batchLastWindowEnd = Math.max(batchLastWindowEnd, agg.getWindowEnd());
 
                 // API-compatible keys (same schema as BudgetEnforcerSink)
                 pipe.incrBy(customerKey + ":input_tokens", agg.getInputTokens());

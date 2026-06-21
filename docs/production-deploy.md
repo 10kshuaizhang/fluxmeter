@@ -267,14 +267,25 @@ spec:
   type: ClusterIP
 ```
 
-### API authentication (add before production)
+### API authentication
 
-FluxMeter's API has no built-in auth. Add one of:
+Built-in auth via `X-API-Key` header (see `api/auth.py`):
 
-1. **API key header** — simplest, add middleware checking `X-API-Key`
-2. **OAuth2 / JWT** — use FastAPI's built-in OAuth2 support
-3. **Service mesh** — Istio/Linkerd handles auth at the network level
-4. **API gateway** — Kong, AWS API Gateway, or Cloudflare in front
+| Env var | Purpose |
+|---------|---------|
+| `FLUXMETER_API_KEY` | Read + ingest endpoints |
+| `FLUXMETER_ADMIN_KEY` | Budget mutations, rerate, topup, reserve |
+| `FLUXMETER_AUTH_OPTIONAL=true` | Demo only — skip auth when keys unset |
+
+Production deploy:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+# Requires .env: REDIS_PASSWORD (used by API + Flink sinks), FLUXMETER_API_KEY,
+# FLUXMETER_ADMIN_KEY, GRAFANA_ADMIN_PASSWORD, CLICKHOUSE_PASSWORD
+```
+
+For Kubernetes, inject the same env vars via secrets. Optional upgrades: OAuth2/JWT, API gateway, service mesh.
 
 ---
 

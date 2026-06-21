@@ -1,6 +1,9 @@
 package io.fluxmeter.model;
 
 import java.io.Serializable;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.List;
 
 /**
  * Aggregated token usage for a (customer, model) key within a time window.
@@ -29,6 +32,7 @@ public class UsageAggregate implements Serializable {
     private long eventCount;
     private long totalLatencyMs;   // Sum of per-request latencies (for avg calc)
     private long deduplicatedCount; // Events skipped due to duplicate eventId
+    private Set<String> seenEventIds; // Per-window dedup (bounded by window event count)
 
     public UsageAggregate() {}
 
@@ -40,6 +44,16 @@ public class UsageAggregate implements Serializable {
     }
 
     public void addEvent(TokenEvent event) {
+        if (event.getEventId() != null) {
+            if (seenEventIds == null) {
+                seenEventIds = new HashSet<>();
+            }
+            if (!seenEventIds.add(event.getEventId())) {
+                this.deduplicatedCount++;
+                return;
+            }
+        }
+
         this.inputTokens += event.getInputTokens();
         this.outputTokens += event.getOutputTokens();
         this.cacheReadTokens += event.getCacheReadTokens();
@@ -57,6 +71,15 @@ public class UsageAggregate implements Serializable {
     }
 
     public UsageAggregate merge(UsageAggregate other) {
+        if (other.seenEventIds != null) {
+            if (seenEventIds == null) {
+                seenEventIds = new HashSet<>(other.seenEventIds);
+            } else {
+                seenEventIds.addAll(other.seenEventIds);
+            }
+        }
+        this.deduplicatedCount += other.deduplicatedCount;
+
         this.inputTokens += other.inputTokens;
         this.outputTokens += other.outputTokens;
         this.cacheReadTokens += other.cacheReadTokens;
@@ -76,28 +99,51 @@ public class UsageAggregate implements Serializable {
      * Public for use by SpanAggregateFunction.
      */
     public static long calculateEventCostMicro(TokenEvent event) {
-        String model = event.getModelId();
+        String model = normalizeModelId(event.getModelId());
         long cost = 0;
 
-        // Formula: tokens * price_per_million / 1M = tokens * price / 1M
-        // In microdollars: tokens * price_micros_per_token
-        // price_micros_per_token = price_per_million_dollars * 1_000_000 / 1_000_000 = price_per_million
-        // So: cost_micros = tokens * price_per_million (since price is $/M and we want micros)
-        // Wait: $2.50/M tokens = 2.5 microdollars per token? No.
-        // $2.50/M = $0.0000025/token = 2.5 microdollars/token. Yes.
-        // cost_micros = tokens * (price_dollars_per_M * 1_000_000 / 1_000_000)
-        // Simpler: cost_micros = (long)(tokens * price_per_M)
-        // Because: tokens/1M * $price * 1M_micros/$ = tokens * price microdollars
-
-        cost += (long) event.getInputTokens() * (long) (getInputPrice(model) * 1.0);
-        cost += (long) event.getOutputTokens() * (long) (getOutputPrice(model) * 1.0);
-        cost += (long) event.getCacheReadTokens() * (long) (getCacheReadPrice(model) * 1.0);
-        cost += (long) event.getReasoningTokens() * (long) (getOutputPrice(model) * 1.0);
-        cost += (long) event.getCacheWriteTokens() * (long) (getInputPrice(model) * 1.0);
-        cost += (long) event.getEmbeddingTokens() * (long) (getEmbeddingPrice(model) * 1.0);
+        // price_per_M is $/million tokens; cost_micros = tokens * price_per_M
+        // e.g. 1000 tokens at $0.15/M → 1000 * 0.15 = 150 microdollars ($0.00015)
+        cost += Math.round(event.getInputTokens() * getInputPrice(model));
+        cost += Math.round(event.getOutputTokens() * getOutputPrice(model));
+        cost += Math.round(event.getCacheReadTokens() * getCacheReadPrice(model));
+        cost += Math.round(event.getReasoningTokens() * getOutputPrice(model));
+        cost += Math.round(event.getCacheWriteTokens() * getInputPrice(model));
+        cost += Math.round(event.getEmbeddingTokens() * getEmbeddingPrice(model));
 
         return cost;
     }
+
+    /** Map versioned provider model IDs (e.g. gpt-4o-2024-08-06) to canonical pricing keys. */
+    static String normalizeModelId(String model) {
+        if (model == null || model.isEmpty()) {
+            return "unknown";
+        }
+        if (KNOWN_MODELS.contains(model)) {
+            return model;
+        }
+        for (String known : KNOWN_MODELS_BY_PREFIX) {
+            if (model.startsWith(known)) {
+                return known;
+            }
+        }
+        return model;
+    }
+
+    private static final Set<String> KNOWN_MODELS = Set.of(
+            "gpt-4o", "gpt-4o-mini", "o1", "o3-mini",
+            "claude-opus-4", "claude-sonnet-4", "claude-haiku-4",
+            "gemini-1.5-pro", "gemini-1.5-flash",
+            "text-embedding-3-small", "text-embedding-3-large"
+    );
+
+    // Longest prefix first so "gpt-4o-mini" matches before "gpt-4o"
+    private static final List<String> KNOWN_MODELS_BY_PREFIX = List.of(
+            "gpt-4o-mini", "gpt-4o", "o3-mini", "o1",
+            "claude-opus-4", "claude-sonnet-4", "claude-haiku-4",
+            "gemini-1.5-pro", "gemini-1.5-flash",
+            "text-embedding-3-large", "text-embedding-3-small"
+    );
 
     /**
      * Cost in USD (double). Convenience wrapper for backward compatibility.
@@ -108,6 +154,7 @@ public class UsageAggregate implements Serializable {
     }
 
     private static double getInputPrice(String model) {
+        model = normalizeModelId(model);
         return switch (model) {
             case "gpt-4o" -> 2.50;
             case "gpt-4o-mini" -> 0.15;
@@ -123,6 +170,7 @@ public class UsageAggregate implements Serializable {
     }
 
     private static double getOutputPrice(String model) {
+        model = normalizeModelId(model);
         return switch (model) {
             case "gpt-4o" -> 10.00;
             case "gpt-4o-mini" -> 0.60;
@@ -143,6 +191,7 @@ public class UsageAggregate implements Serializable {
     }
 
     private static double getEmbeddingPrice(String model) {
+        model = normalizeModelId(model);
         return switch (model) {
             case "text-embedding-3-small" -> 0.02;
             case "text-embedding-3-large" -> 0.13;

@@ -7,7 +7,6 @@ import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
 
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.JedisPool;
-import redis.clients.jedis.JedisPoolConfig;
 import redis.clients.jedis.Pipeline;
 
 /**
@@ -38,9 +37,7 @@ public class SpanSink extends RichSinkFunction<SpanAggregate> {
 
     @Override
     public void open(Configuration parameters) {
-        JedisPoolConfig config = new JedisPoolConfig();
-        config.setMaxTotal(4);
-        pool = new JedisPool(config, host, port);
+        pool = RedisConnections.createPool(host, port, 4);
     }
 
     @Override

@@ -299,11 +299,10 @@ class FluxMeter:
         """Persist event to WAL, then send to Kafka. Zero data loss."""
         event_dict = event.to_dict()
 
-        # Step 1: Write to local WAL (survives Kafka outages)
         if self._wal:
             self._wal.append(event_dict)
+            return  # WAL flush thread is the sole Kafka sender (no duplicate replay)
 
-        # Step 2: Best-effort send to Kafka (WAL flush thread handles retries)
         try:
             value = json.dumps(event_dict, separators=(",", ":")).encode("utf-8")
             self._producer.produce(
@@ -315,43 +314,61 @@ class FluxMeter:
             self._events_sent += 1
             self._producer.poll(0)
         except (BufferError, Exception) as e:
-            # Kafka unavailable — event is safe in WAL, will be flushed later
             self._delivery_errors += 1
-            logger.debug("Kafka send failed (event safe in WAL): %s", e)
+            logger.debug("Kafka send failed: %s", e)
+
+    def _produce_event(self, evt: dict) -> bool:
+        """Send one event to Kafka and wait for broker ack. Returns False on failure."""
+        value = json.dumps(evt, separators=(",", ":")).encode("utf-8")
+        customer_id = evt.get("customerId", "unknown")
+        for _ in range(2):
+            try:
+                self._producer.produce(
+                    topic=self._topic,
+                    key=customer_id.encode("utf-8"),
+                    value=value,
+                    on_delivery=self._on_delivery,
+                )
+                self._producer.flush(timeout=10)
+                self._events_sent += 1
+                return True
+            except BufferError:
+                self._producer.flush(timeout=10)
+            except Exception as e:
+                self._delivery_errors += 1
+                logger.debug("Kafka send failed: %s", e)
+                return False
+        self._delivery_errors += 1
+        return False
+
+    def _flush_wal_once(self) -> bool:
+        """Send at most one pending WAL event across all files. Returns True if one was sent."""
+        if not self._wal:
+            return False
+        for f in self._wal.pending_files():
+            offset = self._wal.get_send_offset(f)
+            evt, new_offset = self._wal.read_next_event_from_offset(f, offset)
+            if evt is None:
+                if f != self._wal._current_file and self._wal.is_fully_sent(f):
+                    self._wal.mark_flushed(f, 0)
+                continue
+            if not self._produce_event(evt):
+                return False
+            self._wal.advance_send_offset(f, new_offset)
+            if f != self._wal._current_file and self._wal.is_fully_sent(f):
+                self._wal.mark_flushed(f, 1)
+            return True
+        return False
 
     def _wal_flush_loop(self) -> None:
-        """Background thread: flushes old WAL files to Kafka."""
+        """Background thread: sends pending WAL events to Kafka one at a time."""
         while True:
-            time.sleep(5)
+            time.sleep(1)
             if not self._wal:
                 break
             try:
-                files = self._wal.pending_files()
-                for f in files:
-                    # Skip the current active file (still being written to)
-                    if f == self._wal._current_file:
-                        continue
-                    events = self._wal.read_events(f)
-                    if not events:
-                        self._wal.mark_flushed(f, 0)
-                        continue
-                    # Send all events from this file
-                    for evt in events:
-                        value = json.dumps(evt, separators=(",", ":")).encode("utf-8")
-                        customer_id = evt.get("customerId", "unknown")
-                        try:
-                            self._producer.produce(
-                                topic=self._topic,
-                                key=customer_id.encode("utf-8"),
-                                value=value,
-                            )
-                        except BufferError:
-                            self._producer.flush(timeout=10)
-                            break  # Retry this file next cycle
-                    else:
-                        # All events sent successfully
-                        self._producer.flush(timeout=10)
-                        self._wal.mark_flushed(f, len(events))
+                while self._flush_wal_once():
+                    pass
             except Exception as e:
                 logger.debug("WAL flush error: %s", e)
 
@@ -361,7 +378,11 @@ class FluxMeter:
             logger.debug("FluxMeter delivery failed: %s", err)
 
     def flush(self, timeout: float = 10.0) -> None:
-        """Flush pending events. Called automatically on exit."""
+        """Flush pending events. Drains WAL before closing."""
+        if self._wal:
+            deadline = time.time() + timeout
+            while time.time() < deadline and self._flush_wal_once():
+                pass
         self._producer.flush(timeout=timeout)
         if self._wal:
             self._wal.close()

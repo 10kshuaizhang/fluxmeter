@@ -9,7 +9,7 @@ def _mock_meter():
     with patch("fluxmeter.client.Producer") as mock_producer_cls:
         mock_producer = MagicMock()
         mock_producer_cls.return_value = mock_producer
-        meter = FluxMeter(kafka_brokers="localhost:9094")
+        meter = FluxMeter(kafka_brokers="localhost:9094", wal_enabled=False)
         return meter, mock_producer
 
 
