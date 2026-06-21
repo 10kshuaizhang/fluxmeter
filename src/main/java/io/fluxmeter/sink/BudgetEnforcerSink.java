@@ -58,10 +58,15 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
             "redis.call('INCRBY', KEYS[14], ARGV[4])\n" +
             "redis.call('INCRBYFLOAT', KEYS[15], ARGV[5])\n" +
             "redis.call('SET', KEYS[19], ARGV[9])\n" +
+            "redis.call('INCRBYFLOAT', KEYS[22], ARGV[5])\n" +
             "local balance = tonumber(redis.call('GET', KEYS[16]))\n" +
             "if balance == nil then return {'NONE', '0', '0'} end\n" +
             "local cost = tonumber(ARGV[5])\n" +
             "local new_balance = balance - cost\n" +
+            "if new_balance < 0 then\n" +
+            "  redis.call('INCRBYFLOAT', KEYS[23], -new_balance)\n" +
+            "  new_balance = 0\n" +
+            "end\n" +
             "redis.call('SET', KEYS[16], tostring(new_balance))\n" +
             "local threshold_str = redis.call('GET', KEYS[17])\n" +
             "local threshold\n" +
@@ -115,7 +120,7 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
             @SuppressWarnings("unchecked")
             java.util.List<String> result = (java.util.List<String>) jedis.eval(
                     SINK_LUA_SCRIPT,
-                    21,
+                    23,
                     idempotencyKey,
                     customerKey + ":input_tokens",
                     customerKey + ":output_tokens",
@@ -137,6 +142,8 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
                     "global:last_window_end",
                     customerKey + ":cache_read_tokens",
                     customerKey + ":reasoning_tokens",
+                    budgetKey + ":total_deducted_usd",
+                    budgetKey + ":debt_usd",
                     String.valueOf(agg.getInputTokens()),
                     String.valueOf(agg.getOutputTokens()),
                     String.valueOf(agg.getTotalTokens()),

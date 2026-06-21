@@ -1,0 +1,6 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY api/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY api/webhook_worker.py api/auth.py .
+CMD ["python", "webhook_worker.py"]

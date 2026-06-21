@@ -7,17 +7,25 @@ import time
 from typing import Optional
 
 import redis
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from auth import require_admin_key, require_api_key
+from auth import (
+    create_customer_api_key,
+    require_admin_key,
+    require_api_key,
+    require_customer_access,
+    resolve_customer_from_key,
+    revoke_customer_api_key,
+)
+from budget_ops import get_effective_balance, reconcile_hold, reserve_hold
 from lite_aggregate import aggregate_event
 
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="1.1.0",
+    version="1.2.0",
 )
 
 LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"
@@ -52,9 +60,14 @@ def cache_get(customer_id: str) -> Optional[dict]:
     return None
 
 
-def cache_set(customer_id: str, balance: float, max_rpm: int = 0):
+def cache_set(customer_id: str, balance: float, max_rpm: int = 0, held: float = 0.0):
     """Update cache with fresh Redis data."""
-    _budget_cache[customer_id] = {"balance": balance, "max_rpm": max_rpm, "ts": time.time()}
+    _budget_cache[customer_id] = {
+        "balance": balance,
+        "held": held,
+        "max_rpm": max_rpm,
+        "ts": time.time(),
+    }
 
 
 # Kafka producer for HTTP ingest
@@ -104,9 +117,17 @@ class CustomerUsage(BaseModel):
 class CustomerBudget(BaseModel):
     customer_id: str
     balance_usd: float
+    held_usd: float = 0.0
+    effective_balance_usd: float = 0.0
+    debt_usd: float = 0.0
     total_spent_usd: float
     alert_threshold_usd: Optional[float] = None
     is_exhausted: bool
+
+
+class WebhookConfig(BaseModel):
+    webhook_url: str
+    webhook_secret: Optional[str] = None
 
 
 class BudgetSetRequest(BaseModel):
@@ -166,8 +187,12 @@ class IngestEvent(BaseModel):
     timestamp: Optional[int] = None
 
 
-@app.post("/ingest", status_code=202, dependencies=[Depends(require_api_key)])
-def ingest_event(event: IngestEvent):
+@app.post("/ingest", status_code=202)
+def ingest_event(
+    event: IngestEvent,
+    _: None = Depends(require_api_key),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Ingest a single token usage event via HTTP.
 
     Alternative to the Python SDK or direct Kafka producer.
@@ -176,6 +201,8 @@ def ingest_event(event: IngestEvent):
     The event is produced to Kafka and processed by Flink identically
     to events sent via the SDK.
     """
+    require_customer_access(event.customerId, x_api_key)
+
     import json, uuid
 
     event_dict = event.model_dump(exclude_none=True)
@@ -198,8 +225,12 @@ def ingest_event(event: IngestEvent):
     return {"status": "accepted", "eventId": event_dict["eventId"]}
 
 
-@app.post("/ingest/batch", status_code=202, dependencies=[Depends(require_api_key)])
-def ingest_batch(events: list[IngestEvent]):
+@app.post("/ingest/batch", status_code=202)
+def ingest_batch(
+    events: list[IngestEvent],
+    _: None = Depends(require_api_key),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Ingest multiple events in one HTTP call (max 1000 per batch).
 
     More efficient than calling /ingest repeatedly — single HTTP round-trip
@@ -209,6 +240,9 @@ def ingest_batch(events: list[IngestEvent]):
 
     if len(events) > 1000:
         raise HTTPException(status_code=400, detail="Max 1000 events per batch")
+
+    for event in events:
+        require_customer_access(event.customerId, x_api_key)
 
     event_ids = []
 
@@ -296,18 +330,28 @@ def get_customer_model_usage(customer_id: str, model_id: str):
     )
 
 
-@app.get("/budget/{customer_id}", response_model=CustomerBudget, dependencies=[Depends(require_api_key)])
-def get_customer_budget(customer_id: str):
+@app.get("/budget/{customer_id}", response_model=CustomerBudget)
+def get_customer_budget(
+    customer_id: str,
+    _: None = Depends(require_api_key),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Get customer's current budget status."""
+    require_customer_access(customer_id, x_api_key)
     r = get_redis()
     budget_key = f"budget:{customer_id}"
     balance = r.get(f"{budget_key}:balance_usd")
     if balance is None:
         raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
     balance_val = float(balance)
+    held_val = float(r.get(f"{budget_key}:held_usd") or 0)
+    debt_val = float(r.get(f"{budget_key}:debt_usd") or 0)
     return CustomerBudget(
         customer_id=customer_id,
         balance_usd=balance_val,
+        held_usd=held_val,
+        effective_balance_usd=balance_val - held_val,
+        debt_usd=debt_val,
         total_spent_usd=float(r.get(f"customer:{customer_id}:cost_usd") or 0),
         alert_threshold_usd=_float_or_none(r.get(f"{budget_key}:alert_threshold_usd")),
         is_exhausted=balance_val <= 0,
@@ -320,7 +364,11 @@ def set_customer_budget(customer_id: str, req: BudgetSetRequest):
     r = get_redis()
     budget_key = f"budget:{customer_id}"
     r.set(f"{budget_key}:balance_usd", str(req.balance_usd))
-    r.set(f"{budget_key}:initial_balance_usd", str(req.balance_usd))  # For threshold calculation
+    r.set(f"{budget_key}:initial_balance_usd", str(req.balance_usd))
+    r.set(f"{budget_key}:held_usd", "0")
+    r.set(f"{budget_key}:debt_usd", "0")
+    r.set(f"{budget_key}:total_deducted_usd", "0")
+    r.set(f"{budget_key}:total_topup_usd", "0")
     if req.alert_threshold_usd is not None:
         r.set(f"{budget_key}:alert_threshold_usd", str(req.alert_threshold_usd))
     if req.max_rpm is not None:
@@ -328,8 +376,13 @@ def set_customer_budget(customer_id: str, req: BudgetSetRequest):
     return get_customer_budget(customer_id)
 
 
-@app.get("/budget/{customer_id}/check", dependencies=[Depends(require_api_key)])
-def check_budget(customer_id: str, estimated_cost_usd: float = 0.0):
+@app.get("/budget/{customer_id}/check")
+def check_budget(
+    customer_id: str,
+    estimated_cost_usd: float = 0.0,
+    _: None = Depends(require_api_key),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Pre-request guardrail gate. Call BEFORE sending an LLM request.
 
     Three-layer resilience:
@@ -345,6 +398,8 @@ def check_budget(customer_id: str, estimated_cost_usd: float = 0.0):
     Returns:
         {"allowed": true/false, "balance_usd": ..., "reason": ..., "source": "redis|cache|policy"}
     """
+    require_customer_access(customer_id, x_api_key)
+
     # --- Try Layer 2: Redis (authoritative, 1-5ms) ---
     try:
         r = get_redis()
@@ -375,18 +430,32 @@ def check_budget(customer_id: str, estimated_cost_usd: float = 0.0):
             return {"allowed": True, "balance_usd": None, "reason": "no_budget_configured",
                     "requests_this_minute": requests_this_minute + 1, "source": "redis"}
 
-        balance_val = float(balance)
+        balance_val, held_val, effective = get_effective_balance(r, customer_id)
 
         # Update cache with fresh data
-        cache_set(customer_id, balance_val, max_rpm_val)
+        cache_set(customer_id, balance_val, max_rpm_val, held_val)
 
-        if balance_val <= 0:
-            return {"allowed": False, "balance_usd": balance_val, "reason": "budget_exhausted",
-                    "requests_this_minute": requests_this_minute, "source": "redis"}
+        if effective <= 0:
+            return {
+                "allowed": False,
+                "balance_usd": balance_val,
+                "held_usd": held_val,
+                "effective_balance_usd": effective,
+                "reason": "budget_exhausted",
+                "requests_this_minute": requests_this_minute,
+                "source": "redis",
+            }
 
-        if estimated_cost_usd > 0 and balance_val < estimated_cost_usd:
-            return {"allowed": False, "balance_usd": balance_val, "reason": "insufficient_balance",
-                    "requests_this_minute": requests_this_minute, "source": "redis"}
+        if estimated_cost_usd > 0 and effective < estimated_cost_usd:
+            return {
+                "allowed": False,
+                "balance_usd": balance_val,
+                "held_usd": held_val,
+                "effective_balance_usd": effective,
+                "reason": "insufficient_balance",
+                "requests_this_minute": requests_this_minute,
+                "source": "redis",
+            }
 
         # All passed — increment rate counter
         pipe = r.pipeline()
@@ -394,22 +463,49 @@ def check_budget(customer_id: str, estimated_cost_usd: float = 0.0):
         pipe.expire(rate_limit_key, 120)
         pipe.execute()
 
-        return {"allowed": True, "balance_usd": balance_val, "reason": "ok",
-                "requests_this_minute": requests_this_minute + 1, "source": "redis"}
+        return {
+            "allowed": True,
+            "balance_usd": balance_val,
+            "held_usd": held_val,
+            "effective_balance_usd": effective,
+            "reason": "ok",
+            "requests_this_minute": requests_this_minute + 1,
+            "source": "redis",
+        }
 
     except Exception:
         # --- Layer 1 fallback: In-process cache (0.01ms) ---
         cached = cache_get(customer_id)
         if cached:
             balance_val = cached["balance"]
-            if balance_val <= 0:
-                return {"allowed": False, "balance_usd": balance_val,
-                        "reason": "budget_exhausted", "source": "cache"}
-            if estimated_cost_usd > 0 and balance_val < estimated_cost_usd:
-                return {"allowed": False, "balance_usd": balance_val,
-                        "reason": "insufficient_balance", "source": "cache"}
-            return {"allowed": True, "balance_usd": balance_val,
-                    "reason": "ok", "source": "cache"}
+            held_val = cached.get("held", 0.0)
+            effective = balance_val - held_val
+            if effective <= 0:
+                return {
+                    "allowed": False,
+                    "balance_usd": balance_val,
+                    "held_usd": held_val,
+                    "effective_balance_usd": effective,
+                    "reason": "budget_exhausted",
+                    "source": "cache",
+                }
+            if estimated_cost_usd > 0 and effective < estimated_cost_usd:
+                return {
+                    "allowed": False,
+                    "balance_usd": balance_val,
+                    "held_usd": held_val,
+                    "effective_balance_usd": effective,
+                    "reason": "insufficient_balance",
+                    "source": "cache",
+                }
+            return {
+                "allowed": True,
+                "balance_usd": balance_val,
+                "held_usd": held_val,
+                "effective_balance_usd": effective,
+                "reason": "ok",
+                "source": "cache",
+            }
 
         # --- Cache expired or never populated: apply fail policy ---
         # Default: fail-open (allow). Configurable per customer in Redis
@@ -434,6 +530,7 @@ def topup_customer_budget(customer_id: str, amount_usd: float):
     if balance is None:
         raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
     new_balance = r.incrbyfloat(f"{budget_key}:balance_usd", amount_usd)
+    r.incrbyfloat(f"{budget_key}:total_topup_usd", amount_usd)
     return {"customer_id": customer_id, "new_balance_usd": new_balance, "added_usd": amount_usd}
 
 
@@ -585,60 +682,116 @@ def apply_rerate(req: ReRateRequest):
 
 @app.post("/budget/{customer_id}/reserve", dependencies=[Depends(require_admin_key)])
 def reserve_budget(customer_id: str, estimated_cost_usd: float):
-    """Pessimistic pre-deduction for streaming responses.
+    """Reserve budget hold for streaming (does not deduct balance — Sink deducts actual).
 
-    Deducts estimated_cost from balance BEFORE the LLM call starts.
-    After the call completes, call /budget/{id}/reconcile with actual cost
-    to credit back the difference.
-
-    Use when: streaming responses where you can't know final cost upfront.
-    Flow: reserve(estimate) → LLM call → track(actual) → reconcile(estimate, actual)
+    Flow: reserve(estimate) → LLM call → track(actual) → reconcile(estimate)
     """
     if estimated_cost_usd <= 0:
         raise HTTPException(status_code=400, detail="estimated_cost_usd must be positive")
     r = get_redis()
-    budget_key = f"budget:{customer_id}:balance_usd"
-    balance = r.get(budget_key)
-    if balance is None:
+    if not r.exists(f"budget:{customer_id}:balance_usd"):
         raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
-
-    balance_val = float(balance)
-    if balance_val < estimated_cost_usd:
-        return {"allowed": False, "balance_usd": balance_val, "reason": "insufficient_balance"}
-
-    # Pessimistic deduction
-    new_balance = r.incrbyfloat(budget_key, -estimated_cost_usd)
-    return {
-        "allowed": True,
-        "balance_usd": new_balance,
-        "reserved_usd": estimated_cost_usd,
-        "reason": "reserved",
-    }
+    return reserve_hold(r, customer_id, estimated_cost_usd)
 
 
 @app.post("/budget/{customer_id}/reconcile", dependencies=[Depends(require_admin_key)])
-def reconcile_budget(customer_id: str, reserved_usd: float, actual_usd: float):
-    """Reconcile a pre-deduction after streaming response completes.
-
-    Credits back the difference between reserved and actual cost.
-    If actual > reserved (underestimated), deducts the extra.
-    """
+def reconcile_budget(customer_id: str, reserved_usd: float, actual_usd: float = 0.0):
+    """Release hold after streaming. Balance unchanged (Flink Sink deducted actual)."""
     r = get_redis()
-    budget_key = f"budget:{customer_id}:balance_usd"
-    balance = r.get(budget_key)
-    if balance is None:
+    if not r.exists(f"budget:{customer_id}:balance_usd"):
         raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
+    result = reconcile_hold(r, customer_id, reserved_usd)
+    result["actual_usd"] = actual_usd
+    return result
 
-    # Credit back: reserved - actual (positive if overestimated)
-    credit_back = reserved_usd - actual_usd
-    new_balance = r.incrbyfloat(budget_key, credit_back)
-    return {
-        "customer_id": customer_id,
-        "balance_usd": new_balance,
-        "reserved_usd": reserved_usd,
-        "actual_usd": actual_usd,
-        "credit_back_usd": credit_back,
-    }
+
+@app.post("/budget/{customer_id}/webhook", dependencies=[Depends(require_admin_key)])
+def set_budget_webhook(customer_id: str, config: WebhookConfig):
+    """Configure HTTPS webhook for BUDGET_LOW / BUDGET_EXHAUSTED alerts."""
+    r = get_redis()
+    budget_key = f"budget:{customer_id}"
+    if not r.exists(f"{budget_key}:balance_usd"):
+        raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
+    r.set(f"{budget_key}:webhook_url", config.webhook_url)
+    if config.webhook_secret:
+        r.set(f"{budget_key}:webhook_secret", config.webhook_secret)
+    return {"customer_id": customer_id, "webhook_url": config.webhook_url}
+
+
+@app.get("/budget/{customer_id}/webhook", dependencies=[Depends(require_admin_key)])
+def get_budget_webhook(customer_id: str):
+    r = get_redis()
+    url = r.get(f"budget:{customer_id}:webhook_url")
+    if not url:
+        raise HTTPException(status_code=404, detail="Webhook not configured")
+    return {"customer_id": customer_id, "webhook_url": url}
+
+
+@app.post("/admin/customers/{customer_id}/api-keys", dependencies=[Depends(require_admin_key)])
+def create_api_key(customer_id: str):
+    """Create a customer-scoped API key (ingest/check for this customer only)."""
+    return create_customer_api_key(customer_id)
+
+
+@app.delete("/admin/api-keys/{key_id}", dependencies=[Depends(require_admin_key)])
+def delete_api_key(key_id: str):
+    if not revoke_customer_api_key(key_id):
+        raise HTTPException(status_code=404, detail="API key not found")
+    return {"key_id": key_id, "revoked": True}
+
+
+PRICING_FILE = os.getenv(
+    "PRICING_FILE",
+    os.path.join(os.path.dirname(__file__), "..", "config", "pricing.json"),
+)
+
+
+@app.get("/pricing", dependencies=[Depends(require_api_key)])
+def get_pricing():
+    """Current pricing catalog (Redis snapshot or file)."""
+    import json
+
+    r = get_redis()
+    snap = r.get("pricing:current")
+    if snap:
+        return json.loads(snap)
+    try:
+        with open(PRICING_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except OSError:
+        raise HTTPException(status_code=404, detail="Pricing file not found")
+
+
+@app.put("/admin/pricing", dependencies=[Depends(require_admin_key)])
+def update_pricing(body: dict):
+    """Hot-update pricing in Redis (Flink polls via PRICING_FILE or restart)."""
+    import json
+
+    r = get_redis()
+    r.set("pricing:current", json.dumps(body))
+    return {"status": "updated", "version": body.get("version", "unknown")}
+
+
+@app.post("/admin/pricing/validate", dependencies=[Depends(require_admin_key)])
+def validate_pricing(body: dict):
+    """Validate pricing JSON structure."""
+    required = ("models", "defaults")
+    for field in required:
+        if field not in body:
+            raise HTTPException(status_code=400, detail=f"Missing field: {field}")
+    return {"status": "valid", "models": len(body.get("models", {}))}
+
+
+@app.get("/admin/reconciliation", dependencies=[Depends(require_admin_key)])
+def get_reconciliation_snapshot():
+    """Last reconciliation job results stored in Redis."""
+    import json
+
+    r = get_redis()
+    snap = r.get("reconciliation:last")
+    if not snap:
+        return {"status": "no_data"}
+    return json.loads(snap)
 
 
 def _int_or_none(val) -> Optional[int]:

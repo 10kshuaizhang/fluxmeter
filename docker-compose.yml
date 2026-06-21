@@ -140,7 +140,7 @@ services:
         limits:
           memory: 256M
 
-  grafana:
+    grafana:
     image: grafana/grafana:10.3.1
     container_name: fluxmeter-grafana
     ports:
@@ -159,6 +159,40 @@ services:
       resources:
         limits:
           memory: 512M
+
+  webhook-worker:
+    build:
+      context: .
+      dockerfile: api/Dockerfile.webhook
+    container_name: fluxmeter-webhook-worker
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      KAFKA_BROKERS: kafka:9092
+      ALERT_TOPIC: budget-alerts
+    depends_on:
+      - redis
+      - kafka
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  reconcile-job:
+    build:
+      context: .
+      dockerfile: jobs/Dockerfile
+    container_name: fluxmeter-reconcile
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      RECONCILE_INTERVAL_SEC: "300"
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 128M
 
 volumes:
   redis-data:

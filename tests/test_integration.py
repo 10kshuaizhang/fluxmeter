@@ -293,11 +293,10 @@ class TestRateLimit:
 
 class TestReserveReconcile:
     def test_reserve_then_reconcile(self):
-        """Reserve $5, actual $2 → balance = original - 2."""
+        """Reserve increases held_usd only; balance deducted by Sink on ingest."""
         cust = f"test_reserve_{uuid.uuid4().hex[:8]}"
         set_budget(cust, balance=50.0)
 
-        # Reserve
         resp = httpx.post(
             f"{API}/budget/{cust}/reserve",
             params={"estimated_cost_usd": 5.0},
@@ -307,9 +306,9 @@ class TestReserveReconcile:
         assert resp.status_code == 200
         data = resp.json()
         assert data["allowed"] is True
-        assert abs(data["balance_usd"] - 45.0) < 0.001
+        assert abs(data["balance_usd"] - 50.0) < 0.001
+        assert abs(data["held_usd"] - 5.0) < 0.001
 
-        # Reconcile (actual was $2, credit back $3)
         resp = httpx.post(
             f"{API}/budget/{cust}/reconcile",
             params={"reserved_usd": 5.0, "actual_usd": 2.0},
@@ -318,8 +317,9 @@ class TestReserveReconcile:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert abs(data["balance_usd"] - 48.0) < 0.001
-        assert abs(data["credit_back_usd"] - 3.0) < 0.001
+        assert abs(data["balance_usd"] - 50.0) < 0.001
+        assert abs(data["held_usd"] - 0.0) < 0.001
+        assert abs(data["released_usd"] - 5.0) < 0.001
 
     def test_reserve_denied_insufficient_balance(self):
         """Reserve more than balance → denied."""
