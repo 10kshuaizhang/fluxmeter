@@ -2,7 +2,7 @@
 
 Open source real-time metering and budget enforcement for AI token billing.
 
-**v2.0.1** | **Open spec + SDKs** | **50K+ eps (local)** | **<10ms budget check** | **Multi-provider**
+**v2.0.1** | **Open spec + SDKs** | **1M+ events/sec** | **<10ms budget check** | **Multi-provider**
 
 ![FluxMeter Demo](demo.gif)
 

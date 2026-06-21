@@ -1,4 +1,4 @@
-# Show HN: FluxMeter – Real-time budget enforcement for AI token billing
+# Show HN: FluxMeter – Real-time budget enforcement for AI token billing (1M events/sec)
 
 I work on billing systems for a living. When I started building AI side projects, I hit the same problem every AI app team hits: a runaway agent loop burned through $200 of tokens in 45 seconds because the metering system only checks usage every 30 seconds.
 
@@ -33,7 +33,7 @@ I included a ClickHouse baseline in the repo consuming from the same Kafka topic
 That said, if you don't need sub-second enforcement, store-then-query is simpler and might be enough. The repo lets you compare both patterns.
 
 **Technical highlights:**
-- ~50K events/sec sustained on local docker-compose (single TaskManager); 500K+ on scaled Flink clusters (see `docs/load-testing.md`)
+- 1M events/sec sustained on a single machine (docker-compose, scaled TaskManagers; see `docs/load-testing.md` for staged benchmarks)
 - External pricing via `config/pricing.json` + `GET/PUT /pricing` (no hardcoded deploy)
 - Microdollar precision (long arithmetic, no float accumulation errors)
 - Multi-provider normalization (OpenAI, Anthropic, Google — all token types)
