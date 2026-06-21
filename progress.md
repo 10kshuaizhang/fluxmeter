@@ -2,8 +2,8 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history.
 
-**Current version:** 1.1.0
-**Current phase:** v1.1 — OpenCore ecosystem split + JS SDK
+**Current version:** 2.0.0
+**Current phase:** v2.0 — Production hardening (billing, pricing, ops)
 **Design status:** APPROVED (2026-06-16)
 
 ---
@@ -25,6 +25,10 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Week 4h | Performance optimization (OptimizedRedisSink, batching, hash consolidation) | Done |
 | Week 4i | Integration tests (15 scenarios, 15 passed) | Done |
 | Next | PyPI + npm publish, open source launch, marketing | Partial — Python **1.0.0 on PyPI**; JS SDK in repo |
+| v1.2 | Single-path billing, customer API keys, webhooks | Done |
+| v1.3 | External pricing catalog + API | Done |
+| v1.4 | Reconciliation job + DLQ replay | Done |
+| v2.0 | Helm + tiered pricing + monitoring rules | Done |
 
 ---
 
@@ -117,6 +121,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-06-21** — **v2.0.0**: Helm chart, tiered pricing, Prometheus alerts. v1.4 reconciliation + DLQ replay. v1.3 pricing catalog. v1.2 single-path billing, customer keys, webhooks.
 - **2026-06-21** — **OpenCore split**: `spec/`, `contrib/`, JS SDK, lite demo (`make demo-lite`), `api/lite_aggregate.py`. Version 1.1.0.
 - **2026-06-21** — **PyPI**: `fluxmeter==1.0.0` published — https://pypi.org/project/fluxmeter/
 - **2026-06-21** — Code review fixes #1–#4: WAL per-event ack + flush drain, Redis password wiring, Flink checkpoint volume permissions. Version 1.0.0-rc3.

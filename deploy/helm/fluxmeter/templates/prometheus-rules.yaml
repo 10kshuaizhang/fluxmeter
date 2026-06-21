@@ -1,0 +1,33 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ .Release.Name }}-alerts
+  labels:
+    app: fluxmeter
+spec:
+  groups:
+    - name: fluxmeter
+      rules:
+        - alert: FluxMeterConsumerLagHigh
+          expr: kafka_consumergroup_lag{topic="token-events"} > {{ .Values.alerts.consumerLagThreshold }}
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "FluxMeter Kafka consumer lag high"
+        - alert: FluxMeterWindowStalled
+          expr: (time() * 1000) - fluxmeter_last_window_end_ms > {{ .Values.alerts.windowStallSeconds }} * 1000
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "FluxMeter global:last_window_end not advancing"
+        - alert: FluxMeterReconciliationDrift
+          expr: fluxmeter_reconciliation_drift_count > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "FluxMeter balance reconciliation drift detected"
+{{- end }}

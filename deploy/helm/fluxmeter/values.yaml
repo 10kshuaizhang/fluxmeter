@@ -1,0 +1,30 @@
+image:
+  api:
+    repository: fluxmeter/api
+    tag: "2.0.0"
+  webhookWorker:
+    repository: fluxmeter/webhook-worker
+    tag: "2.0.0"
+
+api:
+  replicas: 2
+  port: 8000
+  env:
+    FLUXMETER_AUTH_OPTIONAL: "false"
+    BUDGET_FAIL_POLICY: "closed"
+
+redis:
+  host: redis
+  port: 6379
+
+kafka:
+  brokers: kafka:9092
+
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+
+alerts:
+  consumerLagThreshold: 300000
+  windowStallSeconds: 30

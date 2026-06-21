@@ -6,6 +6,59 @@ Format: `[version] — date — summary`
 
 ---
 
+## [2.0.0] — 2026-06-21
+
+### Added
+- **Helm chart**: `deploy/helm/fluxmeter` — API deployment, Service, PrometheusRule alerts (lag, window stall, reconciliation drift)
+- **Tiered pricing**: `PricingCatalog` supports per-model volume tiers; Flink keyed monthly token state for tier selection
+- **Deploy docs**: `deploy/helm/README.md`
+
+### Notes
+- Java engine **2.0.0**; production assumes external Kafka/Redis + Flink Operator
+
+---
+
+## [1.4.0] — 2026-06-21
+
+### Added
+- **Balance reconciliation job**: `jobs/reconcile_balances.py` — `balance == initial + topups - total_deducted`; stores snapshot in `reconciliation:last`
+- **DLQ replay**: `scripts/dlq_replay.py`, `scripts/replay-dlq.sh`
+- **Runbook**: `docs/runbooks/dlq-replay.md`
+- **API**: `GET /admin/reconciliation`
+- **docker-compose**: `reconcile-job` service
+
+---
+
+## [1.3.0] — 2026-06-21
+
+### Added
+- **External pricing**: `io.fluxmeter.pricing.PricingCatalog` loaded from `config/pricing.json` or classpath
+- **Pricing API**: `GET /pricing`, `PUT /admin/pricing`, `POST /admin/pricing/validate`
+- **`UsageAggregate` decoupled** from hardcoded switch pricing
+
+### Changed
+- Flink `UsageAggregateFunction` tracks monthly tokens for tier-aware pricing
+
+---
+
+## [1.2.0] — 2026-06-21
+
+### Added
+- **Single-path balance deduction**: `reserve`/`reconcile` use `held_usd` only; Flink Sink sole `balance_usd` mutator
+- **Debt tracking**: excess cost recorded in `budget:{id}:debt_usd` when balance floors at zero
+- **Customer API keys**: `POST /admin/customers/{id}/api-keys`, per-customer ingest/check authorization
+- **Budget webhooks**: `POST /budget/{id}/webhook` + `webhook-worker` Kafka consumer → HTTPS with HMAC
+- **Budget fields**: `held_usd`, `effective_balance_usd`, `debt_usd` on budget responses
+
+### Fixed
+- **Streaming double-charge**: reserve no longer deducts balance before Sink window deduction
+- **Reconcile negative balance**: reconcile releases hold only; no balance credit/debit
+
+### Changed
+- `check` uses `effective_balance = balance - held`
+
+---
+
 ## [1.1.0] — 2026-06-21
 
 ### Added
