@@ -179,14 +179,14 @@ No single-component failure loses billing data:
 
 ## Performance
 
-Load tested on MacBook Pro M-series (docker-compose, 4GB TaskManagers):
+Load tested with `make load-test` (see [docs/load-testing.md](docs/load-testing.md)):
 
-| Rate | Status |
-|------|--------|
-| 10K eps | Stable indefinitely |
-| 100K eps | Stable indefinitely |
-| 500K eps | Stable indefinitely |
-| 1M eps | Stable indefinitely |
+| Environment | 10K eps | 50K eps | 500K+ target |
+|-------------|---------|---------|--------------|
+| **Local docker-compose** (1 TM, 4 slots) | ~9K avg / ~18K peak | ~49K avg / ~92K peak | ~40–45K avg (Redis/Flink bound) |
+| **Reference cluster** (2 TM, 8 slots, prior runs) | Stable | Stable | 500K indefinite; 1M bursts |
+
+For sustained 500K+ eps, scale TaskManagers and use managed Kafka/Redis — [docs/production-deploy.md](docs/production-deploy.md).
 
 ## Integrations
 
@@ -209,7 +209,11 @@ make demo        # Full: build + start + submit job + generate
 make start-lite  # Start lite stack only
 make start       # Start full infrastructure
 make submit-job  # Submit Flink job
-make generate    # Run load generator
+make generate    # Run load generator (1M target, continuous)
+make load-test   # Staged load test 10K→1M
+make load-test-quick  # Staged 10K→500K
+make test-e2e    # Integration + v2 E2E tests
+make test-unit   # Auth unit tests (no stack)
 make benchmark   # Streaming vs batch comparison
 make validate-spec # Validate schema + OpenAPI artifacts
 make stop        # Stop containers
@@ -218,9 +222,10 @@ make clean       # Stop + remove volumes + clean
 
 ## What's next
 
-- [ ] Tiered pricing and volume discounts
-- [ ] Webhook delivery for budget alerts
-- [ ] Multi-tenant auth for the API
+- [ ] Tiered pricing volume tracking in Flink (tier schema exists; engine uses first tier)
+- [x] Webhook delivery for budget alerts (`webhook-worker` + `POST /budget/{id}/webhook`)
+- [x] Customer-scoped API keys (`POST /admin/customers/{id}/api-keys`)
+- [ ] Full multi-tenant RBAC / org model
 - [ ] Streaming proxy (mid-response kill for extreme budget enforcement)
 
 ## Requirements

@@ -5,11 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Run
 
 ```bash
-./gradlew shadowJar          # Build fat JAR (output: build/libs/fluxmeter-0.1.0.jar)
+./gradlew shadowJar          # Build fat JAR (output: build/libs/fluxmeter-<version>.jar)
 make demo                    # One-command: build + start infra + submit Flink job + run load generator
 make start                   # Start infrastructure only (Kafka, Flink, Redis, Grafana)
 make submit-job              # Submit the Flink job to the running cluster
 make generate                # Run the load generator locally (needs Java 17)
+make load-test               # Staged load test (10K→1M eps)
+make test-e2e                # Integration + v2 E2E tests
 make stop                    # Stop all containers
 make clean                   # Stop containers + clean build artifacts
 ```

@@ -6,11 +6,33 @@ Format: `[version] — date — summary`
 
 ---
 
+## [2.0.1] — 2026-06-21
+
+### Added
+- **E2E test suite**: `tests/test_e2e_v2.py` — v1.2–v2.0 scenarios (single-path billing, API keys, debt floor, pricing API, reconciliation, webhooks)
+- **Unit tests**: `tests/test_auth_unit.py` — customer key tenant isolation
+- **Load test script**: `scripts/load-test.sh`, `make load-test` / `make load-test-quick`
+- **Docs**: `docs/load-testing.md`, `tests/TEST_PLAN.md` §11–16
+
+### Fixed
+- **Flink job submission**: `RichAggregateFunction` incompatible with `window.aggregate()` on Flink 1.18 — reverted to plain `AggregateFunction` (job runs again)
+- **Customer API key isolation**: mismatched customer key always returns 403 (not bypassed in demo mode)
+- **docker-compose.yml**: Grafana service YAML nesting error
+
+### Changed
+- **Tiered pricing**: `PricingCatalog` tier schema remains; engine applies **first tier** until monthly volume tracking lands (no `RichAggregateFunction` state)
+
+### Notes
+- Load test (local docker-compose): ~50K eps sustained; 500K+ target limited by single TaskManager + Redis on dev hardware
+- Java engine **2.0.1**
+
+---
+
 ## [2.0.0] — 2026-06-21
 
 ### Added
 - **Helm chart**: `deploy/helm/fluxmeter` — API deployment, Service, PrometheusRule alerts (lag, window stall, reconciliation drift)
-- **Tiered pricing**: `PricingCatalog` supports per-model volume tiers; Flink keyed monthly token state for tier selection
+- **Tiered pricing schema**: `PricingCatalog` supports per-model volume tiers in JSON/YAML
 - **Deploy docs**: `deploy/helm/README.md`
 
 ### Notes
@@ -37,7 +59,7 @@ Format: `[version] — date — summary`
 - **`UsageAggregate` decoupled** from hardcoded switch pricing
 
 ### Changed
-- Flink `UsageAggregateFunction` tracks monthly tokens for tier-aware pricing
+- Flink `UsageAggregateFunction` uses `PricingCatalog` (flat rate per event; tier selection deferred to 2.0.1+)
 
 ---
 

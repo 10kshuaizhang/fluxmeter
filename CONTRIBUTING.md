@@ -26,12 +26,22 @@ cd sdk/python && pip install -e ".[dev]"  # Install SDK in dev mode
 # Unit tests (Python SDK)
 cd sdk/python && pytest tests/ -v
 
-# Integration tests (requires running stack)
+# API auth unit tests (no stack)
+make test-unit
+
+# Integration + v2 E2E (requires running stack)
 make start
 sleep 15
 make submit-job
-pytest tests/test_integration.py -v
+make test-e2e
+# Or: pytest tests/test_integration.py tests/test_e2e_v2.py -v --timeout=300
 make stop
+```
+
+**Load test:**
+```bash
+make load-test-quick   # 10K→500K staged bursts
+# See docs/load-testing.md
 ```
 
 ## Making Changes
