@@ -9,9 +9,6 @@ import io.fluxmeter.sink.SpanSink;
 
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.AggregateFunction;
-import org.apache.flink.api.common.functions.RichAggregateFunction;
-import org.apache.flink.api.common.state.MapState;
-import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.serialization.AbstractDeserializationSchema;
 import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
@@ -30,13 +27,9 @@ import org.apache.flink.util.OutputTag;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 
-import org.apache.flink.configuration.Configuration;
 import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 
 public class TokenUsageAggregator {
 
@@ -164,23 +157,7 @@ public class TokenUsageAggregator {
      * Event-level dedup via seenEventIds in UsageAggregate (bounded per window).
      */
     public static class UsageAggregateFunction
-            extends RichAggregateFunction<TokenEvent, UsageAggregate, UsageAggregate> {
-
-        private static final DateTimeFormatter MONTH_FMT =
-                DateTimeFormatter.ofPattern("yyyy-MM").withZone(ZoneOffset.UTC);
-
-        private transient MapState<String, Long> monthlyTokens;
-
-        @Override
-        public void open(Configuration parameters) {
-            MapStateDescriptor<String, Long> desc =
-                    new MapStateDescriptor<>("monthlyTokens", String.class, Long.class);
-            monthlyTokens = getRuntimeContext().getMapState(desc);
-        }
-
-        private String monthKey(long epochMs) {
-            return MONTH_FMT.format(Instant.ofEpochMilli(epochMs));
-        }
+            implements AggregateFunction<TokenEvent, UsageAggregate, UsageAggregate> {
 
         @Override
         public UsageAggregate createAccumulator() {
@@ -189,18 +166,7 @@ public class TokenUsageAggregator {
 
         @Override
         public UsageAggregate add(TokenEvent event, UsageAggregate acc) {
-            try {
-                String month = monthKey(event.getTimestamp());
-                Long before = monthlyTokens.get(month);
-                long monthlyBefore = before != null ? before : 0L;
-                acc.addEvent(event, monthlyBefore);
-                long tokens = event.getTotalTokens();
-                if (tokens > 0) {
-                    monthlyTokens.put(month, monthlyBefore + tokens);
-                }
-            } catch (Exception e) {
-                acc.addEvent(event);
-            }
+            acc.addEvent(event);
             return acc;
         }
 

@@ -79,6 +79,14 @@ submit-job:
 		-c io.fluxmeter.job.TokenUsageAggregator \
 		/opt/flink/fluxmeter.jar
 
+# Staged load test (10K → 1M eps bursts)
+load-test:
+	./scripts/load-test.sh
+
+# Quick load test (10K–500K only)
+load-test-quick:
+	QUICK=1 ./scripts/load-test.sh
+
 # Run the baseline comparison (Flink vs ClickHouse)
 benchmark:
 	./baseline/benchmark.sh
