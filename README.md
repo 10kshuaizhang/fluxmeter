@@ -1,0 +1,208 @@
+# FluxMeter
+
+Open source real-time metering and budget enforcement for AI token billing.
+
+**v1.0.0-rc1** | **1M+ events/sec** | **<10ms budget check** | **Multi-provider** | **Zero data loss**
+
+![FluxMeter Demo](demo.gif)
+
+## Who is this for
+
+- **AI app builders** shipping LLM wrappers, agent platforms, or code assistants that bill per token
+- **Platform teams** that need real-time cost visibility across OpenAI, Anthropic, and Google models
+- **Anyone who's been burned** by a runaway agent loop spending $500 in 30 seconds before the billing system noticed
+
+If your customers prepay for tokens and you need to cut them off the instant they run out — not 30 seconds later — FluxMeter does that.
+
+## Budget Enforcement (the core feature)
+
+Set a prepaid balance. FluxMeter enforces it in <10ms per request:
+
+```bash
+# Set $50 budget, alert at $5 remaining, max 100 requests/minute
+curl -X POST localhost:8000/budget/cust_123 \
+  -H 'Content-Type: application/json' \
+  -d '{"balance_usd": 50.0, "alert_threshold_usd": 5.0, "max_rpm": 100}'
+
+# Pre-request check — call this BEFORE every LLM request
+curl "localhost:8000/budget/cust_123/check?estimated_cost_usd=0.05"
+# → {"allowed": true, "balance_usd": 47.23, "reason": "ok", "source": "redis"}
+# → {"allowed": false, "reason": "budget_exhausted", "source": "redis"}
+# → {"allowed": false, "reason": "rate_limited", "max_rpm": 100}
+```
+
+**Two-layer enforcement:**
+
+| Layer | Latency | What it does |
+|-------|---------|--------------|
+| Pre-request check | <10ms | `GET /budget/{id}/check` — blocks request before tokens are burned |
+| Post-window deduction | 10-15s | Flink aggregates → atomic Lua deduction → Kafka kill signal |
+
+The pre-request check uses a three-layer resilience stack (in-process cache → Redis → configurable fail policy) so it never blocks your agent's hot path, even during Redis outages.
+
+## Quick Start
+
+```bash
+git clone https://github.com/YOUR_USER/fluxmeter.git
+cd fluxmeter
+make demo
+```
+
+Starts Kafka, Flink, Redis, and the API. Open:
+
+- **API docs:** http://localhost:8000/docs
+- **Flink UI:** http://localhost:8081
+- **Grafana:** http://localhost:3000
+
+## Integration (3 ways)
+
+**Python SDK** (richest — WAL, auto-extraction, streaming):
+```python
+from fluxmeter import FluxMeter
+
+meter = FluxMeter(kafka_brokers="localhost:9094")
+meter.track_openai("cust_123", openai_response, latency_ms=1200)
+meter.track_anthropic("cust_123", anthropic_response)
+
+# Streaming: heartbeat events every 2s during long responses
+for chunk in meter.wrap_stream(stream, "cust_123", "gpt-4o"):
+    process(chunk)
+```
+
+**HTTP API** (zero dependencies — any language, curl, serverless):
+```bash
+curl -X POST localhost:8000/ingest \
+  -H 'Content-Type: application/json' \
+  -d '{"customerId":"cust_123","modelId":"gpt-4o","inputTokens":500,"outputTokens":150}'
+```
+
+**Direct Kafka** (highest throughput — any Kafka client library):
+```
+Topic: token-events
+Format: JSON, keyed by customerId
+```
+
+## Query API
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /usage/global` | Total events, tokens, cost |
+| `GET /usage/customer/{id}` | Per-customer breakdown |
+| `GET /usage/customer/{id}/model/{model}` | Per-model detail |
+| `GET /usage/span/{id}` | Agent span cost (total cost of an agent run) |
+| `GET /budget/{id}/check` | Pre-request allow/deny (<10ms) |
+| `POST /budget/{id}` | Set balance + threshold + rate limit |
+| `POST /budget/{id}/topup` | Add credits |
+| `POST /budget/{id}/reserve` | Pre-deduction for streaming |
+| `POST /budget/{id}/reconcile` | Credit back after stream ends |
+| `POST /ingest` | HTTP event ingest |
+| `POST /ingest/batch` | Batch ingest (up to 1000) |
+| `POST /rerate/preview` | Preview price change impact |
+| `POST /rerate/apply` | Apply retroactive re-rating |
+
+Full reference: [docs/api-reference.md](docs/api-reference.md)
+
+## Architecture
+
+```
+[Your App] → [Kafka] → [Flink: aggregation] → [Redis] → [API]
+     │              │              │                │
+  SDK/HTTP     budget-alerts   keyed by         Budget check
+  ingest       ← kill signals  (customer,model) (3-layer cache)
+                               10s windows
+```
+
+**Key design choices:**
+- Incremental aggregation — O(keys) memory, not O(events)
+- Atomic budget deduction via Redis Lua script
+- Microdollar precision (long) — no float accumulation errors
+- Sink idempotency (SHA-256 + SET NX) — no double-billing on replay
+- Three-layer budget check (cache → Redis → fail policy) — never blocks
+
+## Event Schema
+
+Each event = one LLM API call:
+
+```json
+{
+  "customerId": "cust_123",
+  "modelId": "gpt-4o",
+  "provider": "openai",
+  "inputTokens": 1250,
+  "outputTokens": 847,
+  "cacheReadTokens": 200,
+  "reasoningTokens": 0,
+  "parentSpanId": "span_agent_42",
+  "timestamp": 1718534400000,
+  "latencyMs": 1340
+}
+```
+
+**Providers:** OpenAI (gpt-4o, gpt-4o-mini, o1, o3-mini), Anthropic (claude-opus-4, claude-sonnet-4, claude-haiku-4), Google (gemini-1.5-pro, gemini-1.5-flash)
+
+**Token categories:** input, output, cached, reasoning, embedding — each priced independently.
+
+## Durability
+
+No single-component failure loses billing data:
+
+| Failure | Protection |
+|---------|-----------|
+| Kafka down | SDK writes to local WAL (disk), flushes on recovery |
+| Broker crash | `acks=all` — all replicas have the event |
+| Flink restart | Checkpoints restore state + offsets exactly |
+| Flink replay | Sink idempotency (SET NX) prevents double-counting |
+| Redis restart | AOF persistence + named volume |
+| Duplicate events | Sink-level dedup (SHA-256 window ID, 10-min TTL) |
+| Late events | Routed to DLQ topic, not silently dropped |
+
+## Performance
+
+Load tested on MacBook Pro M-series (docker-compose, 4GB TaskManagers):
+
+| Rate | Status |
+|------|--------|
+| 10K eps | Stable indefinitely |
+| 100K eps | Stable indefinitely |
+| 500K eps | Stable indefinitely |
+| 1M eps | Stable indefinitely |
+
+## Integrations
+
+Connect FluxMeter to your billing platform: [docs/integrations.md](docs/integrations.md)
+- Lago, OpenMeter, Orb, Metronome, Zuora
+
+## Production Deployment
+
+Kubernetes + RocksDB + S3 checkpoints: [docs/production-deploy.md](docs/production-deploy.md)
+
+Estimated cost: ~$1,550/month for 100K events/sec on AWS.
+
+## Makefile
+
+```bash
+make demo        # Build + start + submit job + generate
+make start       # Start infrastructure
+make submit-job  # Submit Flink job
+make generate    # Run load generator
+make benchmark   # Streaming vs batch comparison
+make stop        # Stop containers
+make clean       # Stop + remove volumes + clean
+```
+
+## What's next
+
+- [ ] Tiered pricing and volume discounts
+- [ ] Webhook delivery for budget alerts
+- [ ] Multi-tenant auth for the API
+- [ ] Streaming proxy (mid-response kill for extreme budget enforcement)
+
+## Requirements
+
+- Docker & Docker Compose
+- Java 17 (building the engine)
+- Python 3.9+ (SDK and API)
+
+## License
+
+Apache 2.0

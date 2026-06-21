@@ -1,0 +1,62 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+group = 'io.fluxmeter'
+version = '0.8.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+repositories {
+    mavenCentral()
+}
+
+def flinkVersion = '1.18.1'
+
+configurations {
+    flinkProvided
+    compileOnly.extendsFrom(flinkProvided)
+}
+
+dependencies {
+    // Flink core (provided by cluster at runtime)
+    flinkProvided "org.apache.flink:flink-streaming-java:${flinkVersion}"
+    flinkProvided "org.apache.flink:flink-clients:${flinkVersion}"
+    flinkProvided "org.apache.flink:flink-java:${flinkVersion}"
+
+    // Flink Kafka connector (must be included - not in base Flink)
+    implementation "org.apache.flink:flink-connector-kafka:3.1.0-1.18"
+
+    // JSON serialization
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.1'
+
+    // Kafka client (for budget alert producer in BudgetEnforcerSink)
+    implementation 'org.apache.kafka:kafka-clients:3.7.0'
+
+    // Redis client (Jedis for sink)
+    implementation 'redis.clients:jedis:5.1.0'
+
+    // Logging (provided by cluster)
+    flinkProvided 'org.slf4j:slf4j-api:2.0.11'
+}
+
+application {
+    mainClass = 'io.fluxmeter.job.TokenUsageAggregator'
+}
+
+shadowJar {
+    archiveBaseName = 'fluxmeter'
+    archiveClassifier = ''
+    mergeServiceFiles()
+}
+
+tasks.named('jar') {
+    manifest {
+        attributes 'Main-Class': 'io.fluxmeter.job.TokenUsageAggregator'
+    }
+}

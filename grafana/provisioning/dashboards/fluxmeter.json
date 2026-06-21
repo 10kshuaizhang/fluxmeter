@@ -1,0 +1,201 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "Total Events Metered",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "redis-datasource", "uid": "redis" },
+      "targets": [
+        {
+          "command": "get",
+          "keyName": "global:total_events",
+          "type": "command",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "displayName": "Events",
+          "thresholds": { "mode": "absolute", "steps": [{"color": "green", "value": null}] }
+        }
+      }
+    },
+    {
+      "title": "Total Tokens Processed",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "redis-datasource", "uid": "redis" },
+      "targets": [
+        {
+          "command": "get",
+          "keyName": "global:total_tokens",
+          "type": "command",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "displayName": "Tokens",
+          "thresholds": { "mode": "absolute", "steps": [{"color": "blue", "value": null}] }
+        }
+      }
+    },
+    {
+      "title": "Total Cost (USD)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "redis-datasource", "uid": "redis" },
+      "targets": [
+        {
+          "command": "get",
+          "keyName": "global:total_cost_usd",
+          "type": "command",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "displayName": "Cost",
+          "thresholds": { "mode": "absolute", "steps": [{"color": "orange", "value": null}] }
+        }
+      }
+    },
+    {
+      "title": "Last Window Timestamp",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "redis-datasource", "uid": "redis" },
+      "targets": [
+        {
+          "command": "get",
+          "keyName": "global:last_window_end",
+          "type": "command",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeFromNow",
+          "displayName": "Last Update",
+          "thresholds": { "mode": "absolute", "steps": [{"color": "green", "value": null}] }
+        }
+      }
+    },
+    {
+      "title": "Top 10 Customers by Token Usage",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "redis-datasource", "uid": "redis" },
+      "targets": [
+        {
+          "command": "tmscan",
+          "keyName": "customer:*:total_tokens",
+          "count": 10,
+          "type": "command",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Top 10 Customers by Cost",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "redis-datasource", "uid": "redis" },
+      "targets": [
+        {
+          "command": "tmscan",
+          "keyName": "customer:*:cost_usd",
+          "count": 10,
+          "type": "command",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Event Count (Live)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "datasource": { "type": "redis-datasource", "uid": "redis" },
+      "targets": [
+        {
+          "command": "get",
+          "keyName": "global:total_events",
+          "type": "timeSeries",
+          "refId": "A",
+          "streaming": true,
+          "streamingInterval": 1000,
+          "streamingCapacity": 100
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "gradientMode": "scheme",
+            "spanNulls": true
+          },
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list" }
+      }
+    },
+    {
+      "title": "Total Cost (Live)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "datasource": { "type": "redis-datasource", "uid": "redis" },
+      "targets": [
+        {
+          "command": "get",
+          "keyName": "global:total_cost_usd",
+          "type": "timeSeries",
+          "refId": "A",
+          "streaming": true,
+          "streamingInterval": 1000,
+          "streamingCapacity": 100
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 20,
+            "gradientMode": "scheme",
+            "spanNulls": true
+          },
+          "color": { "mode": "fixed", "fixedColor": "orange" }
+        }
+      },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list" }
+      }
+    }
+  ],
+  "refresh": "1s",
+  "schemaVersion": 39,
+  "tags": ["fluxmeter", "metering", "ai"],
+  "templating": { "list": [] },
+  "time": { "from": "now-5m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "FluxMeter - AI Token Metering",
+  "uid": "fluxmeter-main",
+  "version": 1
+}
