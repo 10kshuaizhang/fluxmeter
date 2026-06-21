@@ -6,6 +6,22 @@ Format: `[version] — date — summary`
 
 ---
 
+## [1.0.0] — 2026-06-21
+
+### Added
+- **Python SDK PyPI release**: `fluxmeter` 1.0.0 on PyPI (`sdk/python/pyproject.toml` aligned with `__version__`)
+- **CI publish workflow**: `.github/workflows/pypi-publish.yml` (Trusted Publisher → PyPI)
+- **Release docs**: `docs/pypi-release.md` (manual + TestPyPI + CI steps)
+
+### Changed
+- Python SDK classifier: Production/Stable; Java engine version **1.0.0**
+
+### Notes
+- **Published on PyPI**: https://pypi.org/project/fluxmeter/1.0.0/ — `pip install fluxmeter`
+- Configure PyPI Trusted Publisher for CI (no tokens in git). See `docs/pypi-release.md`.
+
+---
+
 ## [1.0.0-rc3] — 2026-06-21
 
 ### Fixed

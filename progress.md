@@ -2,8 +2,8 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history.
 
-**Current version:** 1.0.0-rc3
-**Current phase:** Release candidate — code review remediation (15 findings)
+**Current version:** 1.0.0
+**Current phase:** v1.0 GA — PyPI launch prep
 **Design status:** APPROVED (2026-06-16)
 
 ---
@@ -24,7 +24,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Week 4g | HTTP ingest endpoint + e2e verification | Done |
 | Week 4h | Performance optimization (OptimizedRedisSink, batching, hash consolidation) | Done |
 | Week 4i | Integration tests (15 scenarios, 15 passed) | Done |
-| Next | Open source launch, marketing | Not started |
+| Next | PyPI publish + open source launch, marketing | Partial — SDK **1.0.0 on PyPI** |
 
 ---
 
@@ -117,7 +117,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
-- **2026-06-21** — Prod overlay E2E: 20/20 passed (5 auth + 15 integration). Budget accuracy skip replaced with poll/watermark helpers; idempotency stabilized under Flink backlog. Still rc3.
+- **2026-06-21** — **PyPI**: `fluxmeter==1.0.0` published — https://pypi.org/project/fluxmeter/
 - **2026-06-21** — Code review fixes #1–#4: WAL per-event ack + flush drain, Redis password wiring, Flink checkpoint volume permissions. Version 1.0.0-rc3.
 - **2026-06-21** — Code review remediation (15 findings): pricing fix, model normalization, WAL dedup, atomic BudgetEnforcerSink, API auth, docker-compose.prod.yml. Version 1.0.0-rc2.
 - **2026-06-20** — Fixed 10 production issues: SHA-256 idempotency (collision-safe), Lua threshold semantic (initial balance), WAL batch fsync, schema compatibility, float→microdollars (long), re-rate async, session window docs. Version 1.0.0-rc1.

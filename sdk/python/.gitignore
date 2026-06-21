@@ -1,0 +1,7 @@
+dist/
+*.egg-info/
+.eggs/
+build/
+.pytest_cache/
+.ruff_cache/
+__pycache__/

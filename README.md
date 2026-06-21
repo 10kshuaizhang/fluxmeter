@@ -2,7 +2,7 @@
 
 Open source real-time metering and budget enforcement for AI token billing.
 
-**v1.0.0-rc1** | **1M+ events/sec** | **<10ms budget check** | **Multi-provider** | **Zero data loss**
+**v1.0.0** | **1M+ events/sec** | **<10ms budget check** | **Multi-provider** | **Zero data loss**
 
 ![FluxMeter Demo](demo.gif)
 
@@ -171,6 +171,8 @@ Load tested on MacBook Pro M-series (docker-compose, 4GB TaskManagers):
 
 Connect FluxMeter to your billing platform: [docs/integrations.md](docs/integrations.md)
 - Lago, OpenMeter, Orb, Metronome, Zuora
+
+SDK publishing: [docs/pypi-release.md](docs/pypi-release.md)
 
 ## Production Deployment
 
