@@ -2,7 +2,7 @@
 
 Open source real-time metering and budget enforcement for AI token billing.
 
-**v1.1.0** | **Open spec + SDKs** | **1M+ events/sec** | **<10ms budget check** | **Multi-provider**
+**v2.0.1** | **Open spec + SDKs** | **50K+ eps (local)** | **<10ms budget check** | **Multi-provider**
 
 ![FluxMeter Demo](demo.gif)
 
@@ -36,7 +36,7 @@ curl -X POST localhost:8000/budget/cust_123 \
 
 # Pre-request check — call this BEFORE every LLM request
 curl "localhost:8000/budget/cust_123/check?estimated_cost_usd=0.05"
-# → {"allowed": true, "balance_usd": 47.23, "reason": "ok", "source": "redis"}
+# → {"allowed": true, "balance_usd": 47.23, "held_usd": 0.0, "effective_balance_usd": 47.23, ...}
 # → {"allowed": false, "reason": "budget_exhausted", "source": "redis"}
 # → {"allowed": false, "reason": "rate_limited", "max_rpm": 100}
 ```
@@ -111,11 +111,15 @@ OpenAPI: spec/openapi/openapi.yaml
 | `GET /usage/customer/{id}` | Per-customer breakdown |
 | `GET /usage/customer/{id}/model/{model}` | Per-model detail |
 | `GET /usage/span/{id}` | Agent span cost (total cost of an agent run) |
-| `GET /budget/{id}/check` | Pre-request allow/deny (<10ms) |
+| `GET /budget/{id}/check` | Pre-request allow/deny (<10ms, uses `balance - held`) |
 | `POST /budget/{id}` | Set balance + threshold + rate limit |
 | `POST /budget/{id}/topup` | Add credits |
-| `POST /budget/{id}/reserve` | Pre-deduction for streaming |
-| `POST /budget/{id}/reconcile` | Credit back after stream ends |
+| `POST /budget/{id}/reserve` | Hold estimate for streaming (does not deduct balance) |
+| `POST /budget/{id}/reconcile` | Release hold after stream ends |
+| `POST /budget/{id}/webhook` | Configure HTTPS alerts (EXHAUSTED / LOW) |
+| `GET /pricing` | Current pricing catalog |
+| `POST /admin/customers/{id}/api-keys` | Create customer-scoped API key |
+| `GET /admin/reconciliation` | Balance drift snapshot |
 | `POST /ingest` | HTTP event ingest |
 | `POST /ingest/batch` | Batch ingest (up to 1000) |
 | `POST /rerate/preview` | Preview price change impact |
@@ -198,6 +202,8 @@ SDK publishing: [docs/pypi-release.md](docs/pypi-release.md)
 ## Production Deployment
 
 Kubernetes + RocksDB + S3 checkpoints: [docs/production-deploy.md](docs/production-deploy.md)
+
+Helm chart: [deploy/helm/README.md](deploy/helm/README.md)
 
 Estimated cost: ~$1,550/month for 100K events/sec on AWS.
 
