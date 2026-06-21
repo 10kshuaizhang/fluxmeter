@@ -35,8 +35,9 @@ make submit-job
 sleep 10
 
 echo "==> Running integration tests..."
-pip install -q httpx pytest
-pytest tests/test_integration.py -v --timeout=120
+pip install -q -r tests/requirements.txt
+pytest tests/test_integration.py -v --timeout=180
+pytest tests/test_e2e_v2.py -v --timeout=300 -m v2
 
 echo ""
 echo "==> Full pipeline verification PASSED"

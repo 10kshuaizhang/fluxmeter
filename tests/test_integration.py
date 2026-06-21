@@ -563,7 +563,8 @@ class TestBudgetAlertOrdering:
 
         _, budget = wait_for_budget_sync(cust, initial_balance=initial, min_events=1)
         assert budget["is_exhausted"] is True
-        assert budget["balance_usd"] < 0
+        assert budget["balance_usd"] <= 0.001
+        assert budget.get("debt_usd", 0) > 0
         result = check_budget(cust)
         assert result["allowed"] is False
         assert result["reason"] == "budget_exhausted"

@@ -145,8 +145,10 @@ def require_customer_access(
     if is_global_api_key(x_api_key):
         return
     resolved = resolve_customer_from_key(x_api_key)
-    if resolved and resolved == customer_id:
-        return
+    if resolved is not None:
+        if resolved == customer_id:
+            return
+        raise HTTPException(status_code=403, detail="API key not authorized for this customer")
     if AUTH_OPTIONAL and not API_KEY and not ADMIN_API_KEY:
         return
     raise HTTPException(status_code=403, detail="API key not authorized for this customer")

@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
 
 import pytest
+
+# Allow `from auth import ...` in unit tests (api/ on sys.path)
+_API_DIR = Path(__file__).resolve().parents[1] / "api"
+if str(_API_DIR) not in sys.path:
+    sys.path.insert(0, str(_API_DIR))
 
 
 def api_headers() -> dict[str, str]:

@@ -140,7 +140,7 @@ services:
         limits:
           memory: 256M
 
-    grafana:
+  grafana:
     image: grafana/grafana:10.3.1
     container_name: fluxmeter-grafana
     ports:

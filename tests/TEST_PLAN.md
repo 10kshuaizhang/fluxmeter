@@ -59,3 +59,37 @@ Each test targets a specific failure mode that would cause financial loss.
 **Scenario:** Events with all token fields = 0 must not crash, must still count as events, must not affect cost.
 
 **Test:** Send 100 events with all tokens=0. Assert: event_count incremented, cost_usd unchanged (remains 0), no errors.
+
+---
+
+## v1.2–v2.0 E2E (see `tests/test_e2e_v2.py`)
+
+### 11. Streaming Single-Path Deduction (v1.2)
+**Scenario:** `reserve` only increases `held_usd`; Flink Sink is sole `balance_usd` mutator. No `initial - reserve - actual` double charge.
+
+**Test:** Set budget=$10. Reserve $5 (balance stays $10, held=$5). Ingest known-cost event. Wait for window. Assert balance ≈ $10 - actual_cost, not $10 - $5 - actual_cost. Reconcile releases hold.
+
+### 12. Customer API Key Isolation (v1.2)
+**Scenario:** Customer-scoped key allows ingest/check for that customer only.
+
+**Test:** Create key for cust_A. Ingest cust_A → 202. Ingest cust_B with same key → 403. Revoke key → 401/403.
+
+### 13. Debt Floor on Exhaustion (v1.2)
+**Scenario:** When window cost exceeds balance, `balance_usd` floors at 0 and `debt_usd` records excess.
+
+**Test:** Budget=$0.05, large o1 usage. Assert balance≤0, debt>0, is_exhausted=true.
+
+### 14. External Pricing API (v1.3)
+**Scenario:** Pricing catalog readable and admin-updatable via HTTP.
+
+**Test:** GET /pricing has models. PUT /admin/pricing + validate. GET returns updated version.
+
+### 15. Balance Reconciliation (v1.4)
+**Scenario:** `balance == initial + topups - total_deducted` after Flink sync.
+
+**Test:** Run reconcile job once. GET /admin/reconciliation shows zero drift for test customer.
+
+### 16. Webhook + DLQ Tooling (v1.2 / v1.4)
+**Scenario:** Webhook URL configurable; DLQ replay script operational.
+
+**Test:** POST/GET /budget/{id}/webhook. `python scripts/dlq_replay.py --help` succeeds.

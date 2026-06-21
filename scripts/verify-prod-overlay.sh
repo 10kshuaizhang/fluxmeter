@@ -45,11 +45,14 @@ make submit-job
 echo "==> Running prod auth tests..."
 export FLUXMETER_API_KEY FLUXMETER_ADMIN_KEY
 export FLUXMETER_AUTH_OPTIONAL=false
-pip install -q httpx pytest pytest-timeout
+pip install -q -r tests/requirements.txt
 pytest tests/test_prod_overlay.py -v --timeout=60
 
 echo "==> Running full integration suite (with auth headers)..."
 pytest tests/test_integration.py -v --timeout=300
+
+echo "==> Running v2 E2E suite (production hardening)..."
+pytest tests/test_e2e_v2.py -v --timeout=300 -m v2
 
 echo ""
 echo "==> Production overlay verification PASSED"

@@ -61,6 +61,16 @@ clean: stop
 validate-spec:
 	./scripts/validate-spec.sh
 
+# E2E: integration + v2 production-hardening scenarios (stack + Flink job required)
+test-e2e:
+	pip install -q -r tests/requirements.txt
+	pytest tests/test_integration.py -v --timeout=300
+	pytest tests/test_e2e_v2.py -v --timeout=300 -m v2
+
+test-unit:
+	pip install -q -r tests/requirements.txt
+	pytest tests/test_auth_unit.py -v
+
 # Submit the Flink job to the cluster
 submit-job:
 	docker cp $(JAR) fluxmeter-jobmanager:/opt/flink/fluxmeter.jar
