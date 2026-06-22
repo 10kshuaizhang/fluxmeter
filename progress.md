@@ -2,7 +2,7 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history.
 
-**Current version:** 2.0.2
+**Current version:** 2.1.0
 **Current phase:** v2.0 — Production hardening (billing, pricing, ops)
 **Design status:** APPROVED (2026-06-16)
 
@@ -126,6 +126,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-06-22** — **Phase 2 dual-path**: Atomic Lua lite aggregator (`lite_aggregate_lua.py`) with inline budget deduction; production tests (`test_lite_production.py`); lite `/ingest` returns cost/balance JSON. Version 2.1.0.
 - **2026-06-22** — **Phase 1 dual-path**: Lite promoted to default (`docker-compose.yml`, `make demo`); full Flink stack in `docker-compose.full.yml` (`make demo-full`, `make start-full`). Makefile aliases `demo-lite`/`start-lite`; added `test-lite`.
 - **2026-06-22** — **v2.0.2**: Budget API 500 fix (`_fetch_customer_budget`); docker-compose.full.yml scaled to 3 TM / Redis 4G / Kafka 24 partitions for 100K–1M local load test profile.
 - **2026-06-21** — **v2.0.1**: E2E suite (`test_e2e_v2.py`), staged `scripts/load-test.sh`, Flink `UsageAggregateFunction` fix (job submit on 1.18), customer-key 403 regression fix.

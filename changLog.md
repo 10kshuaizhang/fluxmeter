@@ -6,6 +6,21 @@ Format: `[version] — date — summary`
 
 ---
 
+## [2.1.0] — 2026-06-22
+
+### Added
+- **Atomic Lua lite aggregator** (`api/lite_aggregate_lua.py`): single-script idempotency, counter increments, global counters, and inline budget deduction (replaces non-atomic pipeline in lite mode)
+- **Lite production tests** (`tests/test_lite_production.py`): atomicity, idempotency, batch ingest, inline budget deduction scenarios
+
+### Changed
+- **`/ingest` and `/ingest/batch` (lite mode)**: return JSON with `status`, `cost_usd`, `balance_usd`; batch returns `{"results": [...]}`
+- **Model keys in lite mode**: use `normalize_model_id()` (aligned with Flink sink)
+
+### Notes
+- `api/lite_aggregate.py` retained for backward compatibility; lite ingest path uses `lite_aggregate_lua.py`
+
+---
+
 ## [2.0.2] — 2026-06-22
 
 ### Fixed

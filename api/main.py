@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import time
+import uuid
 from typing import Optional
 
 import redis
@@ -20,12 +23,12 @@ from auth import (
     revoke_customer_api_key,
 )
 from budget_ops import get_effective_balance, reconcile_hold, reserve_hold
-from lite_aggregate import aggregate_event
+from lite_aggregate_lua import LiteAggregator
 
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="2.0.1",
+    version="2.1.0",
 )
 
 LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"
@@ -46,6 +49,17 @@ pool = redis.ConnectionPool(
     password=REDIS_PASSWORD,
     decode_responses=True,
 )
+
+_lite_aggregator = None
+
+
+def get_lite_aggregator():
+    global _lite_aggregator
+    if _lite_aggregator is None:
+        r = redis.Redis(connection_pool=pool)
+        _lite_aggregator = LiteAggregator(r)
+    return _lite_aggregator
+
 
 # --- Layer 1: In-process budget cache (always available, 0.01ms) ---
 _budget_cache: dict[str, dict] = {}  # {customer_id: {"balance": float, "ts": float, "max_rpm": int}}
@@ -203,19 +217,18 @@ def ingest_event(
     """
     require_customer_access(event.customerId, x_api_key)
 
-    import json, uuid
-
     event_dict = event.model_dump(exclude_none=True)
-    if "eventId" not in event_dict:
-        event_dict["eventId"] = str(uuid.uuid4())
     if "timestamp" not in event_dict:
         event_dict["timestamp"] = int(time.time() * 1000)
 
     if LITE_MODE:
-        r = get_redis()
-        if not aggregate_event(r, event_dict):
-            return {"status": "duplicate", "eventId": event_dict["eventId"]}
-        return {"status": "accepted", "eventId": event_dict["eventId"], "mode": "lite"}
+        agg = get_lite_aggregator()
+        result = agg.aggregate(event_dict)
+        return Response(status_code=202, content=json.dumps(result),
+                        media_type="application/json")
+
+    if "eventId" not in event_dict:
+        event_dict["eventId"] = str(uuid.uuid4())
 
     producer = get_kafka_producer()
     value = json.dumps(event_dict).encode("utf-8")
@@ -236,8 +249,6 @@ def ingest_batch(
     More efficient than calling /ingest repeatedly — single HTTP round-trip
     for up to 1000 events.
     """
-    import json, uuid
-
     if len(events) > 1000:
         raise HTTPException(status_code=400, detail="Max 1000 events per batch")
 
@@ -247,21 +258,16 @@ def ingest_batch(
     event_ids = []
 
     if LITE_MODE:
-        r = get_redis()
+        agg = get_lite_aggregator()
+        event_dicts = []
         for event in events:
             event_dict = event.model_dump(exclude_none=True)
-            if "eventId" not in event_dict:
-                event_dict["eventId"] = str(uuid.uuid4())
             if "timestamp" not in event_dict:
                 event_dict["timestamp"] = int(time.time() * 1000)
-            if aggregate_event(r, event_dict):
-                event_ids.append(event_dict["eventId"])
-        return {
-            "status": "accepted",
-            "count": len(event_ids),
-            "event_ids": event_ids,
-            "mode": "lite",
-        }
+            event_dicts.append(event_dict)
+        results = agg.aggregate_batch(event_dicts)
+        return Response(status_code=202, content=json.dumps({"results": results}),
+                        media_type="application/json")
 
     producer = get_kafka_producer()
     for event in events:
@@ -330,14 +336,8 @@ def get_customer_model_usage(customer_id: str, model_id: str):
     )
 
 
-@app.get("/budget/{customer_id}", response_model=CustomerBudget)
-def get_customer_budget(
-    customer_id: str,
-    _: None = Depends(require_api_key),
-    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
-):
-    """Get customer's current budget status."""
-    require_customer_access(customer_id, x_api_key)
+def _fetch_customer_budget(customer_id: str) -> CustomerBudget:
+    """Load budget from Redis. Callers must enforce auth before invoking."""
     r = get_redis()
     budget_key = f"budget:{customer_id}"
     balance = r.get(f"{budget_key}:balance_usd")
@@ -358,6 +358,17 @@ def get_customer_budget(
     )
 
 
+@app.get("/budget/{customer_id}", response_model=CustomerBudget)
+def get_customer_budget(
+    customer_id: str,
+    _: None = Depends(require_api_key),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Get customer's current budget status."""
+    require_customer_access(customer_id, x_api_key)
+    return _fetch_customer_budget(customer_id)
+
+
 @app.post("/budget/{customer_id}", response_model=CustomerBudget, dependencies=[Depends(require_admin_key)])
 def set_customer_budget(customer_id: str, req: BudgetSetRequest):
     """Set or reset a customer's prepaid budget."""
@@ -373,7 +384,7 @@ def set_customer_budget(customer_id: str, req: BudgetSetRequest):
         r.set(f"{budget_key}:alert_threshold_usd", str(req.alert_threshold_usd))
     if req.max_rpm is not None:
         r.set(f"{budget_key}:max_rpm", str(req.max_rpm))
-    return get_customer_budget(customer_id)
+    return _fetch_customer_budget(customer_id)
 
 
 @app.get("/budget/{customer_id}/check")
