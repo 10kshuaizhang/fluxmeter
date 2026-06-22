@@ -14,6 +14,7 @@ public class UsageAggregate implements Serializable {
     private static final long serialVersionUID = 3L;
 
     private String customerId;
+    private String tenantId;
     private String modelId;
     private long windowStart;
     private long windowEnd;
@@ -54,6 +55,10 @@ public class UsageAggregate implements Serializable {
                 this.deduplicatedCount++;
                 return;
             }
+        }
+
+        if (event.getTenantId() != null && !event.getTenantId().isBlank()) {
+            this.tenantId = event.getTenantId();
         }
 
         this.inputTokens += event.getInputTokens();
@@ -112,6 +117,7 @@ public class UsageAggregate implements Serializable {
     }
 
     public String getCustomerId() { return customerId; }
+    public String getTenantId() { return tenantId; }
     public String getModelId() { return modelId; }
     public long getWindowStart() { return windowStart; }
     public long getWindowEnd() { return windowEnd; }
@@ -132,6 +138,7 @@ public class UsageAggregate implements Serializable {
     }
 
     public void setCustomerId(String customerId) { this.customerId = customerId; }
+    public void setTenantId(String tenantId) { this.tenantId = tenantId; }
     public void setModelId(String modelId) { this.modelId = modelId; }
     public void setWindowStart(long windowStart) { this.windowStart = windowStart; }
     public void setWindowEnd(long windowEnd) { this.windowEnd = windowEnd; }

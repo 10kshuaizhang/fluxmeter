@@ -1,4 +1,4 @@
-.PHONY: build demo demo-full demo-lite start start-full start-lite start-saas stop-saas stop clean generate submit-job benchmark validate-spec load-test load-test-quick test-e2e test-lite test-unit
+.PHONY: build demo demo-full demo-lite start start-full start-lite start-saas stop-saas stop clean generate submit-job benchmark validate-spec load-test load-test-quick test-e2e test-lite test-unit test-java
 
 JAR = $(shell ls -t build/libs/fluxmeter-*.jar 2>/dev/null | head -1)
 
@@ -88,6 +88,9 @@ test-e2e:
 test-unit:
 	pip install -q -r tests/requirements.txt
 	pytest tests/test_auth_unit.py -v
+
+test-java:
+	./gradlew test
 
 # Submit the Flink job to the cluster (parallelism 12 = 4 TM × 4 slots, capped for local Redis)
 FLINK_PARALLELISM ?= 12

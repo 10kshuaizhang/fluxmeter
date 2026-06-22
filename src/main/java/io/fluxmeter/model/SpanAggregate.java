@@ -13,6 +13,7 @@ public class SpanAggregate implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private String spanId;          // The span being aggregated (parentSpanId from events)
+    private String tenantId;
     private String customerId;
     private long totalTokens;
     private long inputTokens;
@@ -29,6 +30,9 @@ public class SpanAggregate implements Serializable {
     }
 
     public void addEvent(TokenEvent event, double eventCost) {
+        if (event.getTenantId() != null && !event.getTenantId().isBlank()) {
+            this.tenantId = event.getTenantId();
+        }
         this.customerId = event.getCustomerId();
         this.spanId = event.getParentSpanId();
         this.totalTokens += event.getTotalTokens();
@@ -68,6 +72,7 @@ public class SpanAggregate implements Serializable {
 
     // Getters
     public String getSpanId() { return spanId; }
+    public String getTenantId() { return tenantId; }
     public String getCustomerId() { return customerId; }
     public long getTotalTokens() { return totalTokens; }
     public long getInputTokens() { return inputTokens; }

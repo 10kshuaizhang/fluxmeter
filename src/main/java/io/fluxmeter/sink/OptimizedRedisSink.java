@@ -1,6 +1,7 @@
 package io.fluxmeter.sink;
 
 import io.fluxmeter.model.UsageAggregate;
+import io.fluxmeter.util.TenantKeys;
 
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
@@ -77,7 +78,7 @@ public class OptimizedRedisSink extends RichSinkFunction<UsageAggregate> {
 
             for (UsageAggregate agg : buffer) {
                 // Compact idempotency: SHA-256 first 16 chars (collision-safe)
-                String windowId = agg.getCustomerId() + "|" + agg.getModelId() + "|" + agg.getWindowStart();
+                String windowId = TenantKeys.windowId(agg.getTenantId(), agg.getCustomerId(), agg.getModelId(), agg.getWindowStart());
                 String idempKey = "a:" + sha256Prefix(windowId);
                 pipe.set(idempKey, "1", new redis.clients.jedis.params.SetParams().nx().ex(600));
             }
@@ -96,7 +97,7 @@ public class OptimizedRedisSink extends RichSinkFunction<UsageAggregate> {
                 }
 
                 UsageAggregate agg = buffer.get(i);
-                String customerKey = "customer:" + agg.getCustomerId();
+                String customerKey = TenantKeys.customerPrefix(agg.getTenantId(), agg.getCustomerId());
                 String modelKey = customerKey + ":model:" + agg.getModelId();
 
                 batchTotalTokens += agg.getTotalTokens();
@@ -125,18 +126,14 @@ public class OptimizedRedisSink extends RichSinkFunction<UsageAggregate> {
                 pipe.incrBy(modelKey + ":total_tokens", agg.getTotalTokens());
                 pipe.incrByFloat(modelKey + ":cost_usd", agg.getCostUsd());
 
-                written++;
-            }
+                pipe.incrBy(TenantKeys.globalKey(agg.getTenantId(), "total_tokens"), agg.getTotalTokens());
+                pipe.incrBy(TenantKeys.globalKey(agg.getTenantId(), "input_tokens"), agg.getInputTokens());
+                pipe.incrBy(TenantKeys.globalKey(agg.getTenantId(), "output_tokens"), agg.getOutputTokens());
+                pipe.incrBy(TenantKeys.globalKey(agg.getTenantId(), "total_events"), agg.getEventCount());
+                pipe.incrByFloat(TenantKeys.globalKey(agg.getTenantId(), "total_cost_usd"), agg.getCostUsd());
+                pipe.set(TenantKeys.globalKey(agg.getTenantId(), "last_window_end"), String.valueOf(agg.getWindowEnd()));
 
-            // Global counters: ONE write for the entire batch (not per window result)
-            // Uses same key names as BudgetEnforcerSink for API compatibility
-            if (written > 0) {
-                pipe.incrBy("global:total_tokens", batchTotalTokens);
-                pipe.incrBy("global:input_tokens", batchInputTokens);
-                pipe.incrBy("global:output_tokens", batchOutputTokens);
-                pipe.incrBy("global:total_events", batchTotalEvents);
-                pipe.incrByFloat("global:total_cost_usd", batchTotalCost);
-                pipe.set("global:last_window_end", String.valueOf(batchLastWindowEnd));
+                written++;
             }
 
             pipe.sync();

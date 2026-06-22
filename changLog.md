@@ -6,6 +6,19 @@ Format: `[version] — date — summary`
 
 ---
 
+## [2.2.1] — 2026-06-22
+
+### Added
+- **JUnit tests** for Java financial core: `PricingCatalogTest`, `UsageAggregateTest`, `TenantKeysTest`, `TokenEventTest`; `make test-java`
+- **Flink Prometheus metrics**: custom `flink/Dockerfile` with Prometheus reporter JAR; `prometheus` service in `docker-compose.full.yml` (`:9090`)
+- **Disaster recovery runbook**: [docs/disaster-recovery.md](docs/disaster-recovery.md) — Redis loss, Flink replay, Kafka WAL, lite mode recovery
+- **Multi-tenant Flink isolation**: optional `tenantId` on `TokenEvent`; aggregation key `tenantId|customerId|modelId`; Redis keys via `TenantKeys` utility
+
+### Notes
+- Single-tenant deployments unchanged when `tenantId` is omitted (keys remain `customer:{id}:*`)
+
+---
+
 ## [2.2.0] — 2026-06-22
 
 ### Added

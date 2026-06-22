@@ -1,6 +1,7 @@
 package io.fluxmeter.sink;
 
 import io.fluxmeter.model.UsageAggregate;
+import io.fluxmeter.util.TenantKeys;
 
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
@@ -29,7 +30,7 @@ public class RedisSink extends RichSinkFunction<UsageAggregate> {
     public void invoke(UsageAggregate agg, Context context) {
         try (Jedis jedis = pool.getResource()) {
             // Idempotency: skip if this window was already applied
-            String windowId = agg.getCustomerId() + "|" + agg.getModelId() + "|" + agg.getWindowStart();
+            String windowId = TenantKeys.windowId(agg.getTenantId(), agg.getCustomerId(), agg.getModelId(), agg.getWindowStart());
             String idempotencyKey = "applied:" + windowId;
             String setResult = jedis.set(idempotencyKey, "1", new redis.clients.jedis.params.SetParams().nx().ex(3600));
             if (setResult == null) {
@@ -37,7 +38,7 @@ public class RedisSink extends RichSinkFunction<UsageAggregate> {
             }
 
             Pipeline pipe = jedis.pipelined();
-            String customerKey = "customer:" + agg.getCustomerId();
+            String customerKey = TenantKeys.customerPrefix(agg.getTenantId(), agg.getCustomerId());
             String modelKey = customerKey + ":model:" + agg.getModelId();
 
             // Per-customer token breakdown
@@ -62,14 +63,13 @@ public class RedisSink extends RichSinkFunction<UsageAggregate> {
             }
 
             // Global counters (for dashboard)
-            pipe.incrBy("global:total_tokens", agg.getTotalTokens());
-            pipe.incrBy("global:input_tokens", agg.getInputTokens());
-            pipe.incrBy("global:output_tokens", agg.getOutputTokens());
-            pipe.incrBy("global:total_events", agg.getEventCount());
-            pipe.incrByFloat("global:total_cost_usd", agg.getCostUsd());
+            pipe.incrBy(TenantKeys.globalKey(agg.getTenantId(), "total_tokens"), agg.getTotalTokens());
+            pipe.incrBy(TenantKeys.globalKey(agg.getTenantId(), "input_tokens"), agg.getInputTokens());
+            pipe.incrBy(TenantKeys.globalKey(agg.getTenantId(), "output_tokens"), agg.getOutputTokens());
+            pipe.incrBy(TenantKeys.globalKey(agg.getTenantId(), "total_events"), agg.getEventCount());
+            pipe.incrByFloat(TenantKeys.globalKey(agg.getTenantId(), "total_cost_usd"), agg.getCostUsd());
 
-            // Latest window timestamp (liveness indicator)
-            pipe.set("global:last_window_end", String.valueOf(agg.getWindowEnd()));
+            pipe.set(TenantKeys.globalKey(agg.getTenantId(), "last_window_end"), String.valueOf(agg.getWindowEnd()));
 
             pipe.sync();
         }

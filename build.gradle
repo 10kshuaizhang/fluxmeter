@@ -5,7 +5,7 @@ plugins {
 }
 
 group = 'io.fluxmeter'
-version = '2.2.0'
+version = '2.2.1'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_17
@@ -43,6 +43,10 @@ dependencies {
 
     // Logging (provided by cluster)
     flinkProvided 'org.slf4j:slf4j-api:2.0.11'
+
+    // Unit tests
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 application {
@@ -59,4 +63,8 @@ tasks.named('jar') {
     manifest {
         attributes 'Main-Class': 'io.fluxmeter.job.TokenUsageAggregator'
     }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
 }

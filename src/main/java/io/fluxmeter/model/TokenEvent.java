@@ -15,6 +15,7 @@ public class TokenEvent implements Serializable {
 
     // Identity
     private String eventId;
+    private String tenantId;       // SaaS tenant scope (optional; omit for single-tenant)
     private String customerId;
     private String requestId;      // Provider request ID (e.g. chatcmpl-xxx)
     private String spanId;         // Agent/trace span ID for observability
@@ -55,12 +56,18 @@ public class TokenEvent implements Serializable {
      * Composite key for Flink keyed stream aggregation.
      */
     public String getAggregationKey() {
+        if (tenantId != null && !tenantId.isBlank()) {
+            return tenantId + "|" + customerId + "|" + modelId;
+        }
         return customerId + "|" + modelId;
     }
 
     // Getters and setters
     public String getEventId() { return eventId; }
     public void setEventId(String eventId) { this.eventId = eventId; }
+
+    public String getTenantId() { return tenantId; }
+    public void setTenantId(String tenantId) { this.tenantId = tenantId; }
 
     public String getCustomerId() { return customerId; }
     public void setCustomerId(String customerId) { this.customerId = customerId; }

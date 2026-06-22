@@ -191,9 +191,18 @@ public class TokenUsageAggregator {
         public void process(String key, Context context, Iterable<UsageAggregate> elements,
                             Collector<UsageAggregate> out) {
             UsageAggregate agg = elements.iterator().next();
-            String[] parts = key.split("\\|", 2);
-            agg.setCustomerId(parts[0]);
-            agg.setModelId(parts.length > 1 ? parts[1] : "unknown");
+            String[] parts = key.split("\\|", -1);
+            if (parts.length >= 3) {
+                agg.setTenantId(parts[0]);
+                agg.setCustomerId(parts[1]);
+                agg.setModelId(parts[2]);
+            } else if (parts.length == 2) {
+                agg.setCustomerId(parts[0]);
+                agg.setModelId(parts[1]);
+            } else {
+                agg.setCustomerId(key);
+                agg.setModelId("unknown");
+            }
             agg.setWindowStart(context.window().getStart());
             agg.setWindowEnd(context.window().getEnd());
             out.collect(agg);

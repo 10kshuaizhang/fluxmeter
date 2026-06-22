@@ -1,6 +1,7 @@
 package io.fluxmeter.sink;
 
 import io.fluxmeter.model.SpanAggregate;
+import io.fluxmeter.util.TenantKeys;
 
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
@@ -67,7 +68,7 @@ public class SpanSink extends RichSinkFunction<SpanAggregate> {
             pipe.expire(key + ":customer_id", SPAN_TTL_SECONDS);
 
             // Add to customer's sorted set of spans (sorted by cost for top-N queries)
-            pipe.zadd("customer:" + span.getCustomerId() + ":spans",
+            pipe.zadd(TenantKeys.customerPrefix(span.getTenantId(), span.getCustomerId()) + ":spans",
                     span.getCostUsd(), span.getSpanId());
 
             pipe.sync();

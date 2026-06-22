@@ -5,7 +5,9 @@ version: '3.8'
 # Submit: make submit-job  (parallelism 12)
 
 x-flink-tm: &flink-tm
-  image: flink:1.18.1-java17
+  build:
+    context: .
+    dockerfile: flink/Dockerfile
   depends_on:
     - jobmanager
   command: taskmanager
@@ -17,6 +19,8 @@ x-flink-tm: &flink-tm
       taskmanager.memory.process.size: 5g
       state.backend: hashmap
       state.checkpoints.dir: file:///opt/flink/checkpoints
+      metrics.reporter.prom.class: org.apache.flink.metrics.prometheus.PrometheusReporter
+      metrics.reporter.prom.port: 9249
   volumes:
     - ./flink-checkpoints:/opt/flink/checkpoints
   mem_limit: 6g
@@ -87,11 +91,14 @@ services:
     mem_limit: 4g
 
   jobmanager:
-    image: flink:1.18.1-java17
+    build:
+      context: .
+      dockerfile: flink/Dockerfile
     container_name: fluxmeter-jobmanager
     restart: unless-stopped
     ports:
       - "8081:8081"
+      - "9249:9249"
     command: jobmanager
     environment:
       FLINK_PROPERTIES: |
@@ -101,6 +108,8 @@ services:
         state.backend: hashmap
         state.checkpoints.dir: file:///opt/flink/checkpoints
         state.savepoints.dir: file:///opt/flink/checkpoints
+        metrics.reporter.prom.class: org.apache.flink.metrics.prometheus.PrometheusReporter
+        metrics.reporter.prom.port: 9249
       CHECKPOINT_DIR: "file:///opt/flink/checkpoints"
     volumes:
       - ./flink-checkpoints:/opt/flink/checkpoints
@@ -110,16 +119,35 @@ services:
     <<: *flink-tm
     container_name: fluxmeter-taskmanager-1
     environment: *flink-tm-env
+    ports:
+      - "9250:9249"
 
   taskmanager-2:
     <<: *flink-tm
     container_name: fluxmeter-taskmanager-2
     environment: *flink-tm-env
+    ports:
+      - "9251:9249"
 
   taskmanager-3:
     <<: *flink-tm
     container_name: fluxmeter-taskmanager-3
     environment: *flink-tm-env
+    ports:
+      - "9252:9249"
+
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    container_name: fluxmeter-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - jobmanager
+      - taskmanager-1
+    mem_limit: 512m
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.1

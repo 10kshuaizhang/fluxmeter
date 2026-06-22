@@ -1,6 +1,7 @@
 package io.fluxmeter.sink;
 
 import io.fluxmeter.model.UsageAggregate;
+import io.fluxmeter.util.TenantKeys;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.configuration.Configuration;
@@ -110,11 +111,11 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
     public void invoke(UsageAggregate agg, Context context) {
         try (Jedis jedis = pool.getResource()) {
             String customerId = agg.getCustomerId();
-            String customerKey = "customer:" + customerId;
+            String customerKey = TenantKeys.customerPrefix(agg.getTenantId(), customerId);
             String modelKey = customerKey + ":model:" + agg.getModelId();
-            String budgetKey = "budget:" + customerId;
+            String budgetKey = TenantKeys.budgetPrefix(agg.getTenantId(), customerId);
 
-            String windowId = customerId + "|" + agg.getModelId() + "|" + agg.getWindowStart();
+            String windowId = TenantKeys.windowId(agg.getTenantId(), customerId, agg.getModelId(), agg.getWindowStart());
             String idempotencyKey = "applied:" + windowId;
 
             @SuppressWarnings("unchecked")
@@ -131,15 +132,15 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
                     modelKey + ":total_tokens",
                     modelKey + ":cost_usd",
                     customerKey + ":cost_usd",
-                    "global:total_tokens",
-                    "global:input_tokens",
-                    "global:output_tokens",
-                    "global:total_events",
-                    "global:total_cost_usd",
+                    TenantKeys.globalKey(agg.getTenantId(), "total_tokens"),
+                    TenantKeys.globalKey(agg.getTenantId(), "input_tokens"),
+                    TenantKeys.globalKey(agg.getTenantId(), "output_tokens"),
+                    TenantKeys.globalKey(agg.getTenantId(), "total_events"),
+                    TenantKeys.globalKey(agg.getTenantId(), "total_cost_usd"),
                     budgetKey + ":balance_usd",
                     budgetKey + ":alert_threshold_usd",
                     budgetKey + ":initial_balance_usd",
-                    "global:last_window_end",
+                    TenantKeys.globalKey(agg.getTenantId(), "last_window_end"),
                     customerKey + ":cache_read_tokens",
                     customerKey + ":reasoning_tokens",
                     budgetKey + ":total_deducted_usd",
