@@ -1,6 +1,6 @@
 {
   "name": "@fluxmeter/client",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "JavaScript/TypeScript SDK for FluxMeter AI token billing",
   "license": "Apache-2.0",
   "type": "module",

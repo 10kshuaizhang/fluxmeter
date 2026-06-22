@@ -51,7 +51,7 @@ That said, if you don't need sub-second enforcement, store-then-query is simpler
 - Is the agent span attribution (grouping multi-call runs) useful for your billing?
 
 **Honest caveats:**
-- **v2.0.1** — production-hardening landed (auth, webhooks, reconciliation, E2E tests), but not a hosted SaaS
+- **v2.2.1** — production-hardening + lite/SaaS dual-path; self-hosted (not a hosted SaaS product)
 - Demo mode allows unauthenticated API (`FLUXMETER_AUTH_OPTIONAL=true`); production overlay enforces keys — see `docker-compose.prod.yml`
 - Tiered pricing schema exists; engine uses first tier until monthly volume tracking ships
 - Session windows for agent spans can stay open if the agent never stops (60s gap)

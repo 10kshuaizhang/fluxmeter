@@ -1,6 +1,6 @@
 # FluxMeter Progress
 
-Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history.
+Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
 **Current version:** 2.2.1
 **Current phase:** v2.0 — Production hardening (billing, pricing, ops)
@@ -24,11 +24,12 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Week 4g | HTTP ingest endpoint + e2e verification | Done |
 | Week 4h | Performance optimization (OptimizedRedisSink, batching, hash consolidation) | Done |
 | Week 4i | Integration tests (15 scenarios, 15 passed) | Done |
-| Next | PyPI + npm publish, open source launch, marketing | Partial — Python **1.0.0 on PyPI**; JS SDK in repo |
+| Next | npm publish, open source launch, marketing | Partial — Python **1.1.0 on PyPI** ✓; JS SDK in repo (`@fluxmeter/client` not yet on npm); `run-e2e-all.sh` covers unit/lite/full/saas |
 | v1.2 | Single-path billing, customer API keys, webhooks | Done |
 | v1.3 | External pricing catalog + API | Done |
 | v1.4 | Reconciliation job + DLQ replay | Done |
 | v2.0 | Helm + tiered pricing schema + monitoring rules | Done |
+| v2.2.1 | CTO follow-up: JUnit + Python unit tests, DR runbook, Prometheus, tenant keys | Done |
 | v2.2.0 | Phase 5 dual-path: SaaS control plane (tenant CRUD, plans, API keys) | Done |
 | v2.1.0 | Phase 2 dual-path: atomic Lua lite aggregator + inline budget | Done |
 | v2.1.0 | Phase 4 dual-path: Stripe billing export (Meters API) | Done |
@@ -72,7 +73,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 |---|------|--------|-------|
 | 1 | Rename project TokenFlink → FluxMeter | Done | All packages, containers, docs renamed |
 | 2 | Upgrade event schema to multi-provider format | Done | 9 models, 5 token categories, tracing fields |
-| 3 | Python SDK (`pip install fluxmeter`) | Done | `track()`, `track_openai()`, `track_anthropic()`, 7 tests |
+| 3 | Python SDK (`pip install fluxmeter`) | Done | **1.1.0 on PyPI**; `track()`, `track_openai()`, `track_anthropic()`, 7 tests |
 | 4 | README tone rewrite | Done | Neutral framing, architectural comparison, SDK examples |
 | 5 | FastAPI query endpoint | Done | Usage + budget CRUD at :8000/docs |
 
@@ -126,7 +127,8 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
-- **2026-06-22** — **v2.2.1 CTO follow-up**: JUnit tests for PricingCatalog/UsageAggregate/TenantKeys; Flink Prometheus reporter + compose prometheus service; disaster recovery runbook; Flink `tenantId` key isolation.
+- **2026-06-22** — **ROADMAP.md**: project-wide forward plan (v2.3 polish → v2.4 tiered pricing → v3.0 SaaS → streaming proxy).
+- **2026-06-22** — **v2.2.1 CTO follow-up (tests + docs)**: `AggregationKeys` utility + JUnit suite; Python unit tests for lite Lua aggregator and control-plane models; `scripts/run-e2e-all.sh` (unit → lite → full → SaaS); [docs/control-plane-api.md](docs/control-plane-api.md). Prior: Prometheus reporter, DR runbook, Flink `tenantId` key isolation.
 - **2026-06-22** — **Phase 5 dual-path**: SaaS control plane (`services/control-plane/`) — tenant CRUD, plan tiers, API key provisioning, usage endpoint; `docker-compose.saas.yml` + `make start-saas`. Version 2.2.0.
 - **2026-06-22** — **Phase 4 dual-path**: Stripe billing export (`billing_export.py`) reports hourly event counts to Stripe Meters API when `STRIPE_API_KEY` is set; admin `POST /admin/billing/{id}/link-stripe`; unit tests with mocked Stripe.
 - **2026-06-22** — **Phase 3 dual-path**: Background rollup worker (`rollup_worker.py`) compacts live counters into per-minute Redis hashes with 24h TTL; wired into API startup in lite mode; tests in `test_rollup.py`.

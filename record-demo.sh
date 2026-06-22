@@ -25,7 +25,8 @@ echo ""
 sleep 15
 
 echo "▶ Submitting Flink job..."
-docker cp build/libs/fluxmeter-0.2.0.jar fluxmeter-jobmanager:/opt/flink/fluxmeter.jar >/dev/null
+JAR="$(ls -t build/libs/fluxmeter-*.jar 2>/dev/null | head -1)"
+docker cp "$JAR" fluxmeter-jobmanager:/opt/flink/fluxmeter.jar >/dev/null
 docker exec fluxmeter-jobmanager flink run -d -c io.fluxmeter.job.TokenUsageAggregator /opt/flink/fluxmeter.jar 2>&1 | grep "Job has been"
 echo ""
 
@@ -33,11 +34,11 @@ sleep 3
 
 echo "▶ Generating 500K token events/sec..."
 echo ""
-KAFKA_BROKERS=localhost:9094 NUM_CUSTOMERS=10000 NUM_THREADS=4 TARGET_EPS=500000 timeout 20 java -cp build/libs/fluxmeter-0.2.0.jar io.fluxmeter.generator.LoadGenerator 2>&1 | grep STATS
+KAFKA_BROKERS=localhost:9094 NUM_CUSTOMERS=10000 NUM_THREADS=4 TARGET_EPS=500000 timeout 20 java -cp "$JAR" io.fluxmeter.generator.LoadGenerator 2>&1 | grep STATS
 echo ""
 
 # Flush windows
-KAFKA_BROKERS=localhost:9094 NUM_CUSTOMERS=100 NUM_THREADS=1 TARGET_EPS=10000 timeout 15 java -cp build/libs/fluxmeter-0.2.0.jar io.fluxmeter.generator.LoadGenerator >/dev/null 2>&1
+KAFKA_BROKERS=localhost:9094 NUM_CUSTOMERS=100 NUM_THREADS=1 TARGET_EPS=10000 timeout 15 java -cp "$JAR" io.fluxmeter.generator.LoadGenerator >/dev/null 2>&1
 
 echo "▶ Real-time aggregation results (from Redis):"
 echo ""

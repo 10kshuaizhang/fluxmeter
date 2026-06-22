@@ -71,6 +71,7 @@ Every meaningful change must update the root tracking files. Do this in the same
 | File | Purpose |
 |------|---------|
 | [docs/DESIGN.md](docs/DESIGN.md) | Approved product/architecture spec — update only when scope or direction changes |
+| [ROADMAP.md](ROADMAP.md) | Forward-looking phases and priorities |
 | [progress.md](progress.md) | Live implementation status vs design milestones |
 | [changLog.md](changLog.md) | Versioned release history (Semantic Versioning) |
 

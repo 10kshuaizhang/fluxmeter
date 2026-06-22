@@ -2,7 +2,7 @@
 
 Open source real-time metering and budget enforcement for AI token billing.
 
-**v2.0.1** | **Open spec + SDKs** | **1M+ events/sec** | **<10ms budget check** | **Multi-provider**
+**v2.2.1** | **Open spec + SDKs** | **1M+ events/sec** | **<10ms budget check** | **Multi-provider**
 
 ![FluxMeter Demo](demo.gif)
 
@@ -231,11 +231,16 @@ make clean       # Stop + remove volumes + clean
 
 ## What's next
 
-- [ ] Tiered pricing volume tracking in Flink (tier schema exists; engine uses first tier)
-- [x] Webhook delivery for budget alerts (`webhook-worker` + `POST /budget/{id}/webhook`)
-- [x] Customer-scoped API keys (`POST /admin/customers/{id}/api-keys`)
+See **[ROADMAP.md](ROADMAP.md)** for the full plan. Highlights:
+
+- [ ] Tiered pricing volume tracking in Flink/Lite (schema exists; engine uses first tier)
 - [ ] Full multi-tenant RBAC / org model
 - [ ] Streaming proxy (mid-response kill for extreme budget enforcement)
+- [ ] `@fluxmeter/client` on npm
+- [x] Webhook delivery for budget alerts
+- [x] Customer-scoped API keys
+- [x] Dual-path Lite / Full / SaaS (v2.1–2.2)
+- [x] Python SDK 1.1.0 on PyPI (HTTP lite + Kafka)
 
 ## Requirements
 

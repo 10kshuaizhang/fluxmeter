@@ -62,7 +62,7 @@ python3 -m twine upload dist/*
 Workflow: `.github/workflows/pypi-publish.yml`
 
 1. Ensure Trusted Publisher is configured on PyPI (see above).
-2. Create a GitHub Release (tag e.g. `sdk-v1.0.0` or any tag that triggers your release policy).
+2. Create a GitHub Release (tag e.g. `sdk-v1.1.0` or any tag that triggers your release policy).
 3. Publish the release — the workflow builds, tests, and uploads to PyPI.
 
 Manual trigger: Actions → **Publish Python SDK to PyPI** → **Run workflow**.

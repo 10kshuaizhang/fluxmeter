@@ -9,13 +9,23 @@ Format: `[version] — date — summary`
 ## [2.2.1] — 2026-06-22
 
 ### Added
-- **JUnit tests** for Java financial core: `PricingCatalogTest`, `UsageAggregateTest`, `TenantKeysTest`, `TokenEventTest`; `make test-java`
+- **JUnit tests** for Java financial core: `PricingCatalogTest`, `UsageAggregateTest`, `TenantKeysTest`, `TokenEventTest`, `AggregationKeysTest`; `make test-java`
+- **`AggregationKeys` utility** (`io.fluxmeter.util`): parses Flink window keys (`customer|model` lite, `tenant|customer|model` SaaS) into `UsageAggregate` fields
+- **Python unit tests (no Docker)**: `tests/test_lite_aggregate_unit.py` (Lua aggregator idempotency, pricing, inline budget); `tests/test_control_plane_models.py` (plan tiers, defaults)
+- **Unified E2E runner**: `scripts/run-e2e-all.sh` — unit → lite → full Flink → SaaS stacks (`--unit-only`, `--lite-only`, `--full-only`)
+- **Control plane API reference**: [docs/control-plane-api.md](docs/control-plane-api.md) — tenant CRUD, plans, auth, usage queries
 - **Flink Prometheus metrics**: custom `flink/Dockerfile` with Prometheus reporter JAR; `prometheus` service in `docker-compose.full.yml` (`:9090`)
 - **Disaster recovery runbook**: [docs/disaster-recovery.md](docs/disaster-recovery.md) — Redis loss, Flink replay, Kafka WAL, lite mode recovery
 - **Multi-tenant Flink isolation**: optional `tenantId` on `TokenEvent`; aggregation key `tenantId|customerId|modelId`; Redis keys via `TenantKeys` utility
+- **PyPI Python SDK 1.1.0**: latest `fluxmeter` package published — https://pypi.org/project/fluxmeter/1.1.0/ (`pip install fluxmeter`)
+
+### Changed
+- **ROADMAP.md**: project-wide forward plan (phases v2.3 → v3.x, ecosystem track, non-goals)
+- **Version alignment across repo**: Python/JS SDK `1.1.0` (PyPI/npm source); engine, API, OpenAPI, Helm, control plane → **2.2.1**
 
 ### Notes
 - Single-tenant deployments unchanged when `tenantId` is omitted (keys remain `customer:{id}:*`)
+- Load test (3 TM, 12 parallelism, 2026-06-22): ~25K avg eps at 50K target tier; Redis Lua sink remains local bottleneck above ~100K sustained
 
 ---
 
@@ -157,7 +167,7 @@ Format: `[version] — date — summary`
 - Java engine version **1.1.0**
 
 ### Notes
-- Python SDK remains at `sdk/python` (`pip install fluxmeter` 1.0.0 on PyPI); JS SDK build with `cd sdk/js && npm run build`
+- Python SDK: `pip install fluxmeter` — **1.1.0 on PyPI** (2026-06-22); JS SDK build with `cd sdk/js && npm run build`
 
 ---
 
