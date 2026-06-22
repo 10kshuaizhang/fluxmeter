@@ -6,6 +6,19 @@ Format: `[version] — date — summary`
 
 ---
 
+## [2.2.0] — 2026-06-22
+
+### Added
+- **SaaS control plane** (`services/control-plane/`): FastAPI tenant CRUD on `:8001` — create/list/delete tenants, plan tiers (free/growth/scale/enterprise), API key provisioning, usage queries via shared Redis
+- **`docker-compose.saas.yml`**: Lite stack + control plane + password-protected Redis; `make start-saas` / `make stop-saas`
+- **Control plane tests** (`tests/test_control_plane.py`): tenant lifecycle and plan limit enforcement
+- **Stripe billing stub** (`services/control-plane/stripe_billing.py`): subscription creation scaffold for future webhook integration
+
+### Notes
+- Control plane shares Redis with main API for tenant-scoped rate limits (`tenant:{id}:max_eps`, `tenant:{id}:max_events_month`)
+
+---
+
 ## [2.1.0] — 2026-06-22
 
 ### Added

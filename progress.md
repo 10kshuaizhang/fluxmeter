@@ -2,7 +2,7 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history.
 
-**Current version:** 2.1.0
+**Current version:** 2.2.0
 **Current phase:** v2.0 — Production hardening (billing, pricing, ops)
 **Design status:** APPROVED (2026-06-16)
 
@@ -126,6 +126,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-06-22** — **Phase 5 dual-path**: SaaS control plane (`services/control-plane/`) — tenant CRUD, plan tiers, API key provisioning, usage endpoint; `docker-compose.saas.yml` + `make start-saas`. Version 2.2.0.
 - **2026-06-22** — **Phase 4 dual-path**: Stripe billing export (`billing_export.py`) reports hourly event counts to Stripe Meters API when `STRIPE_API_KEY` is set; admin `POST /admin/billing/{id}/link-stripe`; unit tests with mocked Stripe.
 - **2026-06-22** — **Phase 3 dual-path**: Background rollup worker (`rollup_worker.py`) compacts live counters into per-minute Redis hashes with 24h TTL; wired into API startup in lite mode; tests in `test_rollup.py`.
 - **2026-06-22** — **Phase 2 dual-path**: Atomic Lua lite aggregator (`lite_aggregate_lua.py`) with inline budget deduction; production tests (`test_lite_production.py`); lite `/ingest` returns cost/balance JSON. Version 2.1.0.

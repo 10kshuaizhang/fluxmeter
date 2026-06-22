@@ -62,12 +62,14 @@ start-full:
 stop:
 	docker compose down 2>/dev/null || true
 	docker compose -f docker-compose.full.yml down 2>/dev/null || true
+	docker compose -f docker-compose.saas.yml down 2>/dev/null || true
 
 # Clean build artifacts and containers
 clean: stop
 	./gradlew clean
 	docker compose down -v 2>/dev/null || true
 	docker compose -f docker-compose.full.yml down -v 2>/dev/null || true
+	docker compose -f docker-compose.saas.yml down -v 2>/dev/null || true
 
 # Validate open spec artifacts
 validate-spec:
@@ -117,3 +119,12 @@ generate:
 	NUM_THREADS=8 \
 	TARGET_EPS=1000000 \
 	java -cp $(JAR) io.fluxmeter.generator.LoadGenerator
+
+# --- SAAS MODE ---
+
+start-saas:
+	docker compose -f docker-compose.saas.yml up -d --build
+	@echo "SaaS stack started. API :8000, Control Plane :8001, Grafana :3000"
+
+stop-saas:
+	docker compose -f docker-compose.saas.yml down

@@ -30,7 +30,7 @@ from rollup_worker import rollup_loop
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="2.1.0",
+    version="2.2.0",
 )
 
 LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"

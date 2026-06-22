@@ -1,0 +1,66 @@
+# SaaS stack: extends lite with control plane service
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: fluxmeter-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --appendfsync everysec --requirepass ${REDIS_PASSWORD:-fluxmeter}
+    volumes:
+      - redis-saas-data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: fluxmeter-api
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-fluxmeter}
+      FLUXMETER_LITE_MODE: "true"
+      FLUXMETER_AUTH_OPTIONAL: "false"
+      BUDGET_FAIL_POLICY: "closed"
+      STRIPE_API_KEY: ${STRIPE_API_KEY:-}
+    depends_on:
+      - redis
+
+  control-plane:
+    build:
+      context: .
+      dockerfile: services/control-plane/Dockerfile
+    container_name: fluxmeter-control-plane
+    ports:
+      - "8001:8001"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-fluxmeter}
+      CP_ADMIN_KEY: ${CP_ADMIN_KEY:-cp_admin_test_key}
+      STRIPE_API_KEY: ${STRIPE_API_KEY:-}
+    depends_on:
+      - redis
+
+  grafana:
+    image: grafana/grafana:10.3.1
+    container_name: fluxmeter-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-fluxmeter}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_INSTALL_PLUGINS: redis-datasource
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - redis
+
+volumes:
+  redis-saas-data:
