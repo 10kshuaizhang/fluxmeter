@@ -2,7 +2,7 @@ FROM python:3.11-slim
 WORKDIR /app
 COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY api/main.py api/auth.py api/lite_aggregate.py api/lite_aggregate_lua.py api/budget_ops.py api/webhook_worker.py api/rollup_worker.py .
+COPY api/main.py api/auth.py api/lite_aggregate.py api/lite_aggregate_lua.py api/budget_ops.py api/webhook_worker.py api/rollup_worker.py api/billing_export.py .
 COPY spec /spec
 COPY config /config
 ENV FLUXMETER_OPENAPI_PATH=/spec/openapi/openapi.yaml

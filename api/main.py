@@ -24,6 +24,7 @@ from auth import (
 )
 from budget_ops import get_effective_balance, reconcile_hold, reserve_hold
 from lite_aggregate_lua import LiteAggregator
+from billing_export import billing_export_loop, link_customer_stripe
 from rollup_worker import rollup_loop
 
 app = FastAPI(
@@ -63,10 +64,12 @@ def get_lite_aggregator():
 
 
 @app.on_event("startup")
-async def start_rollup():
+async def start_background_tasks():
+    r = redis.Redis(connection_pool=pool)
     if LITE_MODE:
-        r = redis.Redis(connection_pool=pool)
         asyncio.create_task(rollup_loop(r))
+    if os.getenv("STRIPE_API_KEY"):
+        asyncio.create_task(billing_export_loop(r))
 
 
 # --- Layer 1: In-process budget cache (always available, 0.01ms) ---
@@ -744,6 +747,17 @@ def get_budget_webhook(customer_id: str):
     if not url:
         raise HTTPException(status_code=404, detail="Webhook not configured")
     return {"customer_id": customer_id, "webhook_url": url}
+
+
+@app.post("/admin/billing/{customer_id}/link-stripe")
+async def link_stripe(customer_id: str, body: dict, _=Depends(require_admin_key)):
+    """Link a customer to a Stripe customer for automatic usage billing."""
+    stripe_cid = body.get("stripe_customer_id")
+    if not stripe_cid:
+        raise HTTPException(400, "stripe_customer_id required")
+    r = redis.Redis(connection_pool=pool)
+    link_customer_stripe(r, customer_id, stripe_cid)
+    return {"linked": True, "customer_id": customer_id, "stripe_customer_id": stripe_cid}
 
 
 @app.post("/admin/customers/{customer_id}/api-keys", dependencies=[Depends(require_admin_key)])

@@ -12,6 +12,8 @@ Format: `[version] — date — summary`
 - **Atomic Lua lite aggregator** (`api/lite_aggregate_lua.py`): single-script idempotency, counter increments, global counters, and inline budget deduction (replaces non-atomic pipeline in lite mode)
 - **Background rollup worker** (`api/rollup_worker.py`): asyncio task compacts live counters into per-minute Redis hashes (24h TTL) and resets live counters every 60s in lite mode
 - **Rollup tests** (`tests/test_rollup.py`): counter compaction logic against Redis
+- **Stripe billing export** (`api/billing_export.py`): hourly usage reporting to Stripe Billing Meters API; admin endpoint `POST /admin/billing/{customer_id}/link-stripe`
+- **Billing export tests** (`tests/test_billing_export.py`): mocked Stripe, no infra required
 
 ### Changed
 - **`/ingest` and `/ingest/batch` (lite mode)**: return JSON with `status`, `cost_usd`, `balance_usd`; batch returns `{"results": [...]}`
