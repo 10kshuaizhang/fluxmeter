@@ -24,6 +24,7 @@ from auth import (
 )
 from budget_ops import get_effective_balance, reconcile_hold, reserve_hold
 from lite_aggregate_lua import LiteAggregator
+from rollup_worker import rollup_loop
 
 app = FastAPI(
     title="FluxMeter API",
@@ -59,6 +60,13 @@ def get_lite_aggregator():
         r = redis.Redis(connection_pool=pool)
         _lite_aggregator = LiteAggregator(r)
     return _lite_aggregator
+
+
+@app.on_event("startup")
+async def start_rollup():
+    if LITE_MODE:
+        r = redis.Redis(connection_pool=pool)
+        asyncio.create_task(rollup_loop(r))
 
 
 # --- Layer 1: In-process budget cache (always available, 0.01ms) ---

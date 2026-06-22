@@ -10,7 +10,8 @@ Format: `[version] — date — summary`
 
 ### Added
 - **Atomic Lua lite aggregator** (`api/lite_aggregate_lua.py`): single-script idempotency, counter increments, global counters, and inline budget deduction (replaces non-atomic pipeline in lite mode)
-- **Lite production tests** (`tests/test_lite_production.py`): atomicity, idempotency, batch ingest, inline budget deduction scenarios
+- **Background rollup worker** (`api/rollup_worker.py`): asyncio task compacts live counters into per-minute Redis hashes (24h TTL) and resets live counters every 60s in lite mode
+- **Rollup tests** (`tests/test_rollup.py`): counter compaction logic against Redis
 
 ### Changed
 - **`/ingest` and `/ingest/batch` (lite mode)**: return JSON with `status`, `cost_usd`, `balance_usd`; batch returns `{"results": [...]}`
