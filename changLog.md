@@ -6,6 +6,21 @@ Format: `[version] — date — summary`
 
 ---
 
+## [2.0.2] — 2026-06-22
+
+### Fixed
+- **Budget API 500**: `POST /budget/{id}` called `get_customer_budget()` directly; FastAPI `Header` default leaked as API key → `AttributeError`. Extracted `_fetch_customer_budget()` for internal reuse.
+
+### Changed
+- **Lite as default DX**: `docker-compose.yml` is lite stack; full Flink/Kafka stack in `docker-compose.full.yml`. `make demo` runs lite; `make demo-full` runs full stack. `demo-lite` / `start-lite` remain aliases.
+- **docker-compose.full.yml high-throughput profile**: 3 TaskManagers (4 slots × 5G each), Redis 4G + io-threads, Kafka 24 partitions + network tuning, `kafka-init` service; `mem_limit` + `restart: unless-stopped`
+- **Load test defaults**: `NUM_THREADS=8`, `FLINK_PARALLELISM=12`; Makefile `submit-job -p 12`
+
+### Notes
+- Local target: 100K eps sustained, 1M eps burst (Redis Lua sink remains bottleneck above ~100K avg)
+
+---
+
 ## [2.0.1] — 2026-06-21
 
 ### Added
@@ -87,7 +102,7 @@ Format: `[version] — date — summary`
 - **OpenCore repo split**: `spec/` (JSON Schema, OpenAPI, semantic conventions, pricing template)
 - **Community layer**: `contrib/` with provider mappings, pricing snapshot, CONTRIBUTING
 - **JavaScript SDK**: `sdk/js` (`@fluxmeter/client`) — HTTP ingest + optional Kafka
-- **Lite demo**: `docker-compose-lite.yml` + `make demo-lite` — Redis + API + Grafana, no Flink/Kafka
+- **Lite demo**: default `docker-compose.yml` + `make demo` — Redis + API + Grafana, no Flink/Kafka (`make demo-full` for Flink stack in `docker-compose.full.yml`)
 - **Lite aggregation**: `api/lite_aggregate.py` — per-event Redis counters matching full stack key schema
 - **Spec validation**: `scripts/validate-spec.sh`, `make validate-spec`
 - **Engine docs**: `src/README.md` — reference implementation boundary

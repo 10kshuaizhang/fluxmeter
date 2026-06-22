@@ -22,7 +22,7 @@ If your customers prepay for tokens and you need to cut them off the instant the
 | **SDKs** | [`sdk/python/`](sdk/python/), [`sdk/js/`](sdk/js/) | Python + JS clients |
 | **Community** | [`contrib/`](contrib/) | Provider mappings, pricing, connectors |
 | **Engine** | [`src/`](src/) | Flink reference implementation (aggregation, budget enforcement) |
-| **Demo** | `make demo-lite` or `make demo` | Lite (API→Redis) or Full (Kafka→Flink→Redis) |
+| **Demo** | `make demo` or `make demo-full` | Lite (API→Redis, default) or Full (Kafka→Flink→Redis) |
 
 ## Budget Enforcement (the core feature)
 
@@ -52,18 +52,18 @@ The pre-request check uses a three-layer resilience stack (in-process cache → 
 
 ## Quick Start
 
-**Lite** (1 minute, no Flink):
+**Lite** (1 minute, no Flink — default):
 
 ```bash
 git clone https://github.com/10kshuaizhang/fluxmeter.git
 cd fluxmeter
-make demo-lite
+make demo
 ```
 
 **Full** (Kafka + Flink + 1M eps benchmark):
 
 ```bash
-make demo
+make demo-full
 ```
 
 Starts Kafka, Flink, Redis, and the API. Open:
@@ -210,15 +210,18 @@ Estimated cost: ~$1,550/month for 100K events/sec on AWS.
 ## Makefile
 
 ```bash
-make demo-lite   # Lite: Redis + API + Grafana
-make demo        # Full: build + start + submit job + generate
-make start-lite  # Start lite stack only
-make start       # Start full infrastructure
-make submit-job  # Submit Flink job
+make demo        # Lite (default): Redis + API + Grafana
+make demo-full   # Full: build + start-full + submit job + generate
+make demo-lite   # Alias for make demo
+make start       # Start lite stack (default)
+make start-full  # Start full infrastructure (Kafka + Flink)
+make start-lite  # Alias for make start
+make submit-job  # Submit Flink job (full mode)
 make generate    # Run load generator (1M target, continuous)
 make load-test   # Staged load test 10K→1M
 make load-test-quick  # Staged 10K→500K
 make test-e2e    # Integration + v2 E2E tests
+make test-lite   # Lite production pytest suite
 make test-unit   # Auth unit tests (no stack)
 make benchmark   # Streaming vs batch comparison
 make validate-spec # Validate schema + OpenAPI artifacts

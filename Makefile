@@ -1,16 +1,18 @@
-.PHONY: build demo demo-lite start start-lite stop clean generate submit-job benchmark validate-spec
+.PHONY: build demo demo-full demo-lite start start-full start-lite start-saas stop-saas stop clean generate submit-job benchmark validate-spec load-test load-test-quick test-e2e test-lite test-unit
 
 JAR = $(shell ls -t build/libs/fluxmeter-*.jar 2>/dev/null | head -1)
 
-# Build the fat JAR
+# Build the fat JAR (only needed for full/Flink mode)
 build:
 	./gradlew shadowJar
 
-# Lite demo: Redis + API + Grafana (no Flink/Kafka)
-demo-lite: start-lite
+# --- LITE MODE (default) ---
+
+# One-command lite demo: Redis + API + Grafana
+demo: start
 	@echo ""
 	@echo "==================================="
-	@echo " FluxMeter Lite Demo Running!"
+	@echo " FluxMeter Demo Running (Lite Mode)"
 	@echo "==================================="
 	@echo " API:     http://localhost:8000/docs"
 	@echo " Grafana: http://localhost:3000 (admin/fluxmeter)"
@@ -19,14 +21,27 @@ demo-lite: start-lite
 	@echo "   -d '{\"customerId\":\"cust_1\",\"modelId\":\"gpt-4o\",\"inputTokens\":100,\"outputTokens\":50}'"
 	@echo "==================================="
 
-# One-command demo: build, start infra, submit job, run generator
-demo: build start
+# Backward-compatible alias
+demo-lite: demo
+
+# Start lite infrastructure (default)
+start:
+	docker compose up -d --build
+	@echo "Lite stack started. API aggregates directly to Redis (no Flink)."
+
+# Backward-compatible alias
+start-lite: start
+
+# --- FULL MODE (Kafka + Flink) ---
+
+# Full demo: build + start infra + submit job + run generator
+demo-full: build start-full
 	@echo "Waiting for Flink cluster to be ready..."
 	@sleep 10
 	@$(MAKE) submit-job
 	@echo ""
 	@echo "==================================="
-	@echo " FluxMeter Demo Running!"
+	@echo " FluxMeter Demo Running (Full Mode)"
 	@echo "==================================="
 	@echo " API:       http://localhost:8000/docs"
 	@echo " Flink UI:  http://localhost:8081"
@@ -36,32 +51,33 @@ demo: build start
 	@echo "==================================="
 	@$(MAKE) generate
 
-# Start lite infrastructure (Redis + API + Grafana)
-start-lite:
-	docker compose -f docker-compose-lite.yml up -d --build
-	@echo "Lite stack started. API aggregates directly to Redis (no Flink)."
+# Start full infrastructure (Kafka, Flink, Redis, API, Grafana)
+start-full:
+	docker compose -f docker-compose.full.yml up -d --build
+	@echo "Full stack started. Kafka, Flink, Redis, API, Grafana running."
 
-# Start all infrastructure
-start:
-	docker compose up -d --build
-	@echo "Infrastructure started. Kafka, Flink, Redis, API, Grafana running."
+# --- SHARED ---
 
 # Stop everything
 stop:
-	docker compose down
-	docker compose -f docker-compose-lite.yml down
+	docker compose down 2>/dev/null || true
+	docker compose -f docker-compose.full.yml down 2>/dev/null || true
 
 # Clean build artifacts and containers
 clean: stop
 	./gradlew clean
-	docker compose down -v
-	docker compose -f docker-compose-lite.yml down -v
+	docker compose down -v 2>/dev/null || true
+	docker compose -f docker-compose.full.yml down -v 2>/dev/null || true
 
 # Validate open spec artifacts
 validate-spec:
 	./scripts/validate-spec.sh
 
-# E2E: integration + v2 production-hardening scenarios (stack + Flink job required)
+# Tests
+test-lite:
+	pip install -q -r tests/requirements.txt
+	pytest tests/test_lite_production.py -v --timeout=60
+
 test-e2e:
 	pip install -q -r tests/requirements.txt
 	pytest tests/test_integration.py -v --timeout=300
@@ -71,15 +87,18 @@ test-unit:
 	pip install -q -r tests/requirements.txt
 	pytest tests/test_auth_unit.py -v
 
-# Submit the Flink job to the cluster
+# Submit the Flink job to the cluster (parallelism 12 = 4 TM × 4 slots, capped for local Redis)
+FLINK_PARALLELISM ?= 12
+
 submit-job:
 	docker cp $(JAR) fluxmeter-jobmanager:/opt/flink/fluxmeter.jar
 	docker exec fluxmeter-jobmanager flink run \
 		-d \
+		-p $(FLINK_PARALLELISM) \
 		-c io.fluxmeter.job.TokenUsageAggregator \
 		/opt/flink/fluxmeter.jar
 
-# Staged load test (10K → 1M eps bursts)
+# Staged load test (full mode, 10K → 1M eps bursts)
 load-test:
 	./scripts/load-test.sh
 
@@ -91,10 +110,10 @@ load-test-quick:
 benchmark:
 	./baseline/benchmark.sh
 
-# Run the load generator locally (requires Java 17)
+# Run the load generator locally (requires Java 17, full mode)
 generate:
 	KAFKA_BROKERS=localhost:9094 \
 	NUM_CUSTOMERS=10000 \
-	NUM_THREADS=4 \
+	NUM_THREADS=8 \
 	TARGET_EPS=1000000 \
 	java -cp $(JAR) io.fluxmeter.generator.LoadGenerator

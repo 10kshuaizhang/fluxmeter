@@ -2,7 +2,7 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history.
 
-**Current version:** 2.0.1
+**Current version:** 2.0.2
 **Current phase:** v2.0 — Production hardening (billing, pricing, ops)
 **Design status:** APPROVED (2026-06-16)
 
@@ -29,6 +29,10 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | v1.3 | External pricing catalog + API | Done |
 | v1.4 | Reconciliation job + DLQ replay | Done |
 | v2.0 | Helm + tiered pricing schema + monitoring rules | Done |
+| v2.2.0 | Phase 5 dual-path: SaaS control plane (tenant CRUD, plans, API keys) | Done |
+| v2.1.0 | Phase 2 dual-path: atomic Lua lite aggregator + inline budget | Done |
+| v2.1.0 | Phase 4 dual-path: Stripe billing export (Meters API) | Done |
+| v2.0.2 | Budget API fix, 4-TM high-throughput compose | Done |
 | v2.0.1 | E2E tests, load-test script, Flink aggregate fix | Done |
 
 ---
@@ -122,9 +126,11 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-06-22** — **Phase 1 dual-path**: Lite promoted to default (`docker-compose.yml`, `make demo`); full Flink stack in `docker-compose.full.yml` (`make demo-full`, `make start-full`). Makefile aliases `demo-lite`/`start-lite`; added `test-lite`.
+- **2026-06-22** — **v2.0.2**: Budget API 500 fix (`_fetch_customer_budget`); docker-compose.full.yml scaled to 3 TM / Redis 4G / Kafka 24 partitions for 100K–1M local load test profile.
 - **2026-06-21** — **v2.0.1**: E2E suite (`test_e2e_v2.py`), staged `scripts/load-test.sh`, Flink `UsageAggregateFunction` fix (job submit on 1.18), customer-key 403 regression fix.
 - **2026-06-21** — **v2.0.0**: Helm chart, tiered pricing schema, Prometheus alerts. v1.4 reconciliation + DLQ replay. v1.3 pricing catalog. v1.2 single-path billing, customer keys, webhooks.
-- **2026-06-21** — **OpenCore split**: `spec/`, `contrib/`, JS SDK, lite demo (`make demo-lite`), `api/lite_aggregate.py`. Version 1.1.0.
+- **2026-06-21** — **OpenCore split**: `spec/`, `contrib/`, JS SDK, lite demo (`make demo`, formerly `make demo-lite`), `api/lite_aggregate.py`. Version 1.1.0.
 - **2026-06-21** — **PyPI**: `fluxmeter==1.0.0` published — https://pypi.org/project/fluxmeter/
 - **2026-06-21** — Code review fixes #1–#4: WAL per-event ack + flush drain, Redis password wiring, Flink checkpoint volume permissions. Version 1.0.0-rc3.
 - **2026-06-21** — Code review remediation (15 findings): pricing fix, model normalization, WAL dedup, atomic BudgetEnforcerSink, API auth, docker-compose.prod.yml. Version 1.0.0-rc2.

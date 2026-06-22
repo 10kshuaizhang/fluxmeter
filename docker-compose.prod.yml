@@ -1,5 +1,5 @@
-# Production overlay — use with: docker compose -f docker-compose.yml -f docker-compose.prod.yml up
-# NOT compatible with `make demo` without setting secrets in .env
+# Production overlay — use with: docker compose -f docker-compose.full.yml -f docker-compose.prod.yml up
+# NOT compatible with `make demo-full` without setting secrets in .env
 
 version: '3.8'
 

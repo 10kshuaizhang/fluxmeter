@@ -55,14 +55,14 @@ That said, if you don't need sub-second enforcement, store-then-query is simpler
 - Demo mode allows unauthenticated API (`FLUXMETER_AUTH_OPTIONAL=true`); production overlay enforces keys — see `docker-compose.prod.yml`
 - Tiered pricing schema exists; engine uses first tier until monthly volume tracking ships
 - Session windows for agent spans can stay open if the agent never stops (60s gap)
-- Self-hosted: you run Kafka, Flink, Redis (or use `make demo-lite` for API-only)
+- Self-hosted: you run Kafka, Flink, Redis (or use `make demo` for API-only lite mode)
 
 **Stack:** Java 17 (Flink), Python (SDK + API), Kafka, Redis, Grafana.
 
 ```bash
-make demo-lite   # fastest: API → Redis
-make demo        # full: Kafka + Flink + load generator
-make load-test   # staged benchmark
+make demo        # default: API → Redis (lite)
+make demo-full   # Kafka + Flink + load generator
+make load-test   # staged benchmark (full mode)
 ```
 
 GitHub: https://github.com/10kshuaizhang/fluxmeter

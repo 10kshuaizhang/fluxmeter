@@ -14,8 +14,26 @@ Check API and Redis connectivity.
 
 **Response:** `200 OK`
 ```json
-{"status": "ok"}
+{"status": "ok", "mode": "full"}
 ```
+
+`mode` is `lite` when `FLUXMETER_LITE_MODE=true` (API aggregates directly to Redis, no Flink).
+
+---
+
+## Authentication
+
+Most endpoints require the `X-API-Key` header.
+
+| Key | Env var | Access |
+|-----|---------|--------|
+| Global read | `FLUXMETER_API_KEY` | Usage, ingest (demo), check, pricing |
+| Admin | `FLUXMETER_ADMIN_KEY` | Budget set/topup, rerate, reserve/reconcile, webhooks, pricing PUT |
+| Customer-scoped | Created via `POST /admin/customers/{id}/api-keys` | Ingest/check/usage for **that customer only** |
+
+Demo mode (`FLUXMETER_AUTH_OPTIONAL=true`, default in lite `docker-compose.yml` and full `docker-compose.full.yml`) allows unauthenticated access when keys are not configured. Production overlay (`docker-compose.prod.yml`, used with full stack) sets `FLUXMETER_AUTH_OPTIONAL=false`.
+
+**Errors:** `401` invalid/missing key · `403` customer key does not match `customerId` in request
 
 ---
 
@@ -24,6 +42,8 @@ Check API and Redis connectivity.
 ### `POST /ingest`
 
 Ingest a single token usage event. Alternative to the Python SDK or direct Kafka producer.
+
+**Auth:** API key or customer-scoped key (must match `customerId`)
 
 **Request body:**
 ```json
@@ -195,11 +215,21 @@ Get current budget status.
 {
   "customer_id": "cust_42",
   "balance_usd": 23.41,
+  "held_usd": 0.50,
+  "effective_balance_usd": 22.91,
+  "debt_usd": 0.0,
   "total_spent_usd": 26.59,
   "alert_threshold_usd": 5.0,
   "is_exhausted": false
 }
 ```
+
+| Field | Description |
+|-------|-------------|
+| `balance_usd` | Cash balance (only Flink Sink + topup/set mutate this) |
+| `held_usd` | Sum of active streaming reserves |
+| `effective_balance_usd` | `balance_usd - held_usd` (used by `/check`) |
+| `debt_usd` | Overdraft recorded when window cost exceeds balance (balance floors at 0) |
 
 **Error:** `404` if no budget configured for this customer.
 
@@ -254,6 +284,8 @@ Add credits to a customer's balance.
 
 Pre-request guardrail gate. Call BEFORE every LLM request. Returns in <10ms.
 
+Uses **effective balance** = `balance_usd - held_usd`. Active streaming reserves reduce what new calls can spend.
+
 **Query params:**
 - `estimated_cost_usd` (float, optional, default 0): Estimated cost of upcoming call
 
@@ -262,8 +294,11 @@ Pre-request guardrail gate. Call BEFORE every LLM request. Returns in <10ms.
 {
   "allowed": true,
   "balance_usd": 23.41,
+  "held_usd": 0.50,
+  "effective_balance_usd": 22.91,
   "reason": "ok",
-  "requests_this_minute": 5
+  "requests_this_minute": 5,
+  "source": "redis"
 }
 ```
 
@@ -272,10 +307,12 @@ Pre-request guardrail gate. Call BEFORE every LLM request. Returns in <10ms.
 | reason | meaning | action |
 |--------|---------|--------|
 | `ok` | All checks passed | Proceed with LLM call |
-| `budget_exhausted` | Balance <= 0 | Reject request, return 402 to user |
-| `insufficient_balance` | Balance < estimated_cost | Reject request |
+| `budget_exhausted` | Effective balance <= 0 | Reject request, return 402 to user |
+| `insufficient_balance` | Effective balance < estimated_cost | Reject request |
 | `rate_limited` | Exceeded max_rpm | Reject request, retry after 60s |
 | `no_budget_configured` | No budget set (enforcement disabled) | Proceed |
+
+`source` indicates which layer answered: `redis`, `cache`, or `policy` (fail-open/closed when Redis unavailable).
 
 **Additional fields when rate limited:**
 ```json
@@ -284,15 +321,42 @@ Pre-request guardrail gate. Call BEFORE every LLM request. Returns in <10ms.
   "balance_usd": null,
   "reason": "rate_limited",
   "requests_this_minute": 100,
-  "max_rpm": 100
+  "max_rpm": 100,
+  "source": "redis"
 }
 ```
 
 ---
 
+### Streaming billing flow (Module 6)
+
+Single-path deduction: **only the Flink Sink changes `balance_usd`**. Reserve/reconcile manage `held_usd` only.
+
+```
+Your app → GET /budget/cust_123/check (< 10ms)
+           → allowed: true → proceed with LLM call
+           → allowed: false → reject, return 402
+
+Streaming (optional):
+  POST /budget/cust_123/reserve  → holds estimate (balance unchanged)
+  → LLM stream → POST /ingest
+  → POST /budget/cust_123/reconcile → releases hold
+  (Flink Sink deducts actual cost in 10s windows — single path, no double-charge)
+
+After each LLM call:
+Your app → POST /ingest {customerId, modelId, inputTokens, outputTokens}
+           → Kafka → Flink (10s window) → Redis (atomic deduction) → Kafka alert / webhook
+```
+
+**Do not** expect `balance_usd` to drop on `reserve` or rise on `reconcile`. Actual cost is applied when the aggregation window closes in `BudgetEnforcerSink`.
+
+---
+
 ### `POST /budget/{customer_id}/reserve`
 
-Pessimistic pre-deduction for streaming responses. Deducts estimated cost BEFORE the LLM call starts.
+Reserve budget **hold** for streaming responses. Increases `held_usd` only — does **not** deduct `balance_usd`.
+
+**Auth:** Admin key
 
 **Query params:**
 - `estimated_cost_usd` (float, required, must be > 0)
@@ -301,17 +365,21 @@ Pessimistic pre-deduction for streaming responses. Deducts estimated cost BEFORE
 ```json
 {
   "allowed": true,
-  "balance_usd": 22.91,
+  "balance_usd": 50.0,
+  "held_usd": 0.50,
+  "effective_balance_usd": 49.50,
   "reserved_usd": 0.50,
   "reason": "reserved"
 }
 ```
 
-If balance < estimated_cost:
+If effective balance < estimate:
 ```json
 {
   "allowed": false,
-  "balance_usd": 0.30,
+  "balance_usd": 50.0,
+  "held_usd": 0.0,
+  "effective_balance_usd": 0.30,
   "reason": "insufficient_balance"
 }
 ```
@@ -320,22 +388,156 @@ If balance < estimated_cost:
 
 ### `POST /budget/{customer_id}/reconcile`
 
-Reconcile after streaming response completes. Credits back the difference between reserved and actual cost.
+Release hold after streaming completes. Does **not** credit or debit `balance_usd` (Flink Sink already deducted actual usage).
+
+**Auth:** Admin key
 
 **Query params:**
-- `reserved_usd` (float): Amount originally reserved
-- `actual_usd` (float): Actual cost of the completed call
+- `reserved_usd` (float): Amount originally reserved (released from `held_usd`)
+- `actual_usd` (float, optional): Actual cost for your logs; not used to adjust balance
+
+**Response:** `200 OK`
+```json
+{
+  "balance_usd": 49.92,
+  "held_usd": 0.0,
+  "released_usd": 0.50,
+  "reserved_usd": 0.50,
+  "actual_usd": 0.08
+}
+```
+
+---
+
+### `POST /budget/{customer_id}/webhook`
+
+Configure HTTPS webhook for `BUDGET_LOW` and `BUDGET_EXHAUSTED` alerts. Delivered by the `webhook-worker` service (consumes `budget-alerts` Kafka topic).
+
+**Auth:** Admin key
+
+**Request body:**
+```json
+{
+  "webhook_url": "https://your-app.com/hooks/fluxmeter",
+  "webhook_secret": "optional-hmac-secret"
+}
+```
 
 **Response:** `200 OK`
 ```json
 {
   "customer_id": "cust_42",
-  "balance_usd": 23.18,
-  "reserved_usd": 0.50,
-  "actual_usd": 0.23,
-  "credit_back_usd": 0.27
+  "webhook_url": "https://your-app.com/hooks/fluxmeter"
 }
 ```
+
+---
+
+### `GET /budget/{customer_id}/webhook`
+
+Return configured webhook URL for a customer.
+
+**Auth:** Admin key
+
+**Error:** `404` if webhook not configured.
+
+---
+
+## Pricing
+
+Pricing is loaded from `config/pricing.json` (or classpath `pricing.json`). Flink uses `PRICING_FILE` env; API can hot-update Redis snapshot.
+
+### `GET /pricing`
+
+Return current pricing catalog (Redis snapshot if set, else file).
+
+**Auth:** API key
+
+**Response:** `200 OK` — JSON matching `config/pricing.json` schema (`models`, `defaults`, `prefix_models`, optional `tiers`).
+
+---
+
+### `PUT /admin/pricing`
+
+Upload pricing JSON to Redis (`pricing:current`). Flink restart or file sync may be needed for engine to pick up changes immediately.
+
+**Auth:** Admin key
+
+**Request body:** Full pricing catalog JSON
+
+**Response:** `200 OK`
+```json
+{"status": "updated", "version": "1"}
+```
+
+---
+
+### `POST /admin/pricing/validate`
+
+Validate pricing JSON structure without applying.
+
+**Auth:** Admin key
+
+**Response:** `200 OK`
+```json
+{"status": "valid", "models": 11}
+```
+
+---
+
+## Admin
+
+### `POST /admin/customers/{customer_id}/api-keys`
+
+Create a customer-scoped API key for ingest and check.
+
+**Auth:** Admin key
+
+**Response:** `200 OK`
+```json
+{
+  "key_id": "uuid",
+  "api_key": "fm_live_...",
+  "customer_id": "cust_42"
+}
+```
+
+Store `api_key` securely — it is not shown again. Use header: `X-API-Key: fm_live_...`
+
+---
+
+### `DELETE /admin/api-keys/{key_id}`
+
+Revoke a customer API key.
+
+**Auth:** Admin key
+
+**Response:** `200 OK`
+```json
+{"key_id": "uuid", "revoked": true}
+```
+
+---
+
+### `GET /admin/reconciliation`
+
+Last balance reconciliation snapshot from `jobs/reconcile_balances.py`.
+
+**Auth:** Admin key
+
+**Response:** `200 OK`
+```json
+{
+  "timestamp": 1718534400000,
+  "customers_scanned": 120,
+  "drift_count": 0,
+  "drifts": []
+}
+```
+
+Returns `{"status": "no_data"}` if the reconciliation job has not run yet.
+
+Formula: `balance_usd` should equal `initial_balance + total_topup - total_deducted` (see Redis keys `budget:{id}:total_deducted_usd`).
 
 ---
 
@@ -399,9 +601,9 @@ Apply the pricing adjustment. Atomically updates all affected customer costs and
 
 ---
 
-## Budget Alerts (Kafka)
+## Budget Alerts (Kafka + Webhook)
 
-FluxMeter emits alerts to the `budget-alerts` Kafka topic. Subscribe to receive real-time enforcement signals.
+FluxMeter emits alerts to the `budget-alerts` Kafka topic when a window closes and budget crosses thresholds. If `POST /budget/{id}/webhook` is configured, the `webhook-worker` also POSTs to your HTTPS URL (optional HMAC via `X-FluxMeter-Signature`).
 
 ### Alert schema
 
@@ -409,7 +611,7 @@ FluxMeter emits alerts to the `budget-alerts` Kafka topic. Subscribe to receive 
 {
   "type": "BUDGET_EXHAUSTED",
   "customerId": "cust_42",
-  "remainingBalanceUsd": -0.17,
+  "remainingBalanceUsd": 0.0,
   "windowCostUsd": 0.96,
   "modelId": "o3-mini",
   "windowStart": 1718534460000,
@@ -417,6 +619,8 @@ FluxMeter emits alerts to the `budget-alerts` Kafka topic. Subscribe to receive 
   "timestamp": 1718534472000
 }
 ```
+
+When spend exceeds balance, `remainingBalanceUsd` is `0` and excess is recorded in `budget:{customerId}:debt_usd`.
 
 ### Alert types
 
@@ -461,6 +665,8 @@ All error responses follow this format:
 | Status | Meaning |
 |--------|---------|
 | 400 | Invalid input (negative amount, batch too large) |
+| 401 | Invalid or missing API key |
+| 403 | Customer API key not authorized for this `customerId` |
 | 404 | Resource not found (customer, budget, span) |
 | 500 | Internal error (Redis down, Kafka unreachable) |
 

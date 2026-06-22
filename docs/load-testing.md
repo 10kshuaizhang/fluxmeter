@@ -6,7 +6,7 @@ FluxMeter includes a Java Kafka load generator and a staged benchmark script.
 
 ```bash
 make build
-make start && sleep 15 && make submit-job
+make start-full && sleep 15 && make submit-job
 
 # Staged tiers: 10K → 50K → 100K → 500K → 1M eps (15s each)
 make load-test
@@ -31,24 +31,35 @@ Environment variables:
 |----------|---------|-------------|
 | `KAFKA_BROKERS` | `localhost:9094` | Host-facing Kafka port |
 | `NUM_CUSTOMERS` | `10000` | Synthetic customer pool |
-| `NUM_THREADS` | `4` | Producer threads |
+| `NUM_THREADS` | `8` | Producer threads |
+| `FLINK_PARALLELISM` | `12` | Flink job parallelism |
 | `DURATION_SEC` | `20` | Seconds per tier |
 | `QUICK` | `0` | Set `1` to skip 1M tier |
 
-## Reference results (2026-06-21)
+## Reference results (2026-06-22)
 
-MacBook docker-compose, single TaskManager (4 slots), `fluxmeter-2.0.1`:
+MacBook docker-compose, **3 TaskManagers × 4 slots**, parallelism 12, `fluxmeter-2.0.2`:
 
 | Target EPS | Avg EPS | Peak EPS | Notes |
 |------------|---------|----------|-------|
-| 10K | ~9.3K | ~18K | Stable |
-| 50K | ~49K | ~92K | Stable |
-| 100K | varies | varies | Warm Kafka between tiers |
-| 500K+ | ~40–45K | ~67–88K | Local Redis/Flink bound |
+| 10K | ~98% | ~23K | Stable |
+| 50K | ~96% | ~130K | Stable |
+| 100K | target | varies | Requires scaled compose (see docker-compose.full.yml) |
+| 500K–1M | burst | ~145K+ | Local Redis Lua sink bound; peak bursts OK |
 
-Pipeline verified: `global:total_events` and `last_window_end` advance during load.
+Prior run (2026-06-21, 1 TM): 50K stable; 100K+ Redis-bound.
 
 For 500K+ sustained throughput, use multiple TaskManagers, more slots, and production Kafka/Redis (see [production-deploy.md](production-deploy.md)).
+
+### High-throughput local profile
+
+`docker-compose.full.yml` defaults to 3 TaskManagers (12 slots), Redis 4G + io-threads, Kafka 24 partitions:
+
+```bash
+make start-full     # ~12 GB RAM recommended
+make submit-job     # parallelism 12
+NUM_THREADS=8 make load-test
+```
 
 ## Generator internals
 

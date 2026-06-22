@@ -280,7 +280,7 @@ Built-in auth via `X-API-Key` header (see `api/auth.py`):
 Production deploy:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+docker compose -f docker-compose.full.yml -f docker-compose.prod.yml up
 # Requires .env: REDIS_PASSWORD (used by API + Flink sinks), FLUXMETER_API_KEY,
 # FLUXMETER_ADMIN_KEY, GRAFANA_ADMIN_PASSWORD, CLICKHOUSE_PASSWORD
 ```

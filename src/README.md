@@ -21,7 +21,7 @@ This is the **reference implementation** of the open spec in [`spec/`](../spec/)
 
 ## Not required for adoption
 
-Integrators can consume `token-events` JSON with any stream processor, or use **lite mode** (`make demo-lite`) which aggregates in the API layer without Flink.
+Integrators can consume `token-events` JSON with any stream processor, or use **lite mode** (`make demo`, alias `make demo-lite`) which aggregates in the API layer without Flink.
 
 ## Performance-critical internals
 

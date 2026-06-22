@@ -31,8 +31,8 @@ if ! docker pull redis:7-alpine >/dev/null 2>&1; then
 fi
 
 echo "==> Starting stack with prod overlay..."
-docker compose -f docker-compose.yml -f docker-compose.prod.yml down -v 2>/dev/null || true
-docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.full.yml -f docker-compose.prod.yml down -v 2>/dev/null || true
+docker compose --env-file "$ENV_FILE" -f docker-compose.full.yml -f docker-compose.prod.yml up -d --build
 
 echo "==> Waiting for services (50s)..."
 sleep 50
