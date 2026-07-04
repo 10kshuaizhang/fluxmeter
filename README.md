@@ -1,6 +1,12 @@
 # FluxMeter
 
-Open source real-time metering and budget enforcement for AI token billing.
+**Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Docs:** [fluxmeter.dev/docs](https://fluxmeter.dev/docs) · **Blog:** [Agent cost control](https://fluxmeter.dev/blog/stop-runaway-agent-costs)
+
+Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request — sub-10ms latency, 1M+ events/sec in Full mode. Built for agent loops and prepaid token products where batch billing is too slow.
+
+**When to use FluxMeter:** prepaid token wallets, agent loop cost control, self-hosted LLM metering, export to Stripe/Lago/Orb/Metronome.
+
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 **[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v2.5.0** · **Open spec + SDKs** · **1M+ events/sec** · **<10ms budget check** · **Multi-provider**
 

@@ -22,6 +22,7 @@ Format: `[version] — date — summary`
 - **Version alignment**: engine, API, OpenAPI, Helm, control plane → **2.5.0**
 - **Phase 2 ROADMAP** items marked complete (tier pricing shipped in 2.4.0)
 - **Link audit**: README/SDK metadata — `fluxmeter.dev` for marketing site only; technical docs → GitHub `docs/`; PyPI `Documentation` URL fixed (was duplicate homepage)
+- **README / PyPI positioning**: marketing snippet at README top (website + blog links, use-case line, license badge); PyPI `description` + `keywords` synced from marketing snippet
 
 ---
 

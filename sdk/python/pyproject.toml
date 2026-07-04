@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "fluxmeter"
 version = "1.2.0"
-description = "Python SDK for FluxMeter — streaming metering for AI token billing"
+description = "Real-time AI token metering and pre-request budget enforcement. Self-hostable, sub-10ms checks, Apache 2.0."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.9"
 authors = [{ name = "FluxMeter", email = "hello@fluxmeter.dev" }]
-keywords = ["ai", "llm", "metering", "billing", "tokens", "openai", "anthropic", "streaming"]
+keywords = ["llm", "ai", "token-metering", "billing", "budget", "agents", "openai", "self-hosted", "kafka", "flink"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
