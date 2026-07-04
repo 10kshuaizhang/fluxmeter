@@ -290,7 +290,7 @@ span:{span_id}:*                        # agent run (24h TTL)
 | `FLUXMETER_SESSION_TTL_SEC` | `7776000` (90d) | Session counter TTL |
 | `FLUXMETER_DAY_BUCKET_TTL_SEC` | `34560000` (~400d) | Daily rollup hash TTL |
 
-Period/day buckets accumulate from deploy forward; no historical backfill. Full-mode `sessionId` aggregation applies on lite `/ingest` only — use `parentSpanId` + span queries on the Kafka/Flink path.
+Period/day buckets accumulate from deploy forward; no historical backfill. Lite `/ingest` aggregates **`sessionId`** and **`parentSpanId`** (span queries, v2.6.2+).
 
 ---
 

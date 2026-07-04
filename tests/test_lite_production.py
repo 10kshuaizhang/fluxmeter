@@ -11,8 +11,7 @@ import httpx
 import pytest
 import redis
 
-API = "http://localhost:8000"
-TIMEOUT = httpx.Timeout(10.0)
+from helpers import API, TIMEOUT
 
 
 @pytest.fixture(scope="module")
@@ -190,3 +189,130 @@ class TestTenantIsolation:
         assert int(r.get(f"tenant:{tid_a}:customer:{cid}:input_tokens") or 0) == 100
         assert int(r.get(f"tenant:{tid_b}:customer:{cid}:input_tokens") or 0) == 200
         assert r.get(f"customer:{cid}:input_tokens") is None
+
+
+class TestBillingQueries:
+    """v2.6.1 period/day/session billing query endpoints."""
+
+    def test_session_aggregates_on_ingest(self, r):
+        cid = f"test_sess_{uuid.uuid4().hex[:8]}"
+        sid = f"sess_{uuid.uuid4().hex[:8]}"
+
+        for model, inp, out, reasoning in (
+            ("gpt-4o", 1000, 400, 0),
+            ("claude-sonnet-4", 600, 200, 100),
+        ):
+            event = make_event(cid, model_id=model, input_tokens=inp, output_tokens=out)
+            event["sessionId"] = sid
+            if reasoning:
+                event["reasoningTokens"] = reasoning
+            resp = httpx.post(f"{API}/ingest", json=event, timeout=TIMEOUT)
+            assert resp.status_code == 202
+
+        resp = httpx.get(f"{API}/usage/session/{sid}", timeout=TIMEOUT)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["customer_id"] == cid
+        assert data["event_count"] == 2
+        assert data["input_tokens"] == 1600
+        assert data["output_tokens"] == 600
+        assert data["reasoning_tokens"] == 100
+        assert data["total_tokens"] == 2300  # input + output + reasoning
+        assert data["cost_usd"] > 0
+
+    def test_span_aggregates_on_ingest(self, r):
+        cid = f"test_span_{uuid.uuid4().hex[:8]}"
+        span_id = f"job_{uuid.uuid4().hex[:8]}"
+        base_ts = int(time.time() * 1000)
+
+        for i, (model, inp, out) in enumerate(
+            (("gpt-4o", 1000, 400), ("gpt-4o-mini", 600, 200), ("claude-haiku-4", 300, 100))
+        ):
+            event = make_event(cid, model_id=model, input_tokens=inp, output_tokens=out)
+            event["parentSpanId"] = span_id
+            event["timestamp"] = base_ts + i * 5000
+            resp = httpx.post(f"{API}/ingest", json=event, timeout=TIMEOUT)
+            assert resp.status_code == 202
+
+        resp = httpx.get(f"{API}/usage/span/{span_id}", timeout=TIMEOUT)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["customer_id"] == cid
+        assert data["call_count"] == 3
+        assert data["total_tokens"] == 2600  # (1000+400) + (600+200) + (300+100)
+        assert data["cost_usd"] > 0
+        assert data["duration_ms"] == 10000  # 2 gaps × 5000ms
+
+        top = httpx.get(f"{API}/usage/customer/{cid}/spans?limit=5", timeout=TIMEOUT)
+        assert top.status_code == 200
+        spans = top.json()
+        assert any(s["span_id"] == span_id for s in spans)
+
+    def test_span_not_found_404(self):
+        resp = httpx.get(f"{API}/usage/span/span_nonexistent_{uuid.uuid4().hex}", timeout=TIMEOUT)
+        assert resp.status_code == 404
+
+    def test_session_not_found_404(self):
+        resp = httpx.get(f"{API}/usage/session/sess_nonexistent_{uuid.uuid4().hex}", timeout=TIMEOUT)
+        assert resp.status_code == 404
+
+    def test_period_and_day_after_rollup(self, r):
+        import sys
+        sys.path.insert(0, "api")
+        from pricing_loader import billing_period_day, billing_period_month
+        from rollup_worker import rollup_customer_minute
+
+        cid = f"test_period_{uuid.uuid4().hex[:8]}"
+        event = make_event(cid, input_tokens=2000, output_tokens=800)
+        httpx.post(f"{API}/ingest", json=event, timeout=TIMEOUT)
+
+        now_ms = int(time.time() * 1000)
+        period = billing_period_month(now_ms)
+        day = billing_period_day(now_ms)
+        rollup_customer_minute(r, cid, int(time.time()))
+
+        period_resp = httpx.get(f"{API}/usage/customer/{cid}/period/{period}", timeout=TIMEOUT)
+        assert period_resp.status_code == 200
+        period_data = period_resp.json()
+        assert period_data["bucket"] == period
+        assert period_data["input_tokens"] == 2000
+        assert period_data["event_count"] == 1
+
+        day_resp = httpx.get(f"{API}/usage/customer/{cid}/day/{day}", timeout=TIMEOUT)
+        assert day_resp.status_code == 200
+        day_data = day_resp.json()
+        assert day_data["bucket"] == day
+        assert day_data["input_tokens"] == 2000
+
+    def test_period_invalid_format_400(self):
+        resp = httpx.get(f"{API}/usage/customer/cust_x/period/2026-7", timeout=TIMEOUT)
+        assert resp.status_code == 400
+
+    def test_day_invalid_format_400(self):
+        resp = httpx.get(f"{API}/usage/customer/cust_x/day/2026-07-5", timeout=TIMEOUT)
+        assert resp.status_code == 400
+
+    def test_period_missing_404(self):
+        resp = httpx.get(f"{API}/usage/customer/cust_missing/period/2099-01", timeout=TIMEOUT)
+        assert resp.status_code == 404
+
+
+class TestDomesticModelPricing:
+    """v2.6.0 Chinese domestic models — lite ingest cost path."""
+
+    def test_hunyuan_lite_zero_cost(self, r):
+        cid = f"test_hy_{uuid.uuid4().hex[:8]}"
+        event = make_event(cid, model_id="hunyuan-lite", input_tokens=5000, output_tokens=2000)
+        resp = httpx.post(f"{API}/ingest", json=event, timeout=TIMEOUT)
+        assert resp.status_code == 202
+        body = resp.json()
+        assert body.get("cost_usd", -1) == 0.0
+        assert float(r.get(f"customer:{cid}:cost_usd") or 0) == 0.0
+
+    def test_deepseek_v4_flash_priced(self, r):
+        cid = f"test_ds_{uuid.uuid4().hex[:8]}"
+        event = make_event(cid, model_id="deepseek-v4-flash", input_tokens=1_000_000, output_tokens=0)
+        resp = httpx.post(f"{API}/ingest", json=event, timeout=TIMEOUT)
+        assert resp.status_code == 202
+        cost = float(r.get(f"customer:{cid}:cost_usd") or 0)
+        assert 0.13 < cost < 0.15  # $0.14/M input

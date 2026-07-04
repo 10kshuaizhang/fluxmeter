@@ -20,7 +20,7 @@ from pricing_loader import (
     reload_catalog,
 )
 from tenant_keys import budget_prefix, customer_prefix, global_key
-from usage_buckets import increment_session
+from usage_buckets import increment_session, increment_span
 
 # KEYS: [1]=idemp, [2]=customer, [3]=model, [4]=budget_bal, [5]=budget_thresh,
 #       [6]=global_prefix, [7]=period_volume, [8]=package_tokens
@@ -310,6 +310,18 @@ class LiteAggregator:
                 cost_usd=cost_usd,
                 cache_read_tokens=cache_read,
                 reasoning_tokens=reasoning,
+            )
+
+        parent_span_id = event.get("parentSpanId")
+        if parent_span_id:
+            increment_span(
+                self._redis,
+                tenant_id,
+                customer_id,
+                parent_span_id,
+                total_tokens=total_t,
+                cost_usd=cost_usd,
+                event_ts_ms=now_ms,
             )
 
         response = {"status": "ok", "cost_usd": cost_usd}

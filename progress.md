@@ -2,7 +2,7 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 2.6.1
+**Current version:** 2.6.2
 **Current phase:** v2.4 — Billing depth (Phase 2 complete)
 **Design status:** APPROVED (2026-06-16)
 
@@ -151,6 +151,10 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 ---
 
 ## Recent Activity
+
+- **2026-07-05** — **客户故事文档**：[`docs/customer-stories-lite.md`](docs/customer-stories-lite.md) — TokenBridge / ClipLive SaaS 风格 Use Case + 4 周并行实施方案。
+- **2026-07-05** — **v2.6.2 Lite span**：`parentSpanId` ingest → `increment_span` + E2E tests；客户 B 剪辑任务可 `GET /usage/span/{job_id}`。
+- **2026-07-05** — **客户接入文档**：[`docs/customer-integration-lite.md`](docs/customer-integration-lite.md) — Token 中转站 + 直播 AI 剪辑 Lite 实施方案；Review 缺口（webhook、metadata、双账本、Python HTTP SDK）。
 
 - **2026-07-05** — **v2.6.1 billing queries**: period/day/session usage endpoints; rollup day buckets; lite `sessionId` aggregation; Flink `RedisSink` month/day hashes; docs/OpenAPI/Helm synced.
 - **2026-07-05** — **v2.6.0 Chinese domestic models**: 20-model pricing catalog, SDK `track_*()` for 8 providers, contrib provider docs + `china-2026-07.json` reference.

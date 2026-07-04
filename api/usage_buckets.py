@@ -8,9 +8,11 @@ from typing import Any
 import redis
 
 from pricing_loader import billing_period_day, billing_period_month
+from tenant_keys import customer_prefix
 
 DAY_BUCKET_TTL = int(os.getenv("FLUXMETER_DAY_BUCKET_TTL_SEC", str(400 * 86400)))
 SESSION_TTL_SEC = int(os.getenv("FLUXMETER_SESSION_TTL_SEC", str(90 * 86400)))
+SPAN_TTL_SEC = int(os.getenv("FLUXMETER_SPAN_TTL_SEC", str(86400)))  # 24h — matches SpanSink.java
 
 BUCKET_FIELDS = (
     "input_tokens",
@@ -80,6 +82,49 @@ def increment_session(
     pipe.execute()
 
 
+def increment_span(
+    r: redis.Redis,
+    tenant_id: str | None,
+    customer_id: str,
+    span_id: str,
+    *,
+    total_tokens: int,
+    cost_usd: float,
+    event_ts_ms: int,
+) -> None:
+    """Accumulate usage for an agent run (lite ingest; key = parentSpanId)."""
+    key = f"span:{span_id}"
+    cust_key = customer_prefix(tenant_id, customer_id)
+    pipe = r.pipeline()
+    pipe.set(f"{key}:customer_id", customer_id, ex=SPAN_TTL_SEC)
+    pipe.incrby(f"{key}:total_tokens", total_tokens)
+    pipe.incrbyfloat(f"{key}:cost_usd", cost_usd)
+    pipe.incr(f"{key}:call_count")
+    for suffix in ("total_tokens", "cost_usd", "call_count", "duration_ms"):
+        pipe.expire(f"{key}:{suffix}", SPAN_TTL_SEC)
+    pipe.execute()
+
+    # ponytail: min/max timestamps — rare races on concurrent same-span events; upgrade: Lua
+    first_key = f"{key}:first_ts"
+    last_key = f"{key}:last_ts"
+    first = r.get(first_key)
+    if first is None or event_ts_ms < int(first):
+        r.set(first_key, event_ts_ms, ex=SPAN_TTL_SEC)
+    last = r.get(last_key)
+    if last is None or event_ts_ms > int(last):
+        r.set(last_key, event_ts_ms, ex=SPAN_TTL_SEC)
+    first_v = int(r.get(first_key) or event_ts_ms)
+    last_v = int(r.get(last_key) or event_ts_ms)
+    duration = max(0, last_v - first_v)
+    r.set(f"{key}:duration_ms", duration, ex=SPAN_TTL_SEC)
+    r.expire(first_key, SPAN_TTL_SEC)
+    r.expire(last_key, SPAN_TTL_SEC)
+
+    total_cost = float(r.get(f"{key}:cost_usd") or 0)
+    r.zadd(f"{cust_key}:spans", {span_id: total_cost})
+    r.expire(f"{cust_key}:spans", SPAN_TTL_SEC)
+
+
 def read_session(r: redis.Redis, session_id: str) -> dict[str, Any] | None:
     key = f"session:{session_id}"
     if r.get(f"{key}:cost_usd") is None and r.get(f"{key}:event_count") is None:
@@ -101,7 +146,9 @@ __all__ = [
     "rollup_day_key",
     "read_usage_bucket",
     "increment_session",
+    "increment_span",
     "read_session",
     "DAY_BUCKET_TTL",
     "SESSION_TTL_SEC",
+    "SPAN_TTL_SEC",
 ]

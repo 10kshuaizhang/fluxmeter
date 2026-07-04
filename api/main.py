@@ -33,7 +33,7 @@ from usage_buckets import read_session, read_usage_bucket, rollup_day_key, rollu
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="2.6.1",
+    version="2.6.2",
 )
 
 LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"

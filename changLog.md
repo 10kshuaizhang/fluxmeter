@@ -6,6 +6,20 @@ Format: `[version] — date — summary`
 
 ---
 
+## [2.6.2] — 2026-07-05
+
+### Added
+- **Lite span aggregation**: `parentSpanId` on `/ingest` increments `span:{id}:*` counters (mirrors Flink `SpanSink` schema); `GET /usage/span/{id}` and `/usage/customer/{id}/spans` work on Lite path
+- **`usage_buckets.increment_span`**: 24h TTL, customer ZSET by cost, duration from first/last event timestamps
+
+### Changed
+- **Docs**: [customer-integration-lite.md](docs/customer-integration-lite.md) §6.1 marked shipped; api-reference billing guide notes Lite span support
+
+### Notes
+- Span keys use INCRBY (per-event delta); Full Flink path still SETs window totals — query API shape is identical
+
+---
+
 ## [2.6.1] — 2026-07-05
 
 ### Added
