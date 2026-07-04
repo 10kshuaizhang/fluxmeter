@@ -6,6 +6,22 @@ Format: `[version] — date — summary`
 
 ---
 
+## [2.6.1] — 2026-07-05
+
+### Added
+- **Period/day usage queries**: `GET /usage/customer/{id}/period/{YYYY-MM}`, `GET /usage/customer/{id}/day/{YYYY-MM-DD}` — reads Redis rollup buckets (lite rollup worker + Flink `RedisSink`)
+- **Session usage query**: `GET /usage/session/{id}` — lite ingest aggregates by `sessionId` (90d TTL, configurable)
+- **`api/usage_buckets.py`**: shared rollup key helpers and session counters
+
+### Changed
+- **Docs / OpenAPI**: period, day, session query endpoints; billing query guide; semantic conventions; integrations table
+
+### Notes
+- Full-mode session aggregation still lite-only on ingest; Kafka/Flink path unchanged (use `parentSpanId` for tasks)
+- Day/month buckets accumulate from deploy forward; no historical backfill
+
+---
+
 ## [2.6.0] — 2026-07-05
 
 ### Added

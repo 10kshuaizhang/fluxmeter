@@ -8,11 +8,16 @@ import java.time.format.DateTimeFormatter;
 public final class BillingPeriod {
 
     private static final DateTimeFormatter MONTH = DateTimeFormatter.ofPattern("yyyy-MM");
+    private static final DateTimeFormatter DAY = DateTimeFormatter.ISO_LOCAL_DATE;
 
     private BillingPeriod() {}
 
     public static String monthUtc(long timestampMs) {
         return Instant.ofEpochMilli(timestampMs).atZone(ZoneOffset.UTC).format(MONTH);
+    }
+
+    public static String dayUtc(long timestampMs) {
+        return Instant.ofEpochMilli(timestampMs).atZone(ZoneOffset.UTC).format(DAY);
     }
 
     /** customer_model scope monthly volume counter key. */

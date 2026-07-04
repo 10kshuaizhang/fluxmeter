@@ -99,7 +99,7 @@ spec:
       cpu: 2
     replicas: 4
   job:
-    jarURI: s3://your-bucket/fluxmeter/fluxmeter-2.5.0.jar
+    jarURI: s3://your-bucket/fluxmeter/fluxmeter-2.6.1.jar
     entryClass: io.fluxmeter.job.TokenUsageAggregator
     parallelism: 8
     args:
@@ -184,6 +184,14 @@ Per customer:
 Per span (24h TTL):
   ~5 keys × ~50 bytes = 250 bytes per active span
 
+Per session (90d TTL, lite ingest):
+  ~8 keys × ~50 bytes = 400 bytes per active session
+
+Rollup buckets (month ~400d TTL, day ~400d TTL):
+  rollup:{customer}:period:{YYYY-MM}  — hash, ~7 fields
+  rollup:{customer}:d:{YYYY-MM-DD}    — hash, ~7 fields
+  One month + one day hash per customer with activity in that window
+
 Idempotency keys (1h TTL):
   ~100 bytes per window result
   At 10K customers × 9 models × 6 windows/minute = ~540K keys/minute
@@ -231,7 +239,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: your-registry/fluxmeter-api:2.5.0
+          image: your-registry/fluxmeter-api:2.6.1
           ports:
             - containerPort: 8000
           env:

@@ -77,8 +77,35 @@ public class RedisSink extends RichSinkFunction<UsageAggregate> {
                     agg.getTenantId(), agg.getCustomerId(), agg.getModelId(), agg.getWindowEnd());
             pipe.incrBy(periodKey, agg.getTotalTokens());
 
+            // Calendar month/day rollup buckets (query API period/day endpoints)
+            writeRollupBucket(pipe, agg.getCustomerId(), agg.getWindowEnd(), agg);
+
             pipe.sync();
         }
+    }
+
+    /** Mirrors api/rollup_worker.py month/day hash keys for full-mode period queries. */
+    private static void writeRollupBucket(Pipeline pipe, String customerId, long windowEndMs, UsageAggregate agg) {
+        String rollupBase = "rollup:" + customerId;
+        String monthKey = rollupBase + ":period:" + BillingPeriod.monthUtc(windowEndMs);
+        String dayKey = rollupBase + ":d:" + BillingPeriod.dayUtc(windowEndMs);
+        writeRollupHash(pipe, monthKey, agg, 34560000);
+        writeRollupHash(pipe, dayKey, agg, 34560000);
+    }
+
+    private static void writeRollupHash(Pipeline pipe, String hashKey, UsageAggregate agg, int ttlSec) {
+        pipe.hincrBy(hashKey, "input_tokens", agg.getInputTokens());
+        pipe.hincrBy(hashKey, "output_tokens", agg.getOutputTokens());
+        pipe.hincrBy(hashKey, "total_tokens", agg.getTotalTokens());
+        pipe.hincrBy(hashKey, "event_count", agg.getEventCount());
+        pipe.hincrByFloat(hashKey, "cost_usd", agg.getCostUsd());
+        if (agg.getCacheReadTokens() > 0) {
+            pipe.hincrBy(hashKey, "cache_read_tokens", agg.getCacheReadTokens());
+        }
+        if (agg.getReasoningTokens() > 0) {
+            pipe.hincrBy(hashKey, "reasoning_tokens", agg.getReasoningTokens());
+        }
+        pipe.expire(hashKey, ttlSec);
     }
 
     @Override

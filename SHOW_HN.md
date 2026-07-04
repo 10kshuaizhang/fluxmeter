@@ -65,7 +65,8 @@ Some implementation details:
 - External pricing config via JSON + admin API
 - Microdollar precision using integer arithmetic
 - Multi-provider token normalization
-- Agent span attribution for grouping multi-call tool/agent runs
+- Agent span attribution for grouping multi-call tool/agent runs (`GET /usage/span/{id}`)
+- Period/day/session billing queries for customer portals (v2.6.1, Redis rollup buckets)
 - Retroactive re-rating for provider price changes
 - Stripe Billing Meters export
 - Helm chart, Prometheus alerts, DR runbook

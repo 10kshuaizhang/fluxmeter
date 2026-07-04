@@ -126,6 +126,60 @@ Global aggregated usage across all customers.
 
 ---
 
+### `GET /usage/customer/{customer_id}/period/{period}`
+
+Calendar-month usage for a customer (UTC `YYYY-MM`). Populated by the lite rollup worker and Flink `RedisSink`.
+
+**Response:** `200 OK`
+```json
+{
+  "customer_id": "cust_42",
+  "bucket": "2026-07",
+  "total_tokens": 6603839,
+  "input_tokens": 4201000,
+  "output_tokens": 2102839,
+  "cache_read_tokens": 21180,
+  "reasoning_tokens": 543556,
+  "event_count": 7972,
+  "cost_usd": 26.71
+}
+```
+
+**Error:** `404` if no usage in that month · `400` if period format invalid
+
+---
+
+### `GET /usage/customer/{customer_id}/day/{date}`
+
+Daily usage for a customer (UTC `YYYY-MM-DD`).
+
+**Response:** Same shape as period endpoint; `bucket` is the date string.
+
+**Error:** `404` if no usage on that day · `400` if date format invalid
+
+---
+
+### `GET /usage/session/{session_id}`
+
+Aggregated usage for a conversation/project session. Requires `sessionId` on ingest (lite path increments session counters).
+
+**Response:** `200 OK`
+```json
+{
+  "session_id": "sess_123",
+  "customer_id": "cust_42",
+  "total_tokens": 12500,
+  "input_tokens": 8000,
+  "output_tokens": 4500,
+  "event_count": 12,
+  "cost_usd": 0.18
+}
+```
+
+**Error:** `404` if session not found (default TTL 90 days, `FLUXMETER_SESSION_TTL_SEC`)
+
+---
+
 ### `GET /usage/customer/{customer_id}`
 
 Per-customer usage breakdown.
@@ -203,6 +257,40 @@ Top N most expensive agent spans for a customer, sorted by cost descending.
 ```
 
 Returns empty array if no spans found.
+
+---
+
+## Billing query guide
+
+Map common product surfaces to API calls (all Redis-backed; no separate DB required):
+
+| Product surface | Ingest field | Query |
+|-----------------|--------------|-------|
+| Account balance / lifetime spend | — | `GET /budget/{id}`, `GET /usage/customer/{id}` |
+| Monthly statement | — | `GET /usage/customer/{id}/period/{YYYY-MM}` |
+| Today's usage | — | `GET /usage/customer/{id}/day/{YYYY-MM-DD}` |
+| Per-model lifetime | — | `GET /usage/customer/{id}/model/{model}` |
+| One agent / task run | `parentSpanId` | `GET /usage/span/{id}` |
+| Conversation / project | `sessionId` | `GET /usage/session/{id}` (lite ingest) |
+| Top expensive runs | `parentSpanId` | `GET /usage/customer/{id}/spans?limit=N` |
+
+**Rollup bucket keys** (internal; populated by lite rollup worker + Flink `RedisSink`):
+
+```
+rollup:{customer_id}:period:{YYYY-MM}   # calendar month hash
+rollup:{customer_id}:d:{YYYY-MM-DD}     # calendar day hash
+session:{session_id}:*                  # lite session counters (string keys)
+span:{span_id}:*                        # agent run (24h TTL)
+```
+
+**Environment:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FLUXMETER_SESSION_TTL_SEC` | `7776000` (90d) | Session counter TTL |
+| `FLUXMETER_DAY_BUCKET_TTL_SEC` | `34560000` (~400d) | Daily rollup hash TTL |
+
+Period/day buckets accumulate from deploy forward; no historical backfill. Full-mode `sessionId` aggregation applies on lite `/ingest` only — use `parentSpanId` + span queries on the Kafka/Flink path.
 
 ---
 
@@ -783,8 +871,8 @@ meter = FluxMeter(
 | `embedding_tokens` | int | No | Embedding tokens |
 | `request_id` | str | No | Provider request ID |
 | `span_id` | str | No | Observability span ID |
-| `parent_span_id` | str | No | Parent span (agent attribution) |
-| `session_id` | str | No | Conversation session ID |
+| `parent_span_id` | str | No | Agent run root — query cost via `GET /usage/span/{id}` |
+| `session_id` | str | No | Conversation/project — query via `GET /usage/session/{id}` (lite ingest) |
 | `latency_ms` | int | No | Provider response time |
 | `environment` | str | No | "production", "staging" |
 | `metadata` | dict | No | Arbitrary key-value pairs |

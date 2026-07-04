@@ -8,7 +8,7 @@ Open-source, self-hostable **real-time AI token metering and budget enforcement*
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v2.5.0** · **Open spec + SDKs** · **1M+ events/sec** · **<10ms budget check** · **Multi-provider**
+**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v2.6.1** · **Open spec + SDKs** · **1M+ events/sec** · **<10ms budget check** · **Multi-provider**
 
 **Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [Docs](https://github.com/10kshuaizhang/fluxmeter/tree/main/docs) · [API reference](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
 
@@ -117,6 +117,9 @@ OpenAPI: spec/openapi/openapi.yaml
 |----------|-------------|
 | `GET /usage/global` | Total events, tokens, cost |
 | `GET /usage/customer/{id}` | Per-customer breakdown |
+| `GET /usage/customer/{id}/period/{YYYY-MM}` | Monthly usage (UTC calendar) |
+| `GET /usage/customer/{id}/day/{YYYY-MM-DD}` | Daily usage |
+| `GET /usage/session/{id}` | Session/project aggregated cost |
 | `GET /usage/customer/{id}/model/{model}` | Per-model detail |
 | `GET /usage/span/{id}` | Agent span cost (total cost of an agent run) |
 | `GET /budget/{id}/check` | Pre-request allow/deny (<10ms, uses `balance - held`) |
@@ -134,6 +137,30 @@ OpenAPI: spec/openapi/openapi.yaml
 | `POST /rerate/apply` | Apply retroactive re-rating |
 
 Full reference: [docs/api-reference.md](docs/api-reference.md)
+
+### Customer billing queries (v2.6.1)
+
+Expose usage to end users without a separate warehouse:
+
+```bash
+# Token reseller: monthly / daily spend
+curl localhost:8000/usage/customer/cust_123/period/2026-07
+curl localhost:8000/usage/customer/cust_123/day/2026-07-05
+
+# Agent platform: cost of one run (set parentSpanId on every child LLM call)
+curl localhost:8000/usage/span/span_agent_42
+
+# Multi-turn project (lite ingest + sessionId)
+curl localhost:8000/usage/session/sess_456
+```
+
+| Use case | Field on ingest | Query |
+|----------|-----------------|-------|
+| Per-model lifetime | — | `GET /usage/customer/{id}/model/{model}` |
+| Monthly invoice | — | `GET /usage/customer/{id}/period/{YYYY-MM}` |
+| Today's spend | — | `GET /usage/customer/{id}/day/{YYYY-MM-DD}` |
+| One agent task | `parentSpanId` | `GET /usage/span/{id}` |
+| Conversation / project | `sessionId` (lite) | `GET /usage/session/{id}` |
 
 ## Architecture
 
@@ -166,6 +193,7 @@ Each event = one LLM API call:
   "cacheReadTokens": 200,
   "reasoningTokens": 0,
   "parentSpanId": "span_agent_42",
+  "sessionId": "sess_123",
   "timestamp": 1718534400000,
   "latencyMs": 1340
 }

@@ -76,6 +76,30 @@ meter.track(
 )
 ```
 
+## Query usage (HTTP API)
+
+Metering is ingest-only in the SDK. Read usage via the FluxMeter API (see [API reference](../../docs/api-reference.md)):
+
+```python
+import httpx
+
+API = "http://localhost:8000"
+headers = {"X-API-Key": "your-key"}
+
+# Lifetime cumulative
+httpx.get(f"{API}/usage/customer/cust_123", headers=headers).json()
+
+# Monthly / daily (UTC calendar buckets)
+httpx.get(f"{API}/usage/customer/cust_123/period/2026-07", headers=headers).json()
+httpx.get(f"{API}/usage/customer/cust_123/day/2026-07-05", headers=headers).json()
+
+# Agent task (set parent_span_id on track)
+httpx.get(f"{API}/usage/span/span_agent_42", headers=headers).json()
+
+# Project / conversation (set session_id; lite HTTP ingest path)
+httpx.get(f"{API}/usage/session/sess_456", headers=headers).json()
+```
+
 ## Configuration
 
 ```python

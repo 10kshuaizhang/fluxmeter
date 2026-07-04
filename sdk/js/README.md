@@ -38,6 +38,19 @@ const meter = new FluxMeter({
 
 Requires optional dependency `kafkajs`.
 
+## Query usage
+
+Ingest is via the SDK; read billing data via the FluxMeter HTTP API ([docs/api-reference.md](../../docs/api-reference.md)):
+
+```typescript
+const res = await fetch("http://localhost:8000/usage/span/span_agent_42", {
+  headers: { "X-API-Key": process.env.FLUXMETER_API_KEY! },
+});
+const taskCost = await res.json();
+```
+
+Use `parentSpanId` on `track()` for agent task totals; `sessionId` for project-level totals (lite ingest).
+
 ## Build
 
 ```bash

@@ -15,6 +15,12 @@ class BillingPeriodTest {
     }
 
     @Test
+    void dayUtc_usesUtcCalendarDay() {
+        long ts = Instant.parse("2026-07-04T12:00:00Z").toEpochMilli();
+        assertEquals("2026-07-04", BillingPeriod.dayUtc(ts));
+    }
+
+    @Test
     void periodVolumeKey_customerModelScope() {
         long ts = Instant.parse("2026-07-04T12:00:00Z").toEpochMilli();
         String key = BillingPeriod.periodVolumeKey(null, "cust1", "gpt-4o", ts);

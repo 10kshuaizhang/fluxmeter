@@ -2,8 +2,8 @@
 
 Forward-looking plan for the FluxMeter project. **Website:** [fluxmeter.dev](https://fluxmeter.dev). For **what shipped**, see [changLog.md](changLog.md). For **milestone checklists**, see [progress.md](progress.md). For **architecture intent**, see [docs/DESIGN.md](docs/DESIGN.md).
 
-**Current version:** 2.5.0 (engine) · 1.2.0 (Python SDK on PyPI)  
-**Last updated:** 2026-07-04
+**Current version:** 2.6.1 (engine) · 1.3.0 (Python SDK on PyPI)  
+**Last updated:** 2026-07-05
 
 ---
 
@@ -19,11 +19,11 @@ Become the **open source standard** for real-time AI token metering and budget e
 
 | Layer | Status | Notes |
 |-------|--------|-------|
-| **Lite path** (default) | Shipped | API → Redis Lua; rollup worker; Stripe Meters export |
-| **Full path** (Flink) | Shipped | 1M eps bursts; span attribution; DLQ; budget kill signals |
+| **Lite path** (default) | Shipped | API → Redis Lua; rollup worker; period/day/session queries; Stripe export |
+| **Full path** (Flink) | Shipped | 1M eps bursts; span attribution; month/day rollup in RedisSink; DLQ |
 | **SaaS scaffold** | Shipped | Control plane `:8001`; tenant CRUD + plan limits; not a hosted product |
 | **Open spec** | Shipped | `spec/schema`, OpenAPI, semantic conventions |
-| **Python SDK** | Shipped | PyPI `fluxmeter` 1.2.0 (HTTP lite + Kafka full) |
+| **Python SDK** | Shipped | PyPI `fluxmeter` 1.3.0 (HTTP lite + Kafka full) |
 | **JS SDK** | In repo | `@fluxmeter/client` — not on npm yet |
 | **Production ops** | Partial | Helm, DR runbook, Prometheus profile, reconciliation job |
 | **Tiered pricing engine** | Done | flat / volume / graduated; Lite + Flink; see `contrib/pricing/tiered-example.json` |
@@ -83,7 +83,7 @@ Timelines are **indicative**, not commitments.
 | Cost-based Stripe export | P2 | Config flag | ✓ `STRIPE_EXPORT_MODE=cost` |
 | Credits / prepaid packages | P2 | API + docs | ✓ `/budget/{id}/package` |
 
-**Follow-ups (Phase 2.1):** Kafka replay job for tier re-rating; Stripe Checkout live E2E with test keys; span-level tier pricing.
+**Follow-ups (Phase 2.1):** Kafka replay job for tier re-rating; Stripe Checkout live E2E with test keys; span-level tier pricing. ~~Period/day/session billing queries~~ ✓ 2.6.1.
 
 ---
 

@@ -216,6 +216,11 @@ def billing_period_month(timestamp_ms: int) -> str:
     return dt.strftime("%Y-%m")
 
 
+def billing_period_day(timestamp_ms: int) -> str:
+    dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+    return dt.strftime("%Y-%m-%d")
+
+
 def period_volume_key(
     tenant_id: str | None,
     customer_id: str,

@@ -16,10 +16,13 @@ test -f "$OPENAPI"
 echo "==> Checking semantic conventions"
 test -f spec/schema/semantic-conventions.md
 
-echo "==> Checking OpenAPI 2.2.x completeness"
+echo "==> Checking OpenAPI 2.6.x billing query endpoints"
 grep -q 'mode:' "$OPENAPI"
 grep -q 'cost_usd' "$OPENAPI"
 grep -q 'link-stripe' "$OPENAPI"
 grep -q 'IngestBatchResponseLite' "$OPENAPI"
+grep -q '/usage/customer/{customer_id}/period/' "$OPENAPI"
+grep -q '/usage/session/{session_id}' "$OPENAPI"
+grep -q 'BucketUsage' "$OPENAPI"
 
 echo "All spec validations passed."

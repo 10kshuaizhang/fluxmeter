@@ -81,3 +81,24 @@ class TestRollupLogic:
 
         ttl = r.ttl(minute_key)
         assert 86000 < ttl <= 86400  # ~24h
+
+    def test_day_rollup_bucket(self, r):
+        """Daily rollup hash is populated alongside minute/month."""
+        cid = f"test_day_{uuid.uuid4().hex[:8]}"
+        customer_key = f"customer:{cid}"
+        r.set(f"{customer_key}:input_tokens", "2000")
+        r.set(f"{customer_key}:event_count", "2")
+        r.set(f"{customer_key}:cost_usd", "0.2")
+
+        import sys
+        sys.path.insert(0, "api")
+        from rollup_worker import rollup_customer_minute
+        from usage_buckets import read_usage_bucket, rollup_day_key
+        from pricing_loader import billing_period_day
+
+        rollup_customer_minute(r, cid, int(time.time()))
+        day = billing_period_day(int(time.time() * 1000))
+        data = read_usage_bucket(r, rollup_day_key(cid, day))
+        assert data is not None
+        assert data["input_tokens"] == 2000
+        assert data["event_count"] == 2

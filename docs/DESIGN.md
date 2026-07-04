@@ -183,7 +183,7 @@ Sequence: A (weekend 1) -> Python SDK (weekend 2) -> C (weekends 3-4) -> B (ongo
 
 **Weekend 2 (Python SDK + API):**
 11. `fluxmeter-client` Python package: event emitter (Kafka producer wrapper), async/sync modes
-12. FastAPI query endpoint: GET /usage/{customer_id}, GET /cost/{customer_id}
+12. FastAPI query endpoint: `GET /usage/customer/{id}`, `GET /usage/customer/{id}/period/{YYYY-MM}`, `GET /usage/customer/{id}/day/{YYYY-MM-DD}`, `GET /usage/session/{id}`, `GET /usage/span/{id}`, budget CRUD
 13. Python examples in README: `pip install fluxmeter && fluxmeter.emit(event)` -- 3 lines to start metering
 14. Load generator rewritten in Python (shows the SDK works end-to-end)
 

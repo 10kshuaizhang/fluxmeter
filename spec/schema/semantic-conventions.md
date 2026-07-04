@@ -10,7 +10,7 @@ Field semantics for token usage events. Inspired by [OpenTelemetry semantic conv
 | `customerId` | **Yes** | Billing tenant. Kafka message key. Flink aggregation partition key (with modelId). |
 | `requestId` | Optional | Provider's request identifier. |
 | `spanId` | Optional | This LLM call's trace span. |
-| `parentSpanId` | Optional | Agent run root span. All child LLM calls share one `parentSpanId` for cost attribution. |
+| `parentSpanId` | Optional | Agent run root span. All child LLM calls share one `parentSpanId` for cost attribution. Query via `GET /usage/span/{parentSpanId}`. |
 
 ## Provider & model
 
@@ -45,7 +45,7 @@ Each category is priced independently. Set only fields present in the provider r
 
 | Field | Description |
 |-------|-------------|
-| `sessionId` | Conversation ID for multi-turn attribution. |
+| `sessionId` | Conversation/project ID for multi-turn attribution. Query via `GET /usage/session/{sessionId}` (lite ingest; 90d TTL). |
 | `environment` | `production`, `staging`, or `development`. |
 | `metadata` | Free-form string map (feature flags, plan tier, etc.). |
 
@@ -59,4 +59,6 @@ Each category is priced independently. Set only fields present in the provider r
 ## Aggregation keys
 
 Flink keyed stream: `customerId|modelId` composite string.
-Span attribution keyed by `parentSpanId` in session windows.
+Span attribution keyed by `parentSpanId` in session windows → `GET /usage/span/{id}` (24h TTL).
+Session counters keyed by `sessionId` on lite ingest → `GET /usage/session/{id}` (90d TTL).
+Calendar billing buckets: `rollup:{customerId}:period:{YYYY-MM}`, `rollup:{customerId}:d:{YYYY-MM-DD}`.

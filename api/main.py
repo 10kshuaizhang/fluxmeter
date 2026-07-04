@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 import uuid
 from typing import Optional
@@ -27,11 +28,12 @@ from lite_aggregate_lua import LiteAggregator
 from billing_export import billing_export_loop, link_customer_stripe
 from pricing_loader import get_catalog, reload_catalog
 from rollup_worker import rollup_loop
+from usage_buckets import read_session, read_usage_bucket, rollup_day_key, rollup_month_key
 
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="2.5.0",
+    version="2.6.1",
 )
 
 LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"
@@ -172,6 +174,31 @@ class ModelUsage(BaseModel):
     total_tokens: int
     input_tokens: int
     output_tokens: int
+    cost_usd: float
+
+
+class BucketUsage(BaseModel):
+    """Time-bucketed usage (calendar month or day)."""
+    customer_id: str
+    bucket: str
+    total_tokens: int
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int = 0
+    reasoning_tokens: int = 0
+    event_count: int
+    cost_usd: float
+
+
+class SessionUsage(BaseModel):
+    session_id: str
+    customer_id: Optional[str] = None
+    total_tokens: int
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int = 0
+    reasoning_tokens: int = 0
+    event_count: int
     cost_usd: float
 
 
@@ -351,6 +378,79 @@ def get_customer_model_usage(customer_id: str, model_id: str):
         input_tokens=int(r.get(f"{key}:input_tokens") or 0),
         output_tokens=int(r.get(f"{key}:output_tokens") or 0),
         cost_usd=float(r.get(f"{key}:cost_usd") or 0),
+    )
+
+
+def _bucket_usage_response(customer_id: str, bucket: str, data: dict) -> BucketUsage:
+    return BucketUsage(
+        customer_id=customer_id,
+        bucket=bucket,
+        total_tokens=data["total_tokens"],
+        input_tokens=data["input_tokens"],
+        output_tokens=data["output_tokens"],
+        cache_read_tokens=data.get("cache_read_tokens", 0),
+        reasoning_tokens=data.get("reasoning_tokens", 0),
+        event_count=data["event_count"],
+        cost_usd=data["cost_usd"],
+    )
+
+
+@app.get(
+    "/usage/customer/{customer_id}/period/{period}",
+    response_model=BucketUsage,
+    dependencies=[Depends(require_api_key)],
+)
+def get_customer_period_usage(customer_id: str, period: str):
+    """Calendar-month usage for a customer (UTC). Lite: rollup worker; Full: Flink RedisSink."""
+    if not re.fullmatch(r"\d{4}-\d{2}", period):
+        raise HTTPException(status_code=400, detail="period must be YYYY-MM")
+    r = get_redis()
+    data = read_usage_bucket(r, rollup_month_key(customer_id, period))
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"No usage for {customer_id} in {period}")
+    return _bucket_usage_response(customer_id, period, data)
+
+
+@app.get(
+    "/usage/customer/{customer_id}/day/{date}",
+    response_model=BucketUsage,
+    dependencies=[Depends(require_api_key)],
+)
+def get_customer_day_usage(customer_id: str, date: str):
+    """Daily usage for a customer (UTC)."""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    r = get_redis()
+    data = read_usage_bucket(r, rollup_day_key(customer_id, date))
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"No usage for {customer_id} on {date}")
+    return _bucket_usage_response(customer_id, date, data)
+
+
+@app.get("/usage/session/{session_id}", response_model=SessionUsage)
+def get_session_usage(
+    session_id: str,
+    _: None = Depends(require_api_key),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """Aggregated usage for a conversation/project session (lite ingest with sessionId)."""
+    r = get_redis()
+    data = read_session(r, session_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    customer_id = data.get("customer_id")
+    if customer_id:
+        require_customer_access(customer_id, x_api_key)
+    return SessionUsage(
+        session_id=session_id,
+        customer_id=customer_id,
+        total_tokens=data["total_tokens"],
+        input_tokens=data["input_tokens"],
+        output_tokens=data["output_tokens"],
+        cache_read_tokens=data.get("cache_read_tokens", 0),
+        reasoning_tokens=data.get("reasoning_tokens", 0),
+        event_count=data["event_count"],
+        cost_usd=data["cost_usd"],
     )
 
 

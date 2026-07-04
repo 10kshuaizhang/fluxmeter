@@ -20,6 +20,7 @@ from pricing_loader import (
     reload_catalog,
 )
 from tenant_keys import budget_prefix, customer_prefix, global_key
+from usage_buckets import increment_session
 
 # KEYS: [1]=idemp, [2]=customer, [3]=model, [4]=budget_bal, [5]=budget_thresh,
 #       [6]=global_prefix, [7]=period_volume, [8]=package_tokens
@@ -296,6 +297,20 @@ class LiteAggregator:
             return {"status": "rejected", "reason": "package_exhausted", "event_id": event_id}
 
         cost_usd = int(result[3]) / 1_000_000.0
+
+        session_id = event.get("sessionId")
+        if session_id:
+            increment_session(
+                self._redis,
+                customer_id,
+                session_id,
+                input_tokens=input_t,
+                output_tokens=output_t,
+                total_tokens=total_t,
+                cost_usd=cost_usd,
+                cache_read_tokens=cache_read,
+                reasoning_tokens=reasoning,
+            )
 
         response = {"status": "ok", "cost_usd": cost_usd}
         if status_code == -1:

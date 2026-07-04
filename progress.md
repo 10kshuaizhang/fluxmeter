@@ -2,7 +2,7 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 2.6.0
+**Current version:** 2.6.1
 **Current phase:** v2.4 — Billing depth (Phase 2 complete)
 **Design status:** APPROVED (2026-06-16)
 
@@ -100,7 +100,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | 2 | Upgrade event schema to multi-provider format | Done | 9 models, 5 token categories, tracing fields |
 | 3 | Python SDK (`pip install fluxmeter`) | Done | **1.1.0 on PyPI**; `track()`, `track_openai()`, `track_anthropic()`, 7 tests |
 | 4 | README tone rewrite | Done | Neutral framing, architectural comparison, SDK examples |
-| 5 | FastAPI query endpoint | Done | Usage + budget CRUD at :8000/docs |
+| 5 | FastAPI query endpoint | Done | Usage + budget CRUD; v2.6.1 adds period/day/session billing queries |
 
 ---
 
@@ -109,7 +109,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | # | Task | Status | Notes |
 |---|------|--------|-------|
 | 1 | BudgetEnforcerSink | Done | Atomic Lua script for balance deduction + threshold check |
-| 2 | FastAPI query endpoint | Done | /usage/global, /usage/customer/{id}, /budget/{id}, /budget/{id}/topup |
+| 2 | FastAPI query endpoint | Done | /usage/global, /usage/customer/{id}, period/day/session, span, /budget/{id} |
 | 3 | Incremental aggregation (AggregateFunction) | Done | Fixed OOM — O(keys) memory instead of O(events) |
 | 4 | End-to-end verification | Done | $5 budget → exhausted → kill signal in Kafka |
 | 5 | Re-record demo GIF | Done | 1.3MB, shows API + budget enforcement |
@@ -126,7 +126,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Python SDK | 3-line integration | **Done** — `meter.track_openai(...)` |
 | Multi-provider schema | OpenAI + Anthropic + Google | **Done** — 9 models, per-category pricing |
 | Budget enforcement | Real-time balance deduction + alerts | **Done** — atomic Lua, BUDGET_LOW + EXHAUSTED |
-| Query API | REST endpoints for usage + budget + spans | **Done** — FastAPI at :8000/docs |
+| Query API | REST endpoints for usage + budget + spans | **Done** — period/day/session + span; FastAPI :8000/docs |
 | Exactly-once | No double-counting on replay | **Done** — checkpointing + SET NX idempotency |
 | Agent span attribution | Cost rollup per agent run | **Done** — session windows + SpanSink |
 | Zero data loss | Events survive any single-component failure | **Done** — WAL + AOF + acks=all + dedup |
@@ -152,6 +152,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-07-05** — **v2.6.1 billing queries**: period/day/session usage endpoints; rollup day buckets; lite `sessionId` aggregation; Flink `RedisSink` month/day hashes; docs/OpenAPI/Helm synced.
 - **2026-07-05** — **v2.6.0 Chinese domestic models**: 20-model pricing catalog, SDK `track_*()` for 8 providers, contrib provider docs + `china-2026-07.json` reference.
 - **2026-07-04** — **v2.5.0 Phase 2 complete**: Stripe export modes, prepaid packages, Checkout, rollup month buckets, hybrid docs; tag v2.5.0.
 - **2026-07-04** — **v2.4.0 tiered pricing**: flat/volume/graduated in Lite + Flink; `contrib/pricing/tiered-example.json`.

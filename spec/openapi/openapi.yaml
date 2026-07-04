@@ -4,7 +4,7 @@ info:
   description: |
     Real-time token usage queries, HTTP ingest, and budget enforcement.
     Implements the FluxMeter open spec — see `spec/schema/` and `spec/openapi/`.
-  version: 2.5.0
+  version: 2.6.1
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -141,6 +141,78 @@ paths:
                 $ref: "#/components/schemas/CustomerUsage"
         "404":
           description: Customer not found
+  /usage/customer/{customer_id}/period/{period}:
+    get:
+      summary: Calendar-month usage for customer (UTC YYYY-MM)
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: period
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+            example: "2026-07"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BucketUsage"
+        "400":
+          description: Invalid period format
+        "404":
+          description: No usage in period
+  /usage/customer/{customer_id}/day/{date}:
+    get:
+      summary: Daily usage for customer (UTC YYYY-MM-DD)
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: date
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}-\d{2}$'
+            example: "2026-07-05"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BucketUsage"
+        "400":
+          description: Invalid date format
+        "404":
+          description: No usage on date
+  /usage/session/{session_id}:
+    get:
+      summary: Aggregated usage for a conversation/project session
+      description: |
+        Requires sessionId on ingest. Lite path increments session counters atomically.
+        Default TTL 90 days (FLUXMETER_SESSION_TTL_SEC).
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionUsage"
+        "404":
+          description: Session not found
   /usage/customer/{customer_id}/model/{model_id}:
     get:
       summary: Per-model usage for customer
@@ -437,6 +509,50 @@ components:
         input_tokens:
           type: integer
         output_tokens:
+          type: integer
+        cost_usd:
+          type: number
+    BucketUsage:
+      type: object
+      properties:
+        customer_id:
+          type: string
+        bucket:
+          type: string
+          description: YYYY-MM for period endpoint; YYYY-MM-DD for day endpoint
+        total_tokens:
+          type: integer
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        cache_read_tokens:
+          type: integer
+        reasoning_tokens:
+          type: integer
+        event_count:
+          type: integer
+        cost_usd:
+          type: number
+    SessionUsage:
+      type: object
+      properties:
+        session_id:
+          type: string
+        customer_id:
+          type: string
+          nullable: true
+        total_tokens:
+          type: integer
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        cache_read_tokens:
+          type: integer
+        reasoning_tokens:
+          type: integer
+        event_count:
           type: integer
         cost_usd:
           type: number

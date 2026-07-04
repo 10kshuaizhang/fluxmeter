@@ -16,7 +16,8 @@ import time
 
 import redis
 
-from pricing_loader import billing_period_month
+from pricing_loader import billing_period_day, billing_period_month
+from usage_buckets import DAY_BUCKET_TTL
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,22 @@ if tonumber(reasoning) > 0 then
 end
 redis.call('EXPIRE', month_key, 34560000)
 
+-- Daily bucket (billing reports, 400d TTL)
+local day_key = KEYS[4]
+local day_ttl = tonumber(ARGV[2])
+redis.call('HINCRBY', day_key, 'input_tokens', input_t)
+redis.call('HINCRBY', day_key, 'output_tokens', output_t)
+redis.call('HINCRBY', day_key, 'total_tokens', total_t)
+redis.call('HINCRBY', day_key, 'event_count', events)
+redis.call('HINCRBYFLOAT', day_key, 'cost_usd', cost)
+if tonumber(cache_read) > 0 then
+  redis.call('HINCRBY', day_key, 'cache_read_tokens', cache_read)
+end
+if tonumber(reasoning) > 0 then
+  redis.call('HINCRBY', day_key, 'reasoning_tokens', reasoning)
+end
+redis.call('EXPIRE', day_key, day_ttl)
+
 -- Reset live counters (GETDEL pattern via SET 0)
 redis.call('SET', ckey .. ':input_tokens', '0')
 redis.call('SET', ckey .. ':output_tokens', '0')
@@ -86,13 +103,14 @@ return 1
 
 
 def rollup_customer_minute(r: redis.Redis, customer_id: str, epoch_sec: int) -> str:
-    """Roll up live counters for one customer into minute + month buckets."""
+    """Roll up live counters for one customer into minute + month + day buckets."""
     minute_ts = (epoch_sec // 60) * 60
     customer_key = f"customer:{customer_id}"
     minute_key = f"rollup:{customer_id}:m:{minute_ts}"
     month_key = f"rollup:{customer_id}:period:{billing_period_month(epoch_sec * 1000)}"
+    day_key = f"rollup:{customer_id}:d:{billing_period_day(epoch_sec * 1000)}"
 
-    r.eval(ROLLUP_LUA, 3, customer_key, minute_key, month_key, MINUTE_BUCKET_TTL)
+    r.eval(ROLLUP_LUA, 4, customer_key, minute_key, month_key, day_key, MINUTE_BUCKET_TTL, DAY_BUCKET_TTL)
     return minute_key
 
 

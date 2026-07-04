@@ -16,6 +16,18 @@ FluxMeter handles real-time token metering. Your billing platform handles invoic
 
 FluxMeter produces the **usage data**. Your billing platform consumes it for **invoicing**.
 
+### Query endpoints for customer-facing billing (v2.6.1)
+
+| Endpoint | Typical use |
+|----------|-------------|
+| `GET /usage/customer/{id}/period/{YYYY-MM}` | Monthly invoice line (token resellers) |
+| `GET /usage/customer/{id}/day/{YYYY-MM-DD}` | Daily usage dashboard |
+| `GET /usage/customer/{id}/model/{model}` | Per-model breakdown (lifetime cumulative) |
+| `GET /usage/span/{id}` | One agent task / run (`parentSpanId` on ingest) |
+| `GET /usage/session/{id}` | Conversation or project total (lite + `sessionId`) |
+
+Buckets accumulate from deploy forward; they do not backfill history. For lifetime totals, use `GET /usage/customer/{id}`.
+
 ---
 
 ## Lago (open source)
