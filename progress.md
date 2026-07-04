@@ -6,6 +6,17 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 **Current phase:** v2.3 — Polish & correctness (Phase 1 complete)
 **Design status:** APPROVED (2026-06-16)
 
+## Phase 1 Checklist (ROADMAP v2.3 polish)
+
+| Item | Status |
+|------|--------|
+| README / SHOW_HN version sync | Done |
+| `make test-unit` + `make test-unit-redis` | Done |
+| OpenAPI 2.2.x + `validate-spec.sh` | Done |
+| Lite `tenantId` key isolation + E2E | Done |
+| `AggregationKeys` + `make test-java` | Done |
+| Local load-test Mac ceiling docs | Done |
+
 ---
 
 ## Phase Overview
@@ -128,6 +139,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-07-04** — **Phase 1 closed**: HTTP tenant E2E in `test_lite_production.py`; doc version sync (`production-deploy.md`, `load-testing.md` → 2.2.2); ROADMAP Phase 1 table marked complete. Hotfix: Dockerfile `tenant_keys.py`, Lua balance string return.
 - **2026-07-04** — **v2.2.2 Phase 1 polish**: `make test-unit` expanded (billing, control-plane models, tenant_keys + Java); `make test-unit-redis` for lite Lua + rollup; OpenAPI health `mode`, lite ingest responses, `link-stripe`; `api/tenant_keys.py` + lite Lua `tenantId` isolation; `validate-spec.sh` content checks; load-test Mac ceiling note.
 - **2026-06-24** — **SHOW_HN.md** synced to v2.2.1: Lite-first narrative, honest throughput numbers, SaaS/Stripe/PyPI caveats; title hook shifted from 1M eps to <10ms budget check.
 - **2026-06-22** — **ROADMAP.md**: project-wide forward plan (v2.3 polish → v2.4 tiered pricing → v3.0 SaaS → streaming proxy).

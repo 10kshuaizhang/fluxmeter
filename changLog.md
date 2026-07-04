@@ -13,6 +13,7 @@ Format: `[version] — date — summary`
 - **`tests/test_tenant_keys.py`**: no-Redis unit tests for tenant key helpers
 - **`make test-unit-redis`**: lite Lua aggregator + rollup tests (requires local Redis)
 - **Lite multi-tenant ingest**: optional `tenantId` on `/ingest` events; Lua global counters scoped per tenant
+- **Tenant E2E**: `test_lite_production.py::TestTenantIsolation` (HTTP ingest + Redis key prefix)
 
 ### Changed
 - **`make test-unit`**: runs auth, billing export, control-plane models, tenant_keys + `./gradlew test`
@@ -20,6 +21,10 @@ Format: `[version] — date — summary`
 - **`validate-spec.sh`**: checks OpenAPI completeness (mode, cost_usd, link-stripe, batch lite schema)
 - **`docs/load-testing.md`**: Mac ~25K sustained @ 50K target callout in Quick start
 - **Version alignment**: engine, API, OpenAPI, Helm → **2.2.2**
+
+### Fixed
+- **Lite API Docker image**: include `tenant_keys.py` (import required by `lite_aggregate_lua.py`)
+- **Lua budget return**: return balance as string so Redis script replies preserve sub-cent amounts
 
 ### Notes
 - Phase 1 (ROADMAP v2.3 polish) complete; tiered pricing runtime remains Phase 2 / v2.4.0

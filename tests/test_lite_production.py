@@ -30,8 +30,8 @@ def health_check():
 
 def make_event(customer_id: str, model_id: str = "gpt-4o",
                input_tokens: int = 1000, output_tokens: int = 500,
-               event_id: str = None):
-    return {
+               event_id: str = None, tenant_id: str = None):
+    event = {
         "customerId": customer_id,
         "modelId": model_id,
         "inputTokens": input_tokens,
@@ -39,6 +39,9 @@ def make_event(customer_id: str, model_id: str = "gpt-4o",
         "timestamp": int(time.time() * 1000),
         "eventId": event_id or str(uuid.uuid4()),
     }
+    if tenant_id:
+        event["tenantId"] = tenant_id
+    return event
 
 
 class TestAtomicAggregation:
@@ -161,3 +164,29 @@ class TestInlineBudgetDeduction:
                          timeout=TIMEOUT)
         data = resp.json()
         assert data["allowed"] is False
+
+
+class TestTenantIsolation:
+    """Lite ingest honors tenantId for Redis key prefixes (Phase 1 E2E)."""
+
+    def test_tenant_id_scopes_ingest_counters(self, r):
+        cid = f"test_tenant_{uuid.uuid4().hex[:8]}"
+        tid_a = f"ta_{uuid.uuid4().hex[:6]}"
+        tid_b = f"tb_{uuid.uuid4().hex[:6]}"
+
+        resp_a = httpx.post(
+            f"{API}/ingest",
+            json=make_event(cid, input_tokens=100, tenant_id=tid_a),
+            timeout=TIMEOUT,
+        )
+        resp_b = httpx.post(
+            f"{API}/ingest",
+            json=make_event(cid, input_tokens=200, tenant_id=tid_b),
+            timeout=TIMEOUT,
+        )
+        assert resp_a.status_code == 202
+        assert resp_b.status_code == 202
+
+        assert int(r.get(f"tenant:{tid_a}:customer:{cid}:input_tokens") or 0) == 100
+        assert int(r.get(f"tenant:{tid_b}:customer:{cid}:input_tokens") or 0) == 200
+        assert r.get(f"customer:{cid}:input_tokens") is None
