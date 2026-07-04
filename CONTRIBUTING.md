@@ -1,5 +1,7 @@
 # Contributing to FluxMeter
 
+**Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Repo:** [github.com/10kshuaizhang/fluxmeter](https://github.com/10kshuaizhang/fluxmeter)
+
 ## Getting Started
 
 ```bash

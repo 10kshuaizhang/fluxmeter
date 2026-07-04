@@ -2,6 +2,8 @@
 
 Send AI token usage events to FluxMeter for real-time aggregation and billing.
 
+**Docs:** [fluxmeter.dev](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [API reference](../../docs/api-reference.md)
+
 ## Install
 
 ```bash

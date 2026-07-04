@@ -1,7 +1,8 @@
 # Community Extensions
 
 Provider adapters, pricing tables, dashboards, and billing connectors.
-**PRs welcome here** — lower bar than core engine changes in `src/`.
+
+**Website:** [fluxmeter.dev](https://fluxmeter.dev) · **PRs welcome here** — lower bar than core engine changes in `src/`.
 
 ## Structure
 

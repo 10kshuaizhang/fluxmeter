@@ -1,7 +1,8 @@
 # FluxMeter Reference Engine
 
 Apache Flink streaming aggregation, budget enforcement, and Redis sinks.
-This is the **reference implementation** of the open spec in [`spec/`](../spec/).
+
+**Website:** [fluxmeter.dev](https://fluxmeter.dev) · This is the **reference implementation** of the open spec in [`spec/`](../spec/).
 
 ## What lives here
 

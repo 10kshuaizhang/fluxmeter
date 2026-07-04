@@ -1,5 +1,7 @@
 # API Reference
 
+**Overview & integration guides:** [fluxmeter.dev](https://fluxmeter.dev) · **OpenAPI:** [`spec/openapi/openapi.yaml`](../spec/openapi/openapi.yaml)
+
 Base URL: `http://localhost:8000` (development) or your production endpoint.
 
 Interactive docs: `GET /docs` (Swagger UI)

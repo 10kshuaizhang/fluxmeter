@@ -11,6 +11,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Item | Status |
 |------|--------|
 | README / SHOW_HN version sync | Done |
+| Official website links in docs + SDK metadata | Done |
 | `make test-unit` + `make test-unit-redis` | Done |
 | OpenAPI 2.2.x + `validate-spec.sh` | Done |
 | Lite `tenantId` key isolation + E2E | Done |
@@ -139,6 +140,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-07-04** — **Official website** [fluxmeter.dev](https://fluxmeter.dev) linked across README, SHOW_HN, CONTRIBUTING, SDK READMEs, `pyproject.toml` / `package.json` metadata, spec + integrations + Helm docs.
 - **2026-07-04** — **Phase 1 closed**: HTTP tenant E2E in `test_lite_production.py`; doc version sync (`production-deploy.md`, `load-testing.md` → 2.2.2); ROADMAP Phase 1 table marked complete. Hotfix: Dockerfile `tenant_keys.py`, Lua balance string return.
 - **2026-07-04** — **v2.2.2 Phase 1 polish**: `make test-unit` expanded (billing, control-plane models, tenant_keys + Java); `make test-unit-redis` for lite Lua + rollup; OpenAPI health `mode`, lite ingest responses, `link-stripe`; `api/tenant_keys.py` + lite Lua `tenantId` isolation; `validate-spec.sh` content checks; load-test Mac ceiling note.
 - **2026-06-24** — **SHOW_HN.md** synced to v2.2.1: Lite-first narrative, honest throughput numbers, SaaS/Stripe/PyPI caveats; title hook shifted from 1M eps to <10ms budget check.

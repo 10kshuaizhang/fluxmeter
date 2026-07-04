@@ -28,7 +28,8 @@ anthropic = ["anthropic>=0.20"]
 dev = ["pytest", "pytest-asyncio", "ruff"]
 
 [project.urls]
-Homepage = "https://github.com/10kshuaizhang/fluxmeter"
+Homepage = "https://fluxmeter.dev"
+Documentation = "https://fluxmeter.dev"
 Repository = "https://github.com/10kshuaizhang/fluxmeter"
 
 [tool.hatch.build.targets.wheel]

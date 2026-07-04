@@ -2,6 +2,8 @@
 
 FluxMeter includes a Java Kafka load generator and a staged benchmark script.
 
+**Performance overview:** [fluxmeter.dev](https://fluxmeter.dev) · methodology in this doc
+
 ## Quick start
 
 ```bash

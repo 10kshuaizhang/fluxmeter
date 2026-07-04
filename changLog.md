@@ -16,6 +16,7 @@ Format: `[version] — date — summary`
 - **Tenant E2E**: `test_lite_production.py::TestTenantIsolation` (HTTP ingest + Redis key prefix)
 
 ### Changed
+- **Official website links**: README, SHOW_HN, CONTRIBUTING, SDK READMEs, `pyproject.toml` / `package.json` → [fluxmeter.dev](https://fluxmeter.dev); README integrations list includes Stripe
 - **`make test-unit`**: runs auth, billing export, control-plane models, tenant_keys + `./gradlew test`
 - **OpenAPI 2.2.2**: health `mode`, lite/full ingest response schemas, `POST /admin/billing/{id}/link-stripe`
 - **`validate-spec.sh`**: checks OpenAPI completeness (mode, cost_usd, link-stripe, batch lite schema)

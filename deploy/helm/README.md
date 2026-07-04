@@ -2,6 +2,8 @@
 
 Deploy API + webhook worker. Flink uses [Flink Kubernetes Operator](https://nightlies.apache.org/flink/flink-kubernetes-operator-docs-stable/) — see `docs/production-deploy.md`.
 
+**Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Production guide:** [docs/production-deploy.md](../../docs/production-deploy.md)
+
 ## Install
 
 ```bash

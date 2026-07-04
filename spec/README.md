@@ -1,6 +1,9 @@
 # FluxMeter Spec — Ecosystem Layer
 
 Open standards for AI token billing events, HTTP API, and provider mappings.
+
+**Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Schema `$id`:** `https://fluxmeter.dev/schema/token-event-v1.json`
+
 This layer is the **growth engine**: SDKs and integrations target these artifacts, not the Flink engine internals.
 
 ## Layout

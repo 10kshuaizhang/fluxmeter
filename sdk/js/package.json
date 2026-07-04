@@ -18,6 +18,10 @@
     "prepublishOnly": "npm run build"
   },
   "keywords": ["ai", "llm", "metering", "billing", "openai", "anthropic"],
+  "homepage": "https://fluxmeter.dev",
+  "bugs": {
+    "url": "https://github.com/10kshuaizhang/fluxmeter/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/10kshuaizhang/fluxmeter",

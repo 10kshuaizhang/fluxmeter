@@ -2,6 +2,8 @@
 
 FluxMeter handles real-time token metering. Your billing platform handles invoicing, subscriptions, and payment collection. This guide shows how to connect them.
 
+**Overview:** [fluxmeter.dev](https://fluxmeter.dev) · repo detail in this doc
+
 ## Architecture
 
 ```

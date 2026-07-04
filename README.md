@@ -2,7 +2,9 @@
 
 Open source real-time metering and budget enforcement for AI token billing.
 
-**v2.2.2** | **Open spec + SDKs** | **1M+ events/sec** | **<10ms budget check** | **Multi-provider**
+**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v2.2.2** · **Open spec + SDKs** · **1M+ events/sec** · **<10ms budget check** · **Multi-provider**
+
+**Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [API docs](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
 
 ![FluxMeter Demo](demo.gif)
 
@@ -195,7 +197,7 @@ For sustained 500K+ eps, scale TaskManagers and use managed Kafka/Redis — [doc
 ## Integrations
 
 Connect FluxMeter to your billing platform: [docs/integrations.md](docs/integrations.md)
-- Lago, OpenMeter, Orb, Metronome, Zuora
+- Stripe, Lago, OpenMeter, Orb, Metronome, Zuora
 
 SDK publishing: [docs/pypi-release.md](docs/pypi-release.md)
 

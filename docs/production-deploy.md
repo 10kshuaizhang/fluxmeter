@@ -2,6 +2,8 @@
 
 This guide covers deploying FluxMeter to production on Kubernetes. The docker-compose setup is for development only.
 
+**Overview:** [fluxmeter.dev](https://fluxmeter.dev) · **Helm:** [deploy/helm/README.md](../deploy/helm/README.md)
+
 ## Architecture (Production)
 
 ```

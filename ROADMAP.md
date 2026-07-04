@@ -1,6 +1,6 @@
 # FluxMeter Roadmap
 
-Forward-looking plan for the FluxMeter project. For **what shipped**, see [changLog.md](changLog.md). For **milestone checklists**, see [progress.md](progress.md). For **architecture intent**, see [docs/DESIGN.md](docs/DESIGN.md).
+Forward-looking plan for the FluxMeter project. **Website:** [fluxmeter.dev](https://fluxmeter.dev). For **what shipped**, see [changLog.md](changLog.md). For **milestone checklists**, see [progress.md](progress.md). For **architecture intent**, see [docs/DESIGN.md](docs/DESIGN.md).
 
 **Current version:** 2.2.2 (engine) · 1.1.0 (Python SDK on PyPI)  
 **Last updated:** 2026-07-04
