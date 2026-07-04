@@ -31,5 +31,14 @@ All extensions must align with:
 |------|-------------|
 | [providers/openai.md](providers/openai.md) | OpenAI response → TokenEvent |
 | [providers/anthropic.md](providers/anthropic.md) | Anthropic response → TokenEvent |
+| [providers/deepseek.md](providers/deepseek.md) | DeepSeek response → TokenEvent |
+| [providers/qwen.md](providers/qwen.md) | Qwen/DashScope response → TokenEvent |
+| [providers/glm.md](providers/glm.md) | Zhipu GLM response → TokenEvent |
+| [providers/moonshot.md](providers/moonshot.md) | Moonshot/Kimi response → TokenEvent |
+| [providers/doubao.md](providers/doubao.md) | Volcengine Doubao response → TokenEvent |
+| [providers/baichuan.md](providers/baichuan.md) | Baichuan response → TokenEvent |
+| [providers/minimax.md](providers/minimax.md) | MiniMax response → TokenEvent |
+| [providers/hunyuan.md](providers/hunyuan.md) | Tencent Hunyuan response → TokenEvent |
 | [pricing/openai-2025-06.json](pricing/openai-2025-06.json) | Reference pricing snapshot |
+| [pricing/china-2026-07.json](pricing/china-2026-07.json) | Chinese domestic model pricing snapshot |
 | [pricing/tiered-example.json](pricing/tiered-example.json) | Volume + graduated tier examples |

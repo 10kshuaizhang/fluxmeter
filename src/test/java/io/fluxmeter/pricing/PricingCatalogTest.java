@@ -24,6 +24,20 @@ class PricingCatalogTest {
     }
 
     @Test
+    void normalizeModelId_deepseekChatPrefix() {
+        assertEquals("deepseek-chat", PricingCatalog.get().normalizeModelId("deepseek-chat-v2"));
+    }
+
+    @Test
+    void calculateDeepseekV4Flash_oneMillionInput() {
+        TokenEvent event = new TokenEvent();
+        event.setModelId("deepseek-v4-flash");
+        event.setInputTokens(1_000_000);
+        event.setOutputTokens(0);
+        assertEquals(140_000L, PricingCatalog.get().calculateEventCostMicro(event));
+    }
+
+    @Test
     void calculateGpt4oInputCost_oneMillionTokens() {
         TokenEvent event = new TokenEvent();
         event.setModelId("gpt-4o");

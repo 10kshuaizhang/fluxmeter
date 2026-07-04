@@ -4,5 +4,5 @@ from fluxmeter.client import FluxMeter
 from fluxmeter.event import TokenEvent
 from fluxmeter.streaming import StreamingWrapper
 
-__version__ = "1.1.0"
+__version__ = "1.3.0"
 __all__ = ["FluxMeter", "TokenEvent", "StreamingWrapper"]

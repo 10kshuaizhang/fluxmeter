@@ -6,6 +6,24 @@ Format: `[version] — date — summary`
 
 ---
 
+## [2.6.0] — 2026-07-05
+
+### Added
+- **Chinese domestic model pricing**: 20 models across DeepSeek, Qwen, GLM, Moonshot, Doubao, Baichuan, MiniMax, Hunyuan in `config/pricing.json`
+- **SDK track helpers**: `track_deepseek`, `track_qwen`, `track_glm`, `track_moonshot`, `track_doubao`, `track_baichuan`, `track_minimax`, `track_hunyuan` (Python + JS)
+- **Provider docs**: 8 mapping guides in `contrib/providers/` + `contrib/pricing/china-2026-07.json`
+- **LoadGenerator**: DeepSeek, Qwen, GLM, Moonshot in demo traffic mix
+
+### Changed
+- **Python SDK** → **1.3.0**; **JS SDK** → **1.2.0**
+- **Pricing catalog** version 2, effective 2026-07-01
+
+### Notes
+- Qwen Plus/Max use flat base-tier pricing; >256K input tier surcharges documented in contrib
+- `hunyuan-lite` priced at $0 (free tier)
+
+---
+
 ## [2.5.0] — 2026-07-04
 
 ### Added

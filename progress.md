@@ -2,7 +2,7 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 2.5.0
+**Current version:** 2.6.0
 **Current phase:** v2.4 — Billing depth (Phase 2 complete)
 **Design status:** APPROVED (2026-06-16)
 
@@ -152,6 +152,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-07-05** — **v2.6.0 Chinese domestic models**: 20-model pricing catalog, SDK `track_*()` for 8 providers, contrib provider docs + `china-2026-07.json` reference.
 - **2026-07-04** — **v2.5.0 Phase 2 complete**: Stripe export modes, prepaid packages, Checkout, rollup month buckets, hybrid docs; tag v2.5.0.
 - **2026-07-04** — **v2.4.0 tiered pricing**: flat/volume/graduated in Lite + Flink; `contrib/pricing/tiered-example.json`.
 - **2026-07-04** — **Phase 1 closed**: HTTP tenant E2E in `test_lite_production.py`; doc version sync (`production-deploy.md`, `load-testing.md` → 2.2.2); ROADMAP Phase 1 table marked complete. Hotfix: Dockerfile `tenant_keys.py`, Lua balance string return.

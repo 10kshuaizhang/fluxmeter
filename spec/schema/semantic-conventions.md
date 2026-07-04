@@ -16,18 +16,18 @@ Field semantics for token usage events. Inspired by [OpenTelemetry semantic conv
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `provider` | Default `openai` | Normalized provider slug. See `contrib/providers/`. |
+| `provider` | Default `openai` | Normalized provider slug (`openai`, `anthropic`, `google`, `deepseek`, `qwen`, `zhipu`, `moonshot`, `doubao`, `baichuan`, `minimax`, `hunyuan`, …). See `contrib/providers/`. |
 | `modelId` | **Yes** | Canonical or versioned model string from provider response. |
 
 ## Token categories
 
 Each category is priced independently. Set only fields present in the provider response.
 
-| Field | OpenAI | Anthropic | Notes |
-|-------|--------|-----------|-------|
-| `inputTokens` | `usage.prompt_tokens` | `usage.input_tokens` | Base prompt/input |
-| `outputTokens` | `usage.completion_tokens` | `usage.output_tokens` | Completion/output |
-| `cacheReadTokens` | `prompt_tokens_details.cached_tokens` | `cache_read_input_tokens` | Discounted cached reads |
+| Field | OpenAI | Anthropic | Chinese (OpenAI-compat) | Notes |
+|-------|--------|-----------|-------------------------|-------|
+| `inputTokens` | `usage.prompt_tokens` | `usage.input_tokens` | `usage.prompt_tokens` | Base prompt/input |
+| `outputTokens` | `usage.completion_tokens` | `usage.output_tokens` | `usage.completion_tokens` | Completion/output |
+| `cacheReadTokens` | `prompt_tokens_details.cached_tokens` | `cache_read_input_tokens` | `prompt_tokens_details.cached_tokens` (DeepSeek) | Discounted cached reads |
 | `cacheWriteTokens` | — | `cache_creation_input_tokens` | Cache creation cost |
 | `reasoningTokens` | `completion_tokens_details.reasoning_tokens` | — | o1/o3 internal reasoning |
 | `embeddingTokens` | embedding APIs | — | Separate embedding billing |

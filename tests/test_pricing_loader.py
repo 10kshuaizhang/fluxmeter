@@ -27,6 +27,15 @@ class TestPricingLoaderFlat:
     def setup_method(self):
         reload_catalog(PricingCatalog.load_from_file())
 
+    def test_qwen_max_one_million_input(self):
+        cost = calculate_cost_micro({"modelId": "qwen-max", "inputTokens": 1_000_000})
+        assert cost == 1_600_000
+
+    def test_deepseek_normalize_prefix(self):
+        from pricing_loader import normalize_model_id
+
+        assert normalize_model_id("qwen-plus-2025-12-01") == "qwen-plus"
+
     def test_gpt4o_one_million_input(self):
         cost = calculate_cost_micro({"modelId": "gpt-4o", "inputTokens": 1_000_000})
         assert cost == 2_500_000

@@ -67,3 +67,38 @@ def test_track_anthropic_dict_response():
     assert event.cache_read_tokens == 150
     assert event.cache_write_tokens == 50
     assert event.request_id == "msg_abc123"
+
+
+def test_track_deepseek_dict_response():
+    meter, producer = _mock_meter()
+    response = {
+        "id": "chatcmpl-ds-001",
+        "model": "deepseek-v4-flash",
+        "usage": {
+            "prompt_tokens": 5000,
+            "completion_tokens": 1200,
+            "prompt_tokens_details": {"cached_tokens": 800},
+        },
+    }
+    event = meter.track_deepseek("cust_42", response, latency_ms=980)
+    assert event.provider == "deepseek"
+    assert event.model_id == "deepseek-v4-flash"
+    assert event.input_tokens == 5000
+    assert event.output_tokens == 1200
+    assert event.cache_read_tokens == 800
+    assert producer.produce.called
+
+
+def test_track_qwen_dict_response():
+    meter, producer = _mock_meter()
+    response = {
+        "id": "chatcmpl-qw-001",
+        "model": "qwen-plus",
+        "usage": {"prompt_tokens": 3200, "completion_tokens": 900},
+    }
+    event = meter.track_qwen("cust_99", response)
+    assert event.provider == "qwen"
+    assert event.model_id == "qwen-plus"
+    assert event.input_tokens == 3200
+    assert event.output_tokens == 900
+    assert producer.produce.called

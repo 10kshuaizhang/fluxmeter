@@ -18,6 +18,42 @@ from fluxmeter.wal import WriteAheadLog
 logger = logging.getLogger(__name__)
 
 
+def _parse_openai_usage(response) -> dict:
+    """Extract token fields from an OpenAI-compatible ChatCompletion response."""
+    if hasattr(response, "model"):
+        model = response.model
+        usage = response.usage
+        request_id = response.id
+    else:
+        model = response["model"]
+        usage = response["usage"]
+        request_id = response.get("id")
+
+    if hasattr(usage, "prompt_tokens"):
+        input_tokens = usage.prompt_tokens or 0
+        output_tokens = usage.completion_tokens or 0
+        cache_read = getattr(usage, "prompt_tokens_details", None)
+        cache_read_tokens = getattr(cache_read, "cached_tokens", 0) if cache_read else 0
+        reasoning = getattr(usage, "completion_tokens_details", None)
+        reasoning_tokens = getattr(reasoning, "reasoning_tokens", 0) if reasoning else 0
+    else:
+        input_tokens = usage.get("prompt_tokens", 0)
+        output_tokens = usage.get("completion_tokens", 0)
+        details = usage.get("prompt_tokens_details", {}) or {}
+        cache_read_tokens = details.get("cached_tokens", 0)
+        comp_details = usage.get("completion_tokens_details", {}) or {}
+        reasoning_tokens = comp_details.get("reasoning_tokens", 0)
+
+    return {
+        "model_id": model,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "cache_read_tokens": cache_read_tokens,
+        "reasoning_tokens": reasoning_tokens,
+        "request_id": request_id,
+    }
+
+
 class FluxMeter:
     """Main FluxMeter client. Sends token events to Kafka for real-time aggregation.
 
@@ -155,49 +191,173 @@ class FluxMeter:
         Returns:
             The TokenEvent that was sent.
         """
-        # Handle both object and dict responses
-        if hasattr(response, "model"):
-            model = response.model
-            usage = response.usage
-            request_id = response.id
-        else:
-            model = response["model"]
-            usage = response["usage"]
-            request_id = response.get("id")
-
-        # Extract token counts from usage
-        if hasattr(usage, "prompt_tokens"):
-            input_tokens = usage.prompt_tokens or 0
-            output_tokens = usage.completion_tokens or 0
-            cache_read = getattr(usage, "prompt_tokens_details", None)
-            cache_read_tokens = (
-                getattr(cache_read, "cached_tokens", 0) if cache_read else 0
-            )
-            reasoning = getattr(usage, "completion_tokens_details", None)
-            reasoning_tokens = (
-                getattr(reasoning, "reasoning_tokens", 0) if reasoning else 0
-            )
-        else:
-            input_tokens = usage.get("prompt_tokens", 0)
-            output_tokens = usage.get("completion_tokens", 0)
-            details = usage.get("prompt_tokens_details", {}) or {}
-            cache_read_tokens = details.get("cached_tokens", 0)
-            comp_details = usage.get("completion_tokens_details", {}) or {}
-            reasoning_tokens = comp_details.get("reasoning_tokens", 0)
-
+        parsed = _parse_openai_usage(response)
         return self.track(
             customer_id=customer_id,
-            model_id=model,
             provider="openai",
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cache_read_tokens=cache_read_tokens,
-            reasoning_tokens=reasoning_tokens,
-            request_id=request_id,
             span_id=span_id,
             session_id=session_id,
             latency_ms=latency_ms,
             environment=environment,
+            **parsed,
+        )
+
+    def _track_openai_compatible(
+        self,
+        customer_id: str,
+        response,
+        *,
+        provider: str,
+        session_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        latency_ms: int = 0,
+        environment: Optional[str] = None,
+    ) -> TokenEvent:
+        parsed = _parse_openai_usage(response)
+        return self.track(
+            customer_id=customer_id,
+            provider=provider,
+            span_id=span_id,
+            session_id=session_id,
+            latency_ms=latency_ms,
+            environment=environment,
+            **parsed,
+        )
+
+    def track_deepseek(
+        self,
+        customer_id: str,
+        response,
+        *,
+        session_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        latency_ms: int = 0,
+        environment: Optional[str] = None,
+    ) -> TokenEvent:
+        """Track usage from a DeepSeek ChatCompletion response (OpenAI-compatible)."""
+        return self._track_openai_compatible(
+            customer_id, response, provider="deepseek",
+            session_id=session_id, span_id=span_id,
+            latency_ms=latency_ms, environment=environment,
+        )
+
+    def track_qwen(
+        self,
+        customer_id: str,
+        response,
+        *,
+        session_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        latency_ms: int = 0,
+        environment: Optional[str] = None,
+    ) -> TokenEvent:
+        """Track usage from a Qwen/DashScope compatible-mode response."""
+        return self._track_openai_compatible(
+            customer_id, response, provider="qwen",
+            session_id=session_id, span_id=span_id,
+            latency_ms=latency_ms, environment=environment,
+        )
+
+    def track_glm(
+        self,
+        customer_id: str,
+        response,
+        *,
+        session_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        latency_ms: int = 0,
+        environment: Optional[str] = None,
+    ) -> TokenEvent:
+        """Track usage from a Zhipu GLM OpenAI-compatible response."""
+        return self._track_openai_compatible(
+            customer_id, response, provider="zhipu",
+            session_id=session_id, span_id=span_id,
+            latency_ms=latency_ms, environment=environment,
+        )
+
+    def track_moonshot(
+        self,
+        customer_id: str,
+        response,
+        *,
+        session_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        latency_ms: int = 0,
+        environment: Optional[str] = None,
+    ) -> TokenEvent:
+        """Track usage from a Moonshot/Kimi ChatCompletion response."""
+        return self._track_openai_compatible(
+            customer_id, response, provider="moonshot",
+            session_id=session_id, span_id=span_id,
+            latency_ms=latency_ms, environment=environment,
+        )
+
+    def track_doubao(
+        self,
+        customer_id: str,
+        response,
+        *,
+        session_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        latency_ms: int = 0,
+        environment: Optional[str] = None,
+    ) -> TokenEvent:
+        """Track usage from a Volcengine Doubao/Ark response."""
+        return self._track_openai_compatible(
+            customer_id, response, provider="doubao",
+            session_id=session_id, span_id=span_id,
+            latency_ms=latency_ms, environment=environment,
+        )
+
+    def track_baichuan(
+        self,
+        customer_id: str,
+        response,
+        *,
+        session_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        latency_ms: int = 0,
+        environment: Optional[str] = None,
+    ) -> TokenEvent:
+        """Track usage from a Baichuan OpenAI-compatible response."""
+        return self._track_openai_compatible(
+            customer_id, response, provider="baichuan",
+            session_id=session_id, span_id=span_id,
+            latency_ms=latency_ms, environment=environment,
+        )
+
+    def track_minimax(
+        self,
+        customer_id: str,
+        response,
+        *,
+        session_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        latency_ms: int = 0,
+        environment: Optional[str] = None,
+    ) -> TokenEvent:
+        """Track usage from a MiniMax ChatCompletion response."""
+        return self._track_openai_compatible(
+            customer_id, response, provider="minimax",
+            session_id=session_id, span_id=span_id,
+            latency_ms=latency_ms, environment=environment,
+        )
+
+    def track_hunyuan(
+        self,
+        customer_id: str,
+        response,
+        *,
+        session_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        latency_ms: int = 0,
+        environment: Optional[str] = None,
+    ) -> TokenEvent:
+        """Track usage from a Tencent Hunyuan OpenAI-compatible response."""
+        return self._track_openai_compatible(
+            customer_id, response, provider="hunyuan",
+            session_id=session_id, span_id=span_id,
+            latency_ms=latency_ms, environment=environment,
         )
 
     def track_anthropic(

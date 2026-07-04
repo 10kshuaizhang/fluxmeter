@@ -37,6 +37,25 @@ type AnthropicResponse = {
   usage: AnthropicUsage;
 };
 
+type TrackOpts = {
+  sessionId?: string;
+  spanId?: string;
+  latencyMs?: number;
+  environment?: string;
+};
+
+function parseOpenAIUsage(response: OpenAIResponse) {
+  const usage = response.usage;
+  return {
+    modelId: response.model,
+    inputTokens: usage.prompt_tokens ?? 0,
+    outputTokens: usage.completion_tokens ?? 0,
+    cacheReadTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
+    reasoningTokens: usage.completion_tokens_details?.reasoning_tokens ?? 0,
+    requestId: response.id,
+  };
+}
+
 export class FluxMeter {
   private apiUrl: string;
   private topic: string;
@@ -114,16 +133,16 @@ export class FluxMeter {
   async trackOpenAI(
     customerId: string,
     response: OpenAIResponse,
-    opts: { sessionId?: string; spanId?: string; latencyMs?: number; environment?: string } = {},
+    opts: TrackOpts = {},
   ): Promise<TokenEvent> {
-    const usage = response.usage;
-    return this.track(customerId, response.model, {
+    const parsed = parseOpenAIUsage(response);
+    return this.track(customerId, parsed.modelId, {
       provider: "openai",
-      inputTokens: usage.prompt_tokens ?? 0,
-      outputTokens: usage.completion_tokens ?? 0,
-      cacheReadTokens: usage.prompt_tokens_details?.cached_tokens ?? 0,
-      reasoningTokens: usage.completion_tokens_details?.reasoning_tokens ?? 0,
-      requestId: response.id,
+      inputTokens: parsed.inputTokens,
+      outputTokens: parsed.outputTokens,
+      cacheReadTokens: parsed.cacheReadTokens,
+      reasoningTokens: parsed.reasoningTokens,
+      requestId: parsed.requestId,
       sessionId: opts.sessionId,
       spanId: opts.spanId,
       latencyMs: opts.latencyMs ?? 0,
@@ -131,10 +150,63 @@ export class FluxMeter {
     });
   }
 
+  private async trackOpenAICompatible(
+    customerId: string,
+    response: OpenAIResponse,
+    provider: string,
+    opts: TrackOpts = {},
+  ): Promise<TokenEvent> {
+    const parsed = parseOpenAIUsage(response);
+    return this.track(customerId, parsed.modelId, {
+      provider,
+      inputTokens: parsed.inputTokens,
+      outputTokens: parsed.outputTokens,
+      cacheReadTokens: parsed.cacheReadTokens,
+      reasoningTokens: parsed.reasoningTokens,
+      requestId: parsed.requestId,
+      sessionId: opts.sessionId,
+      spanId: opts.spanId,
+      latencyMs: opts.latencyMs ?? 0,
+      environment: opts.environment,
+    });
+  }
+
+  async trackDeepSeek(customerId: string, response: OpenAIResponse, opts: TrackOpts = {}) {
+    return this.trackOpenAICompatible(customerId, response, "deepseek", opts);
+  }
+
+  async trackQwen(customerId: string, response: OpenAIResponse, opts: TrackOpts = {}) {
+    return this.trackOpenAICompatible(customerId, response, "qwen", opts);
+  }
+
+  async trackGLM(customerId: string, response: OpenAIResponse, opts: TrackOpts = {}) {
+    return this.trackOpenAICompatible(customerId, response, "zhipu", opts);
+  }
+
+  async trackMoonshot(customerId: string, response: OpenAIResponse, opts: TrackOpts = {}) {
+    return this.trackOpenAICompatible(customerId, response, "moonshot", opts);
+  }
+
+  async trackDoubao(customerId: string, response: OpenAIResponse, opts: TrackOpts = {}) {
+    return this.trackOpenAICompatible(customerId, response, "doubao", opts);
+  }
+
+  async trackBaichuan(customerId: string, response: OpenAIResponse, opts: TrackOpts = {}) {
+    return this.trackOpenAICompatible(customerId, response, "baichuan", opts);
+  }
+
+  async trackMiniMax(customerId: string, response: OpenAIResponse, opts: TrackOpts = {}) {
+    return this.trackOpenAICompatible(customerId, response, "minimax", opts);
+  }
+
+  async trackHunyuan(customerId: string, response: OpenAIResponse, opts: TrackOpts = {}) {
+    return this.trackOpenAICompatible(customerId, response, "hunyuan", opts);
+  }
+
   async trackAnthropic(
     customerId: string,
     response: AnthropicResponse,
-    opts: { sessionId?: string; spanId?: string; latencyMs?: number; environment?: string } = {},
+    opts: TrackOpts = {},
   ): Promise<TokenEvent> {
     const usage = response.usage;
     return this.track(customerId, response.model, {

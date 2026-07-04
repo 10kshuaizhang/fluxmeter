@@ -757,6 +757,14 @@ meter = FluxMeter(
 | `meter.track(customer_id, model_id, **kwargs)` | Track any LLM call |
 | `meter.track_openai(customer_id, response)` | Auto-extract from OpenAI response |
 | `meter.track_anthropic(customer_id, response)` | Auto-extract from Anthropic response |
+| `meter.track_deepseek(customer_id, response)` | Auto-extract from DeepSeek response |
+| `meter.track_qwen(customer_id, response)` | Auto-extract from Qwen/DashScope response |
+| `meter.track_glm(customer_id, response)` | Auto-extract from Zhipu GLM response |
+| `meter.track_moonshot(customer_id, response)` | Auto-extract from Moonshot/Kimi response |
+| `meter.track_doubao(customer_id, response)` | Auto-extract from Doubao/Ark response |
+| `meter.track_baichuan(customer_id, response)` | Auto-extract from Baichuan response |
+| `meter.track_minimax(customer_id, response)` | Auto-extract from MiniMax response |
+| `meter.track_hunyuan(customer_id, response)` | Auto-extract from Hunyuan response |
 | `meter.wrap_stream(stream, customer_id, model_id)` | Streaming response wrapper |
 | `meter.flush()` | Flush pending events (auto on exit) |
 
@@ -766,7 +774,7 @@ meter = FluxMeter(
 |-----------|------|----------|-------------|
 | `customer_id` | str | Yes | Customer identifier |
 | `model_id` | str | Yes | Model name (e.g. "gpt-4o") |
-| `provider` | str | No | "openai", "anthropic", "google" (default: "openai") |
+| `provider` | str | No | Provider slug: `openai`, `anthropic`, `google`, `deepseek`, `qwen`, `zhipu`, `moonshot`, `doubao`, `baichuan`, `minimax`, `hunyuan` (default: `openai`) |
 | `input_tokens` | int | No | Prompt/input tokens |
 | `output_tokens` | int | No | Completion/output tokens |
 | `cache_read_tokens` | int | No | Cached prompt tokens |

@@ -1,0 +1,43 @@
+{
+  "version": "1",
+  "effective_date": "2026-07-01",
+  "description": "Chinese domestic LLM reference pricing (USD per million tokens)",
+  "source": "contrib/community — verify against provider billing pages",
+  "sources": {
+    "deepseek": "https://api-docs.deepseek.com/quick_start/pricing",
+    "qwen": "https://www.qwencloud.com/models",
+    "zhipu": "https://open.bigmodel.cn/pricing",
+    "moonshot": "https://platform.moonshot.cn/docs/pricing/chat",
+    "doubao": "https://www.volcengine.com/docs/82379/1099325",
+    "baichuan": "https://platform.baichuan-ai.com/price",
+    "minimax": "https://www.minimaxi.com/document/price",
+    "hunyuan": "https://cloud.tencent.com/document/product/1729/97731"
+  },
+  "models": {
+    "deepseek-v4-flash": { "input_per_m": 0.14, "output_per_m": 0.28 },
+    "deepseek-v4-pro": { "input_per_m": 0.435, "output_per_m": 0.87 },
+    "deepseek-chat": { "input_per_m": 0.27, "output_per_m": 1.10 },
+    "deepseek-reasoner": { "input_per_m": 0.55, "output_per_m": 2.19 },
+    "qwen-max": { "input_per_m": 1.60, "output_per_m": 6.40 },
+    "qwen-plus": { "input_per_m": 0.40, "output_per_m": 1.20 },
+    "qwen-turbo": { "input_per_m": 0.10, "output_per_m": 0.30 },
+    "qwen-long": { "input_per_m": 0.50, "output_per_m": 2.00 },
+    "glm-4": { "input_per_m": 0.50, "output_per_m": 0.50 },
+    "glm-4-flash": { "input_per_m": 0.06, "output_per_m": 0.06 },
+    "glm-4-air": { "input_per_m": 0.10, "output_per_m": 0.10 },
+    "moonshot-v1-8k": { "input_per_m": 0.20, "output_per_m": 2.00 },
+    "moonshot-v1-32k": { "input_per_m": 1.00, "output_per_m": 3.00 },
+    "moonshot-v1-128k": { "input_per_m": 2.00, "output_per_m": 5.00 },
+    "doubao-pro-32k": { "input_per_m": 0.80, "output_per_m": 2.00 },
+    "doubao-lite-32k": { "input_per_m": 0.30, "output_per_m": 0.60 },
+    "baichuan4-turbo": { "input_per_m": 0.50, "output_per_m": 0.50 },
+    "abab6.5-chat": { "input_per_m": 0.30, "output_per_m": 1.00 },
+    "hunyuan-lite": { "input_per_m": 0.00, "output_per_m": 0.00 },
+    "hunyuan-pro": { "input_per_m": 0.40, "output_per_m": 1.20 }
+  },
+  "notes": [
+    "qwen-plus and qwen-max use flat base-tier pricing; requests with >256K input cost more on DashScope",
+    "deepseek-chat and deepseek-reasoner are legacy aliases scheduled for deprecation 2026-07-24",
+    "hunyuan-lite is a free tier; $0 pricing means zero cost in FluxMeter"
+  ]
+}

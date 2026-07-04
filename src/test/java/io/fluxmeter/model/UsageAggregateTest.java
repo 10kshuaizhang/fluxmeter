@@ -18,6 +18,19 @@ class UsageAggregateTest {
     }
 
     @Test
+    void qwenMaxCostMicro() {
+        UsageAggregate agg = new UsageAggregate();
+        TokenEvent event = new TokenEvent();
+        event.setEventId("evt-qwen");
+        event.setModelId("qwen-max");
+        event.setInputTokens(1_000_000);
+        event.setOutputTokens(0);
+
+        agg.addEvent(event);
+        assertEquals(1_600_000L, agg.getCostMicro());
+    }
+
+    @Test
     void deduplicatesSameEventId() {
         UsageAggregate agg = new UsageAggregate();
         TokenEvent event = new TokenEvent();

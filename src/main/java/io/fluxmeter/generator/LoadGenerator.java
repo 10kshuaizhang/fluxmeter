@@ -27,10 +27,14 @@ public class LoadGenerator {
             {"anthropic", "claude-haiku-4"},
             {"google", "gemini-1.5-pro"},
             {"google", "gemini-1.5-flash"},
+            {"deepseek", "deepseek-v4-flash"},
+            {"qwen", "qwen-plus"},
+            {"zhipu", "glm-4-flash"},
+            {"moonshot", "moonshot-v1-32k"},
     };
 
     // Weights: gpt-4o-mini and claude-haiku are most popular (cheap models)
-    private static final int[] MODEL_WEIGHTS = {15, 30, 3, 5, 2, 12, 20, 5, 8};
+    private static final int[] MODEL_WEIGHTS = {15, 30, 3, 5, 2, 12, 20, 5, 8, 10, 8, 6, 4};
 
     private static final String[] ENVIRONMENTS = {"production", "staging"};
 
@@ -179,7 +183,8 @@ public class LoadGenerator {
                     event.setCacheReadTokens(50 + random.nextInt(500));
                 }
             }
-            case "gpt-4o-mini", "claude-haiku-4", "gemini-1.5-flash" -> {
+            case "gpt-4o-mini", "claude-haiku-4", "gemini-1.5-flash",
+                 "deepseek-v4-flash", "glm-4-flash", "qwen-plus" -> {
                 // Fast/cheap models: shorter exchanges, higher volume
                 event.setInputTokens(50 + random.nextInt(1000));
                 event.setOutputTokens(20 + random.nextInt(500));

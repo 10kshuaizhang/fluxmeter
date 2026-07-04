@@ -253,11 +253,38 @@ public final class PricingCatalog {
         models.put("gemini-1.5-flash", ModelPricing.flat(0.075, 0.30, 0.10));
         models.put("text-embedding-3-small", ModelPricing.flat(0.02, 3.0, 0.02));
         models.put("text-embedding-3-large", ModelPricing.flat(0.13, 3.0, 0.13));
+        models.put("deepseek-v4-flash", ModelPricing.flat(0.14, 0.28, 0.10));
+        models.put("deepseek-v4-pro", ModelPricing.flat(0.435, 0.87, 0.10));
+        models.put("deepseek-chat", ModelPricing.flat(0.27, 1.10, 0.10));
+        models.put("deepseek-reasoner", ModelPricing.flat(0.55, 2.19, 0.10));
+        models.put("qwen-max", ModelPricing.flat(1.60, 6.40, 0.10));
+        models.put("qwen-plus", ModelPricing.flat(0.40, 1.20, 0.10));
+        models.put("qwen-turbo", ModelPricing.flat(0.10, 0.30, 0.10));
+        models.put("qwen-long", ModelPricing.flat(0.50, 2.00, 0.10));
+        models.put("glm-4", ModelPricing.flat(0.50, 0.50, 0.10));
+        models.put("glm-4-flash", ModelPricing.flat(0.06, 0.06, 0.10));
+        models.put("glm-4-air", ModelPricing.flat(0.10, 0.10, 0.10));
+        models.put("moonshot-v1-8k", ModelPricing.flat(0.20, 2.00, 0.10));
+        models.put("moonshot-v1-32k", ModelPricing.flat(1.00, 3.00, 0.10));
+        models.put("moonshot-v1-128k", ModelPricing.flat(2.00, 5.00, 0.10));
+        models.put("doubao-pro-32k", ModelPricing.flat(0.80, 2.00, 0.10));
+        models.put("doubao-lite-32k", ModelPricing.flat(0.30, 0.60, 0.10));
+        models.put("baichuan4-turbo", ModelPricing.flat(0.50, 0.50, 0.10));
+        models.put("abab6.5-chat", ModelPricing.flat(0.30, 1.00, 0.10));
+        models.put("hunyuan-lite", ModelPricing.flat(0.00, 0.00, 0.10));
+        models.put("hunyuan-pro", ModelPricing.flat(0.40, 1.20, 0.10));
         List<String> prefixes = List.of(
                 "gpt-4o-mini", "gpt-4o", "o3-mini", "o1",
                 "claude-opus-4", "claude-sonnet-4", "claude-haiku-4",
                 "gemini-1.5-pro", "gemini-1.5-flash",
-                "text-embedding-3-large", "text-embedding-3-small");
+                "text-embedding-3-large", "text-embedding-3-small",
+                "moonshot-v1-128k", "moonshot-v1-32k", "moonshot-v1-8k",
+                "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-reasoner", "deepseek-chat",
+                "qwen-max", "qwen-plus", "qwen-turbo", "qwen-long",
+                "glm-4-flash", "glm-4-air", "glm-4",
+                "doubao-pro-32k", "doubao-lite-32k",
+                "baichuan4-turbo", "abab6.5-chat",
+                "hunyuan-lite", "hunyuan-pro");
         return new PricingCatalog(
                 models,
                 new ModelPricing(PricingMode.FLAT, 1.0, 3.0, 0.1, null),
