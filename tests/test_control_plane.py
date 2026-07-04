@@ -9,8 +9,7 @@ import uuid
 import httpx
 import pytest
 
-CP_API = "http://localhost:8001"
-TIMEOUT = httpx.Timeout(10.0)
+from helpers import CP_API, TIMEOUT
 ADMIN_KEY = "cp_admin_test_key"
 
 

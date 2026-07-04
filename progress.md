@@ -156,7 +156,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 - **2026-07-05** — **v2.6.2 Lite span**：`parentSpanId` ingest → `increment_span` + E2E tests；客户 B 剪辑任务可 `GET /usage/span/{job_id}`。
 - **2026-07-05** — **客户接入文档**：[`docs/customer-integration-lite.md`](docs/customer-integration-lite.md) — Token 中转站 + 直播 AI 剪辑 Lite 实施方案；Review 缺口（webhook、metadata、双账本、Python HTTP SDK）。
 
-- **2026-07-05** — **v2.6.1 billing queries**: period/day/session usage endpoints; rollup day buckets; lite `sessionId` aggregation; Flink `RedisSink` month/day hashes; docs/OpenAPI/Helm synced.
+- **2026-07-05** — **v2.6.1 regression**: billing query E2E tests; Flink tier-pricing fix (`MonthlyVolumeStampFunction`); Dockerfile `usage_buckets.py`; test harness IPv4 + expanded `make test-unit` / `run-e2e-all.sh`.
 - **2026-07-05** — **v2.6.0 Chinese domestic models**: 20-model pricing catalog, SDK `track_*()` for 8 providers, contrib provider docs + `china-2026-07.json` reference.
 - **2026-07-04** — **v2.5.0 Phase 2 complete**: Stripe export modes, prepaid packages, Checkout, rollup month buckets, hybrid docs; tag v2.5.0.
 - **2026-07-04** — **v2.4.0 tiered pricing**: flat/volume/graduated in Lite + Flink; `contrib/pricing/tiered-example.json`.

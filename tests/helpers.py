@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from typing import Optional
@@ -10,7 +11,9 @@ import httpx
 
 from conftest import admin_headers, api_headers
 
-API = "http://localhost:8000"
+# ponytail: 127.0.0.1 — macOS often binds Docker on IPv4 only; localhost → ::1 returns 503
+API = os.getenv("FLUXMETER_API", "http://127.0.0.1:8000")
+CP_API = os.getenv("FLUXMETER_CP_API", "http://127.0.0.1:8001")
 TIMEOUT = httpx.Timeout(10.0)
 POLL_TIMEOUT_SEC = 180
 POLL_INTERVAL_SEC = 2

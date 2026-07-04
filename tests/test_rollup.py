@@ -102,3 +102,25 @@ class TestRollupLogic:
         assert data is not None
         assert data["input_tokens"] == 2000
         assert data["event_count"] == 2
+
+    def test_month_rollup_bucket(self, r):
+        """Monthly rollup hash is populated alongside minute/day."""
+        cid = f"test_month_{uuid.uuid4().hex[:8]}"
+        customer_key = f"customer:{cid}"
+        r.set(f"{customer_key}:input_tokens", "3000")
+        r.set(f"{customer_key}:output_tokens", "1000")
+        r.set(f"{customer_key}:event_count", "3")
+        r.set(f"{customer_key}:cost_usd", "0.3")
+
+        import sys
+        sys.path.insert(0, "api")
+        from rollup_worker import rollup_customer_minute
+        from usage_buckets import read_usage_bucket, rollup_month_key
+        from pricing_loader import billing_period_month
+
+        rollup_customer_minute(r, cid, int(time.time()))
+        month = billing_period_month(int(time.time() * 1000))
+        data = read_usage_bucket(r, rollup_month_key(cid, month))
+        assert data is not None
+        assert data["input_tokens"] == 3000
+        assert data["event_count"] == 3

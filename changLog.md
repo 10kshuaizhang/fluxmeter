@@ -30,6 +30,12 @@ Format: `[version] — date — summary`
 ### Changed
 - **Docs / OpenAPI**: period, day, session query endpoints; billing query guide; semantic conventions; integrations table
 
+### Fixed
+- **Dockerfile**: include `usage_buckets.py` (lite API crash on v2.6.1 deploy)
+- **Flink job submit**: tier volume state moved to `MonthlyVolumeStampFunction` (Flink rejects RichFunction in aggregate+ProcessWindowFunction)
+- **SaaS compose**: wire `FLUXMETER_API_KEY` / `FLUXMETER_ADMIN_KEY` for auth-enforced API tests
+- **Tests**: E2E harness uses `127.0.0.1` (macOS `localhost` → IPv6 503); pricing admin test restores catalog; rerate apply timeout 120s
+
 ### Notes
 - Full-mode session aggregation still lite-only on ingest; Kafka/Flink path unchanged (use `parentSpanId` for tasks)
 - Day/month buckets accumulate from deploy forward; no historical backfill

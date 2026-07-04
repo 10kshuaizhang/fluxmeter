@@ -88,11 +88,14 @@ test-e2e:
 test-unit:
 	pip install -q -r tests/requirements.txt
 	pytest tests/test_auth_unit.py tests/test_billing_export.py \
-		tests/test_control_plane_models.py tests/test_tenant_keys.py -v --timeout=60
+		tests/test_control_plane_models.py tests/test_tenant_keys.py \
+		tests/test_pricing_loader.py tests/test_pricing_validate.py \
+		tests/test_rerate_tier.py tests/test_phase2_billing.py -v --timeout=60
 	./gradlew test -q
 
 test-unit-redis:
-	pytest tests/test_lite_aggregate_unit.py tests/test_rollup.py -v --timeout=60
+	pytest tests/test_lite_aggregate_unit.py tests/test_rollup.py \
+		tests/test_usage_buckets.py tests/test_tier_e2e.py -v --timeout=60
 
 test-java:
 	./gradlew test

@@ -98,6 +98,7 @@ class TestStreamingSinglePathDeduction:
         )
         assert abs(budget["balance_usd"] - (initial - usage["cost_usd"])) < 0.02
 
+        budget_before_reconcile = get_budget(cust)
         reconcile = httpx.post(
             f"{API}/budget/{cust}/reconcile",
             params={"reserved_usd": reserve_usd, "actual_usd": usage["cost_usd"]},
@@ -107,7 +108,7 @@ class TestStreamingSinglePathDeduction:
         assert reconcile.status_code == 200
         rel = reconcile.json()
         assert abs(rel["held_usd"]) < 1e-6
-        assert abs(rel["balance_usd"] - budget["balance_usd"]) < 1e-6
+        assert abs(rel["balance_usd"] - budget_before_reconcile["balance_usd"]) < 1e-6
 
     def test_reserve_reduces_effective_balance_for_check(self):
         cust = unique_customer("held")
@@ -251,6 +252,15 @@ class TestPricingApi:
 
         snap = httpx.get(f"{API}/pricing", timeout=TIMEOUT, headers=api_headers())
         assert snap.json().get("version") == "test-1"
+
+        # Restore production catalog for downstream tests
+        default = json.loads(Path("config/pricing.json").read_text())
+        httpx.put(
+            f"{API}/admin/pricing",
+            json=default,
+            timeout=TIMEOUT,
+            headers=admin_headers(),
+        )
 
 
 @pytest.mark.e2e

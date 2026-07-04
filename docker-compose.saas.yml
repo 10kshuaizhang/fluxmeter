@@ -26,6 +26,8 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-fluxmeter}
       FLUXMETER_LITE_MODE: "true"
       FLUXMETER_AUTH_OPTIONAL: "false"
+      FLUXMETER_API_KEY: ${FLUXMETER_API_KEY:-test_api_key}
+      FLUXMETER_ADMIN_KEY: ${FLUXMETER_ADMIN_KEY:-test_admin_key}
       BUDGET_FAIL_POLICY: "closed"
       STRIPE_API_KEY: ${STRIPE_API_KEY:-}
     depends_on:

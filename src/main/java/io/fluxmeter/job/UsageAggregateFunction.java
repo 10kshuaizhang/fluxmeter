@@ -2,33 +2,20 @@ package io.fluxmeter.job;
 
 import io.fluxmeter.model.TokenEvent;
 import io.fluxmeter.model.UsageAggregate;
-import io.fluxmeter.pricing.MonthlyVolumeMeter;
 
-import org.apache.flink.api.common.functions.AbstractRichFunction;
 import org.apache.flink.api.common.functions.AggregateFunction;
-import org.apache.flink.api.common.state.ValueState;
-import org.apache.flink.api.common.state.ValueStateDescriptor;
-import org.apache.flink.configuration.Configuration;
+
+import java.util.Map;
 
 /**
- * Window aggregator with keyed {@link MonthlyVolumeMeter} state for tier pricing.
- * State persists across windows per (tenant|customer|model) key.
+ * Window aggregator — tier volume is stamped on each event by {@link MonthlyVolumeStampFunction}
+ * before windowing (Flink disallows RichFunction on aggregate+ProcessWindowFunction).
  */
-public class UsageAggregateFunction extends AbstractRichFunction
+public class UsageAggregateFunction
         implements AggregateFunction<TokenEvent, UsageAggregate, UsageAggregate> {
 
     private static final long serialVersionUID = 1L;
-
-    private transient ValueState<Long> monthlyVolumeState;
-    private transient ValueState<String> billingPeriodState;
-
-    @Override
-    public void open(Configuration parameters) {
-        monthlyVolumeState = getRuntimeContext().getState(
-                new ValueStateDescriptor<>("monthlyVolumeTokens", Long.class));
-        billingPeriodState = getRuntimeContext().getState(
-                new ValueStateDescriptor<>("billingPeriodMonth", String.class));
-    }
+    static final String MONTHLY_VOLUME_BEFORE_KEY = "_monthlyVolumeBefore";
 
     @Override
     public UsageAggregate createAccumulator() {
@@ -37,15 +24,7 @@ public class UsageAggregateFunction extends AbstractRichFunction
 
     @Override
     public UsageAggregate add(TokenEvent event, UsageAggregate acc) {
-        try {
-            MonthlyVolumeMeter meter = loadMeter();
-            long monthlyBefore = meter.tokensBefore(event.getTimestamp());
-            acc.addEvent(event, monthlyBefore);
-            meter.advance(event.getTimestamp(), event.getTotalTokens());
-            saveMeter(meter);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to update monthly volume state", e);
-        }
+        acc.addEvent(event, readMonthlyBefore(event));
         return acc;
     }
 
@@ -56,22 +35,14 @@ public class UsageAggregateFunction extends AbstractRichFunction
 
     @Override
     public UsageAggregate merge(UsageAggregate a, UsageAggregate b) {
-        // ponytail: volume state lives in Flink keyed state, not in the window acc;
-        // merge only combines partial window aggregates (cost already tier-aware per add).
         return a.merge(b);
     }
 
-    private MonthlyVolumeMeter loadMeter() throws Exception {
-        Long vol = monthlyVolumeState.value();
-        String period = billingPeriodState.value();
-        if (period == null && vol == null) {
-            return new MonthlyVolumeMeter();
+    static long readMonthlyBefore(TokenEvent event) {
+        Map<String, String> md = event.getMetadata();
+        if (md == null || !md.containsKey(MONTHLY_VOLUME_BEFORE_KEY)) {
+            return 0L;
         }
-        return MonthlyVolumeMeter.fromState(vol != null ? vol : 0L, period);
-    }
-
-    private void saveMeter(MonthlyVolumeMeter meter) throws Exception {
-        monthlyVolumeState.update(meter.getMonthlyTokens());
-        billingPeriodState.update(meter.getBillingPeriod());
+        return Long.parseLong(md.get(MONTHLY_VOLUME_BEFORE_KEY));
     }
 }

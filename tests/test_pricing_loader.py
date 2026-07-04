@@ -86,3 +86,21 @@ class TestPeriodKeys:
         ts = int(datetime(2026, 7, 1, tzinfo=timezone.utc).timestamp() * 1000)
         key = period_volume_key("t1", "cust1", "gpt-4o", ts)
         assert key.startswith("tenant:t1:customer:cust1:model:gpt-4o:period:")
+
+
+class TestDomesticModels:
+    def setup_method(self):
+        reload_catalog(PricingCatalog.load_from_file())
+
+    def test_hunyuan_lite_zero_cost(self):
+        cost = calculate_cost_micro({"modelId": "hunyuan-lite", "inputTokens": 1_000_000, "outputTokens": 500_000})
+        assert cost == 0
+
+    def test_deepseek_v4_flash_input(self):
+        cost = calculate_cost_micro({"modelId": "deepseek-v4-flash", "inputTokens": 1_000_000})
+        assert cost == 140_000  # $0.14/M
+
+    def test_moonshot_normalize_suffix(self):
+        from pricing_loader import normalize_model_id
+
+        assert normalize_model_id("moonshot-v1-8k-2025-01") == "moonshot-v1-8k"

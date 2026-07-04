@@ -91,7 +91,11 @@ public class TokenUsageAggregator {
         // go to DLQ for reprocessing. No allowedLateness — avoids window re-fire
         // which conflicts with SET NX idempotency (second fire gets blocked,
         // losing the late data contribution).
-        SingleOutputStreamOperator<UsageAggregate> aggregates = events
+        DataStream<TokenEvent> stampedEvents = events
+                .keyBy(TokenEvent::getAggregationKey)
+                .process(new MonthlyVolumeStampFunction());
+
+        SingleOutputStreamOperator<UsageAggregate> aggregates = stampedEvents
                 .keyBy(TokenEvent::getAggregationKey)
                 .window(TumblingEventTimeWindows.of(Time.seconds(windowSeconds)))
                 .sideOutputLateData(LATE_EVENTS)

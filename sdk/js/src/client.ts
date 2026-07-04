@@ -62,7 +62,10 @@ export class FluxMeter {
   private apiKey?: string;
   private environment?: string;
   private kafkaBrokers?: string;
-  private producer: { send: (topic: string, messages: { key: string; value: string }[]) => Promise<void> } | null = null;
+  private producer: {
+    send: (topic: string, messages: { key: string; value: string }[]) => Promise<void>;
+    disconnect: () => Promise<void>;
+  } | null = null;
   private producerReady: Promise<void> | null = null;
 
   constructor(options: FluxMeterOptions = {}) {
@@ -98,7 +101,17 @@ export class FluxMeter {
           })),
         });
       },
+      disconnect: () => producer.disconnect(),
     };
+  }
+
+  /** Release Kafka producer connections (no-op for HTTP transport). */
+  async close(): Promise<void> {
+    if (this.producer) {
+      await this.producer.disconnect();
+      this.producer = null;
+      this.producerReady = null;
+    }
   }
 
   async track(

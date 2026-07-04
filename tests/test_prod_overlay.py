@@ -4,9 +4,7 @@ import httpx
 import pytest
 
 from conftest import admin_headers, api_headers
-
-API = "http://localhost:8000"
-TIMEOUT = httpx.Timeout(10.0)
+from helpers import API, TIMEOUT
 
 
 class TestProdAuth:

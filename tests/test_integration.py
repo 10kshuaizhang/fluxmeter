@@ -20,8 +20,8 @@ import httpx
 import pytest
 
 from conftest import admin_headers, api_headers
+from helpers import API
 
-API = "http://localhost:8000"
 TIMEOUT = httpx.Timeout(10.0)
 POLL_TIMEOUT_SEC = 120
 POLL_INTERVAL_SEC = 2
@@ -452,7 +452,8 @@ class TestReRating:
 
         budget_before = get_budget(cust)
 
-        # Apply: output price drops from $10 → $5
+        # Apply: output price drops from $10 → $5 (scan can be slow on large Redis)
+        rerate_timeout = httpx.Timeout(120.0)
         httpx.post(
             f"{API}/rerate/apply",
             json={
@@ -462,7 +463,7 @@ class TestReRating:
                 "old_output_price": 10.00,
                 "new_output_price": 5.00,
             },
-            timeout=TIMEOUT,
+            timeout=rerate_timeout,
             headers=admin_headers(),
         )
 

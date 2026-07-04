@@ -22,7 +22,7 @@ sys.path.insert(0, "api")
 from lite_aggregate_lua import LiteAggregator  # noqa: E402
 from pricing_loader import PricingCatalog, period_volume_key, reload_catalog  # noqa: E402
 
-API = os.getenv("FLUXMETER_API", "http://localhost:8000")
+API = os.getenv("FLUXMETER_API", "http://127.0.0.1:8000")
 TIERED = Path("contrib/pricing/tiered-example.json")
 
 
