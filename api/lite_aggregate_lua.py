@@ -132,7 +132,7 @@ if balance then
   redis.call('SET', bal_key, tostring(new_balance))
   -- Track total deducted for reconciliation
   redis.call('INCRBYFLOAT', KEYS[4] .. '_deducted', cost_usd)
-  return {status, new_balance}
+  return {status, tostring(new_balance)}
 end
 
 return {status, -1}
