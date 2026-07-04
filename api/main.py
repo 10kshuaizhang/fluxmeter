@@ -30,7 +30,7 @@ from rollup_worker import rollup_loop
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="2.2.1",
+    version="2.2.2",
 )
 
 LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"
@@ -195,6 +195,7 @@ def get_openapi_spec():
 class IngestEvent(BaseModel):
     customerId: str
     modelId: str
+    tenantId: Optional[str] = None
     provider: str = "openai"
     inputTokens: int = 0
     outputTokens: int = 0

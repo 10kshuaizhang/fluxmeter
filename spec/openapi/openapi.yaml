@@ -4,7 +4,7 @@ info:
   description: |
     Real-time token usage queries, HTTP ingest, and budget enforcement.
     Implements the FluxMeter open spec — see `spec/schema/` and `spec/openapi/`.
-  version: 2.2.1
+  version: 2.2.2
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -29,6 +29,10 @@ paths:
                   status:
                     type: string
                     example: ok
+                  mode:
+                    type: string
+                    enum: [lite, full]
+                    description: Deployment mode (lite = Redis Lua; full = Kafka + Flink)
   /ingest:
     post:
       summary: Ingest single token event
@@ -45,12 +49,9 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                  eventId:
-                    type: string
+                oneOf:
+                  - $ref: "#/components/schemas/IngestResponseLite"
+                  - $ref: "#/components/schemas/IngestResponseFull"
   /ingest/batch:
     post:
       summary: Batch ingest (max 1000)
@@ -66,8 +67,51 @@ paths:
       responses:
         "202":
           description: Accepted
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/IngestBatchResponseLite"
+                  - $ref: "#/components/schemas/IngestBatchResponseFull"
         "400":
           description: Batch too large
+  /admin/billing/{customer_id}/link-stripe:
+    post:
+      summary: Link customer to Stripe for usage billing export
+      description: Admin only. Stores stripe_customer_id for hourly Meters API export.
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - stripe_customer_id
+              properties:
+                stripe_customer_id:
+                  type: string
+      responses:
+        "200":
+          description: Linked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  linked:
+                    type: boolean
+                  customer_id:
+                    type: string
+                  stripe_customer_id:
+                    type: string
+        "400":
+          description: Missing stripe_customer_id
   /usage/global:
     get:
       summary: Global aggregated usage
@@ -300,6 +344,51 @@ components:
   schemas:
     TokenEvent:
       $ref: "../schema/token-event-v1.json"
+    IngestResponseLite:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, duplicate, rejected]
+        cost_usd:
+          type: number
+        balance_usd:
+          type: number
+        budget_alert:
+          type: string
+          enum: [BUDGET_EXHAUSTED]
+        reason:
+          type: string
+        event_id:
+          type: string
+    IngestResponseFull:
+      type: object
+      properties:
+        status:
+          type: string
+          example: accepted
+        eventId:
+          type: string
+    IngestBatchResponseLite:
+      type: object
+      required:
+        - results
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/IngestResponseLite"
+    IngestBatchResponseFull:
+      type: object
+      properties:
+        status:
+          type: string
+        count:
+          type: integer
+        event_ids:
+          type: array
+          items:
+            type: string
     GlobalUsage:
       type: object
       properties:

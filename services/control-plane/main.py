@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, HTTPException, Header
 
 from models import PLAN_LIMITS, PlanTier, TenantCreate, TenantResponse, TenantUsage
 
-app = FastAPI(title="FluxMeter Control Plane", version="2.2.1")
+app = FastAPI(title="FluxMeter Control Plane", version="2.2.2")
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))

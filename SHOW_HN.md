@@ -1,68 +1,87 @@
-# Show HN: FluxMeter – Real-time budget enforcement for AI token billing (1M events/sec)
+# Show HN: FluxMeter – real-time budget enforcement for AI token billing
 
-I work on billing systems for a living. When I started building AI side projects, I hit the same problem every AI app team hits: a runaway agent loop burned through $200 of tokens in 45 seconds because the metering system only checks usage every 30 seconds.
+I work on billing systems, and when I started building AI side projects I ran into a problem I think a lot of AI app teams are going to hit:
 
-So I built FluxMeter — an open source metering engine that enforces token budgets in <10ms per request.
+Token usage can run away much faster than traditional metering systems can react.
 
-**The problem it solves:** Your customer prepays $50 for tokens. They fire up an agent that makes 20 LLM calls in a loop. Traditional metering (store events, query every 30s) doesn't notice the budget is blown until $200 later. FluxMeter checks the balance before every single LLM call and says "no" the instant it's exhausted.
+In my case, an agent loop burned through about $200 of tokens in under a minute because usage was only being checked periodically. By the time the system noticed, the budget was already gone.
 
-**How it works:**
+So I built FluxMeter, an open-source metering engine for AI token billing with pre-request budget checks.
 
+The core idea is simple:
+
+```text
+Before each LLM call:
+  GET /budget/cust_123/check
+
+If allowed:
+  make the LLM call
+
+After the call:
+  POST /ingest {
+    customerId,
+    modelId,
+    inputTokens,
+    outputTokens
+  }
 ```
-Your app → GET /budget/cust_123/check (< 10ms)
-           → allowed: true → proceed with LLM call
-           → allowed: false → reject, return 402
 
-Streaming (optional):
-  POST /budget/cust_123/reserve  → holds estimate (balance unchanged)
-  → LLM stream → POST /ingest
-  → POST /budget/cust_123/reconcile → releases hold
-  (Flink Sink deducts actual cost in 10s windows — single path, no double-charge)
+In Lite mode, this is just API + Redis Lua for atomic balance deduction and idempotency. No Kafka or Flink required.
 
-After each LLM call:
-Your app → POST /ingest {customerId, modelId, inputTokens, outputTokens}
-           → Kafka → Flink (10s window) → Redis (atomic deduction) → Kafka alert / webhook
+For streaming workloads, there is also a reserve/reconcile flow:
+
+```text
+POST /budget/cust_123/reserve
+→ stream tokens
+POST /ingest
+POST /budget/cust_123/reconcile
 ```
 
-The pre-request check uses effective balance (`balance - held`) with a three-layer stack (in-process cache → Redis → configurable fail policy). Post-hoc aggregation is Flink windowed processing with Lua atomicity and SET NX idempotency.
+The pre-request check uses effective balance:
 
-**What makes it different from "just use ClickHouse":**
-
-I included a ClickHouse baseline in the repo consuming from the same Kafka topic. Same data, same machine. Flink delivers budget enforcement in <1 second. ClickHouse materialized views have 8-43 second lag. Enough time for an agent to spend $200.
-
-That said, if you don't need sub-second enforcement, store-then-query is simpler and might be enough. The repo lets you compare both patterns.
-
-**Technical highlights:**
-- 1M events/sec sustained on a single machine (docker-compose, scaled TaskManagers; see `docs/load-testing.md` for staged benchmarks)
-- External pricing via `config/pricing.json` + `GET/PUT /pricing` (no hardcoded deploy)
-- Microdollar precision (long arithmetic, no float accumulation errors)
-- Multi-provider normalization (OpenAI, Anthropic, Google — all token types)
-- Agent span attribution (group LLM calls in a tool-use loop → one cost number)
-- Retroactive re-rating (provider drops price mid-month → instant credit)
-- Customer-scoped API keys, budget webhooks, reconciliation job, DLQ replay
-- Zero data loss (WAL + acks=all + checkpoint + sink idempotency)
-- Helm chart + Prometheus alert rules for production
-
-**Integration:** Python SDK (`pip install fluxmeter`), JS SDK, HTTP ingest (`curl`), or direct Kafka.
-
-**What I'd love feedback on:**
-- Is the pre-request check + hold/reserve model the right tradeoff for streaming agent workloads?
-- Anyone running Flink for billing at scale — what operational issues should I expect?
-- Is the agent span attribution (grouping multi-call runs) useful for your billing?
-
-**Honest caveats:**
-- **v2.2.1** — production-hardening + lite/SaaS dual-path; self-hosted (not a hosted SaaS product)
-- Demo mode allows unauthenticated API (`FLUXMETER_AUTH_OPTIONAL=true`); production overlay enforces keys — see `docker-compose.prod.yml`
-- Tiered pricing schema exists; engine uses first tier until monthly volume tracking ships
-- Session windows for agent spans can stay open if the agent never stops (60s gap)
-- Self-hosted: you run Kafka, Flink, Redis (or use `make demo` for API-only lite mode)
-
-**Stack:** Java 17 (Flink), Python (SDK + API), Kafka, Redis, Grafana.
-
-```bash
-make demo        # default: API → Redis (lite)
-make demo-full   # Kafka + Flink + load generator
-make load-test   # staged benchmark (full mode)
+```text
+available = balance - held
 ```
+
+So a customer can be stopped before the next LLM call instead of after a delayed batch query catches up.
+
+There is also a Full mode for higher-volume setups:
+
+```text
+API → Kafka → Flink → Redis → alerts/webhooks
+```
+
+That path includes windowed aggregation, span attribution, DLQ replay, idempotent sinks, and budget kill signals.
+
+I also included a ClickHouse baseline that consumes from the same Kafka topic. On my local tests, Flink gave sub-second budget enforcement, while ClickHouse materialized views lagged by several seconds to tens of seconds. If you do not need sub-second enforcement, store-then-query is probably simpler and may be the right choice.
+
+Some implementation details:
+
+- Lite path: API → Redis Lua, `make demo`
+- Full path: Kafka + Flink + Redis, `make demo-full`
+- SaaS-style control plane scaffold: `make start-saas`
+- Python SDK on PyPI: `pip install fluxmeter`
+- JS SDK in repo
+- External pricing config via JSON + admin API
+- Microdollar precision using integer arithmetic
+- Multi-provider token normalization
+- Agent span attribution for grouping multi-call tool/agent runs
+- Retroactive re-rating for provider price changes
+- Stripe Billing Meters export
+- Helm chart, Prometheus alerts, DR runbook
+
+Honest caveats:
+
+- This is self-hosted, not a hosted SaaS product.
+- Demo mode can run with auth disabled; production compose enforces API keys.
+- Tiered pricing schema exists, but monthly volume tracking is not fully shipped yet.
+- Agent spans use session windows, so long-running agents need careful timeout handling.
+- In my local setup, Redis Lua becomes the bottleneck above roughly 100K sustained events/sec.
+
+I would especially like feedback on:
+
+1. Is pre-request check + reserve/reconcile the right model for streaming agent workloads?
+2. For people running Flink in billing or financial systems: what operational problems should I expect?
+3. Is agent span attribution useful for billing/debugging, or would you model this differently?
 
 GitHub: https://github.com/10kshuaizhang/fluxmeter

@@ -128,3 +128,22 @@ class TestLiteAggregator:
         assert len(results) == 3
         assert all(r_["status"] == "ok" for r_ in results)
         assert int(r.get(f"customer:{cid}:event_count") or 0) == 3
+
+    def test_tenant_isolated_counters(self, agg, r):
+        """Same customerId under different tenantId → separate Redis keys."""
+        cid = f"unit_tenant_{uuid.uuid4().hex[:8]}"
+        tid_a = f"ta_{uuid.uuid4().hex[:6]}"
+        tid_b = f"tb_{uuid.uuid4().hex[:6]}"
+        base = {
+            "customerId": cid,
+            "modelId": "gpt-4o-mini",
+            "inputTokens": 100,
+            "outputTokens": 0,
+        }
+        agg.aggregate({**base, "tenantId": tid_a, "eventId": str(uuid.uuid4())})
+        agg.aggregate({**base, "tenantId": tid_b, "eventId": str(uuid.uuid4())})
+        key_a = f"tenant:{tid_a}:customer:{cid}:event_count"
+        key_b = f"tenant:{tid_b}:customer:{cid}:event_count"
+        assert int(r.get(key_a) or 0) == 1
+        assert int(r.get(key_b) or 0) == 1
+        assert r.get(f"customer:{cid}:event_count") is None

@@ -8,6 +8,9 @@ FluxMeter includes a Java Kafka load generator and a staged benchmark script.
 make build
 make start-full && sleep 15 && make submit-job
 
+# Mac docker-compose honest ceiling: ~25K avg sustained at 50K target tier
+# (Redis Lua sink bound — not Flink). See Reference results below.
+
 # Staged tiers: 10K → 50K → 100K → 500K → 1M eps (15s each)
 make load-test
 

@@ -14,7 +14,7 @@ pip install -q -r tests/requirements.txt
 run_unit() {
   echo "=== Unit (no Docker) ==="
   pytest tests/test_auth_unit.py tests/test_billing_export.py tests/test_control_plane_models.py \
-    tests/test_lite_aggregate_unit.py tests/test_rollup.py -v --timeout=60
+    tests/test_tenant_keys.py -v --timeout=60
   ./gradlew test -q
 }
 

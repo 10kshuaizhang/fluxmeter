@@ -13,7 +13,11 @@ import redis
 
 @pytest.fixture
 def r():
-    conn = redis.Redis(host="localhost", port=6379, decode_responses=True)
+    try:
+        conn = redis.Redis(host="localhost", port=6379, decode_responses=True)
+        conn.ping()
+    except redis.ConnectionError:
+        pytest.skip("Redis not available on localhost:6379")
     yield conn
 
 

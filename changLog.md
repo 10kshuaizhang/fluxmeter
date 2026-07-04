@@ -6,6 +6,27 @@ Format: `[version] — date — summary`
 
 ---
 
+## [2.2.2] — 2026-07-04
+
+### Added
+- **`api/tenant_keys.py`**: Python mirror of `TenantKeys.java` for lite Redis key prefixes
+- **`tests/test_tenant_keys.py`**: no-Redis unit tests for tenant key helpers
+- **`make test-unit-redis`**: lite Lua aggregator + rollup tests (requires local Redis)
+- **Lite multi-tenant ingest**: optional `tenantId` on `/ingest` events; Lua global counters scoped per tenant
+
+### Changed
+- **`make test-unit`**: runs auth, billing export, control-plane models, tenant_keys + `./gradlew test`
+- **OpenAPI 2.2.2**: health `mode`, lite/full ingest response schemas, `POST /admin/billing/{id}/link-stripe`
+- **`validate-spec.sh`**: checks OpenAPI completeness (mode, cost_usd, link-stripe, batch lite schema)
+- **`docs/load-testing.md`**: Mac ~25K sustained @ 50K target callout in Quick start
+- **Version alignment**: engine, API, OpenAPI, Helm → **2.2.2**
+
+### Notes
+- Phase 1 (ROADMAP v2.3 polish) complete; tiered pricing runtime remains Phase 2 / v2.4.0
+- Single-tenant behavior unchanged when `tenantId` is omitted
+
+---
+
 ## [2.2.1] — 2026-06-22
 
 ### Added

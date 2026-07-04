@@ -2,7 +2,7 @@
 
 Open source real-time metering and budget enforcement for AI token billing.
 
-**v2.2.1** | **Open spec + SDKs** | **1M+ events/sec** | **<10ms budget check** | **Multi-provider**
+**v2.2.2** | **Open spec + SDKs** | **1M+ events/sec** | **<10ms budget check** | **Multi-provider**
 
 ![FluxMeter Demo](demo.gif)
 
@@ -222,9 +222,11 @@ make load-test   # Staged load test 10K→1M
 make load-test-quick  # Staged 10K→500K
 make test-e2e    # Integration + v2 E2E tests
 make test-lite   # Lite production pytest suite
-make test-unit   # Auth unit tests (no stack)
-make benchmark   # Streaming vs batch comparison
-make validate-spec # Validate schema + OpenAPI artifacts
+make test-unit        # Python + Java unit tests (no Docker)
+make test-unit-redis  # Lite Lua + rollup tests (needs Redis)
+make test-java        # Java unit tests only
+make benchmark        # Streaming vs batch comparison
+make validate-spec    # Validate schema + OpenAPI artifacts
 make stop        # Stop containers
 make clean       # Stop + remove volumes + clean
 ```

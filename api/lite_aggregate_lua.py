@@ -12,6 +12,8 @@ from typing import Any
 
 import redis
 
+from tenant_keys import budget_prefix, customer_prefix, global_key
+
 # Pricing tables (mirrors config/pricing.json)
 INPUT_PRICES = {
     "gpt-4o": 2.50, "gpt-4o-mini": 0.15, "o1": 15.00, "o3-mini": 1.10,
@@ -63,7 +65,7 @@ def calculate_cost_micro(event: dict[str, Any]) -> int:
 
 # Lua script: atomic aggregate + budget deduct + threshold check
 # KEYS: [1]=idemp_key, [2]=customer_key, [3]=model_key,
-#        [4]=budget_balance_key, [5]=budget_threshold_key
+#        [4]=budget_balance_key, [5]=budget_threshold_key, [6]=global_key_prefix
 # ARGV: [1]=input_t, [2]=output_t, [3]=total_t, [4]=cost_usd_str,
 #        [5]=now_ms, [6]=has_event_id (0/1), [7]=cache_read, [8]=reasoning
 # Returns: [status, balance_after]
@@ -108,13 +110,14 @@ redis.call('INCRBY', mkey .. ':output_tokens', output_t)
 redis.call('INCRBY', mkey .. ':total_tokens', total_t)
 redis.call('INCRBYFLOAT', mkey .. ':cost_usd', cost_usd)
 
--- Global counters
-redis.call('INCRBY', 'global:total_tokens', total_t)
-redis.call('INCRBY', 'global:input_tokens', input_t)
-redis.call('INCRBY', 'global:output_tokens', output_t)
-redis.call('INCRBY', 'global:total_events', 1)
-redis.call('INCRBYFLOAT', 'global:total_cost_usd', cost_usd)
-redis.call('SET', 'global:last_window_end', now_ms)
+-- Global counters (tenant-scoped or single-tenant global:)
+local gprefix = KEYS[6]
+redis.call('INCRBY', gprefix .. 'total_tokens', total_t)
+redis.call('INCRBY', gprefix .. 'input_tokens', input_t)
+redis.call('INCRBY', gprefix .. 'output_tokens', output_t)
+redis.call('INCRBY', gprefix .. 'total_events', 1)
+redis.call('INCRBYFLOAT', gprefix .. 'total_cost_usd', cost_usd)
+redis.call('SET', gprefix .. 'last_window_end', now_ms)
 
 -- Budget deduction (if budget exists)
 local bal_key = KEYS[4]
@@ -147,6 +150,7 @@ class LiteAggregator:
         """Atomically aggregate one event. Returns status dict."""
         customer_id = event.get("customerId")
         model_id = event.get("modelId", "unknown")
+        tenant_id = event.get("tenantId")
         if not customer_id or not model_id:
             return {"status": "rejected", "reason": "missing_customer_or_model"}
 
@@ -172,13 +176,16 @@ class LiteAggregator:
         else:
             idemp_key = "e:noop"  # Placeholder, won't be checked
 
-        customer_key = f"customer:{customer_id}"
+        customer_key = customer_prefix(tenant_id, customer_id)
         model_key = f"{customer_key}:model:{normalized_model}"
-        budget_balance_key = f"budget:{customer_id}:balance_usd"
-        budget_threshold_key = f"budget:{customer_id}:threshold_pct"
+        budget_base = budget_prefix(tenant_id, customer_id)
+        budget_balance_key = f"{budget_base}:balance_usd"
+        budget_threshold_key = f"{budget_base}:threshold_pct"
+        global_prefix = global_key(tenant_id, "")
 
         result = self._script(
-            keys=[idemp_key, customer_key, model_key, budget_balance_key, budget_threshold_key],
+            keys=[idemp_key, customer_key, model_key, budget_balance_key,
+                  budget_threshold_key, global_prefix],
             args=[input_t, output_t, total_t, f"{cost_usd:.10f}",
                   str(now_ms), has_eid, cache_read, reasoning],
         )

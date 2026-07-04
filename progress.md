@@ -2,8 +2,8 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 2.2.1
-**Current phase:** v2.0 — Production hardening (billing, pricing, ops)
+**Current version:** 2.2.2
+**Current phase:** v2.3 — Polish & correctness (Phase 1 complete)
 **Design status:** APPROVED (2026-06-16)
 
 ---
@@ -29,6 +29,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | v1.3 | External pricing catalog + API | Done |
 | v1.4 | Reconciliation job + DLQ replay | Done |
 | v2.0 | Helm + tiered pricing schema + monitoring rules | Done |
+| v2.2.2 | Phase 1 polish: test-unit expansion, OpenAPI, lite tenant keys, docs sync | Done |
 | v2.2.1 | CTO follow-up: JUnit + Python unit tests, DR runbook, Prometheus, tenant keys | Done |
 | v2.2.0 | Phase 5 dual-path: SaaS control plane (tenant CRUD, plans, API keys) | Done |
 | v2.1.0 | Phase 2 dual-path: atomic Lua lite aggregator + inline budget | Done |
@@ -127,6 +128,8 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-07-04** — **v2.2.2 Phase 1 polish**: `make test-unit` expanded (billing, control-plane models, tenant_keys + Java); `make test-unit-redis` for lite Lua + rollup; OpenAPI health `mode`, lite ingest responses, `link-stripe`; `api/tenant_keys.py` + lite Lua `tenantId` isolation; `validate-spec.sh` content checks; load-test Mac ceiling note.
+- **2026-06-24** — **SHOW_HN.md** synced to v2.2.1: Lite-first narrative, honest throughput numbers, SaaS/Stripe/PyPI caveats; title hook shifted from 1M eps to <10ms budget check.
 - **2026-06-22** — **ROADMAP.md**: project-wide forward plan (v2.3 polish → v2.4 tiered pricing → v3.0 SaaS → streaming proxy).
 - **2026-06-22** — **v2.2.1 CTO follow-up (tests + docs)**: `AggregationKeys` utility + JUnit suite; Python unit tests for lite Lua aggregator and control-plane models; `scripts/run-e2e-all.sh` (unit → lite → full → SaaS); [docs/control-plane-api.md](docs/control-plane-api.md). Prior: Prometheus reporter, DR runbook, Flink `tenantId` key isolation.
 - **2026-06-22** — **Phase 5 dual-path**: SaaS control plane (`services/control-plane/`) — tenant CRUD, plan tiers, API key provisioning, usage endpoint; `docker-compose.saas.yml` + `make start-saas`. Version 2.2.0.

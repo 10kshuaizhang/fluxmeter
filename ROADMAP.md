@@ -2,8 +2,8 @@
 
 Forward-looking plan for the FluxMeter project. For **what shipped**, see [changLog.md](changLog.md). For **milestone checklists**, see [progress.md](progress.md). For **architecture intent**, see [docs/DESIGN.md](docs/DESIGN.md).
 
-**Current version:** 2.2.1 (engine) · 1.1.0 (Python SDK on PyPI)  
-**Last updated:** 2026-06-22
+**Current version:** 2.2.2 (engine) · 1.1.0 (Python SDK on PyPI)  
+**Last updated:** 2026-07-04
 
 ---
 
@@ -70,14 +70,14 @@ Timelines are **indicative**, not commitments.
 
 | Item | Priority | Description | Success criteria |
 |------|----------|-------------|------------------|
-| README / SHOW_HN version sync | P0 | Align marketing docs with 2.2.1 + dual-path story | README badge matches `build.gradle` |
+| README / SHOW_HN version sync | P0 | Align marketing docs with 2.2.1 + dual-path story | README badge matches `build.gradle`; SHOW_HN synced 2026-06-24 |
 | `make test-unit` expansion | P1 | Single command for all no-Docker Python + Java unit tests | Documented in Makefile |
 | OpenAPI 2.2.x completeness | P1 | Lite ingest responses, `link-stripe`, health `mode` | `validate-spec.sh` passes |
 | Lite tenant key isolation | P2 | Honor `tenantId` in lite Lua paths (today: Flink only) | E2E test with tenant prefix |
 | AggregationKeys in mainline | P1 | Commit `AggregationKeys.java` + unit tests (if not merged) | `make test-java` green |
 | Local load-test profile docs | P2 | Document ~25K sustained @ 50K target on Mac docker | `docs/load-testing.md` |
 
-**Target release:** 2.2.2 or 2.3.0 (MINOR if tiered pricing lands)
+**Target release:** 2.2.2 ✓ (2026-07-04) — tiered pricing remains Phase 2 / 2.4.0
 
 ---
 
@@ -179,6 +179,7 @@ Parallel to version phases — grows the OpenCore surface without coupling to en
 
 | Release | Theme | Engine | Python SDK |
 |---------|-------|--------|------------|
+| **2.2.2** ✓ | Phase 1 polish (docs, tests, OpenAPI, lite tenant keys) | 2.2.2 | 1.1.0 |
 | **2.2.1** ✓ | Dual-path + CTO follow-up | 2.2.1 | 1.1.0 |
 | **2.3.0** | Docs sync, lite tenant keys, test DX | 2.3.0 | 1.1.x |
 | **2.4.0** | Tiered pricing + Stripe depth | 2.4.0 | 1.2.0 |
