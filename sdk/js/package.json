@@ -19,6 +19,7 @@
   },
   "keywords": ["ai", "llm", "metering", "billing", "openai", "anthropic"],
   "homepage": "https://fluxmeter.dev",
+  "documentation": "https://github.com/10kshuaizhang/fluxmeter/blob/main/docs/api-reference.md",
   "bugs": {
     "url": "https://github.com/10kshuaizhang/fluxmeter/issues"
   },

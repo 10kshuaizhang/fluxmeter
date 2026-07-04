@@ -29,7 +29,7 @@ dev = ["pytest", "pytest-asyncio", "ruff"]
 
 [project.urls]
 Homepage = "https://fluxmeter.dev"
-Documentation = "https://fluxmeter.dev"
+Documentation = "https://github.com/10kshuaizhang/fluxmeter/blob/main/docs/api-reference.md"
 Repository = "https://github.com/10kshuaizhang/fluxmeter"
 
 [tool.hatch.build.targets.wheel]

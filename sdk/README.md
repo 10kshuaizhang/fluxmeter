@@ -2,7 +2,7 @@
 
 Client libraries implementing [`spec/schema/token-event-v1.json`](../spec/schema/token-event-v1.json).
 
-**Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Spec:** [OpenAPI](../spec/openapi/openapi.yaml)
+**Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Spec:** [OpenAPI](../spec/openapi/openapi.yaml) · **API reference:** [docs/api-reference.md](../docs/api-reference.md)
 
 | Language | Path | Install |
 |----------|------|---------|

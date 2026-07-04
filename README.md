@@ -4,7 +4,7 @@ Open source real-time metering and budget enforcement for AI token billing.
 
 **[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v2.5.0** · **Open spec + SDKs** · **1M+ events/sec** · **<10ms budget check** · **Multi-provider**
 
-**Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [API docs](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
+**Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [Docs](https://github.com/10kshuaizhang/fluxmeter/tree/main/docs) · [API reference](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
 
 ![FluxMeter Demo](demo.gif)
 

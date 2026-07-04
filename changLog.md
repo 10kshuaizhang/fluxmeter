@@ -21,6 +21,7 @@ Format: `[version] — date — summary`
 - **Python SDK** → **1.2.0** (engine 2.5.0 compatible; no breaking API changes)
 - **Version alignment**: engine, API, OpenAPI, Helm, control plane → **2.5.0**
 - **Phase 2 ROADMAP** items marked complete (tier pricing shipped in 2.4.0)
+- **Link audit**: README/SDK metadata — `fluxmeter.dev` for marketing site only; technical docs → GitHub `docs/`; PyPI `Documentation` URL fixed (was duplicate homepage)
 
 ---
 

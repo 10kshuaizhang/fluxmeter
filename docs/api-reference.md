@@ -1,6 +1,6 @@
 # API Reference
 
-**Overview & integration guides:** [fluxmeter.dev](https://fluxmeter.dev) · **OpenAPI:** [`spec/openapi/openapi.yaml`](../spec/openapi/openapi.yaml)
+**Website:** [fluxmeter.dev](https://fluxmeter.dev) · **OpenAPI:** [`spec/openapi/openapi.yaml`](../spec/openapi/openapi.yaml) · **Integrations:** [integrations.md](integrations.md)
 
 Base URL: `http://localhost:8000` (development) or your production endpoint.
 

@@ -2,7 +2,7 @@
 
 JavaScript/TypeScript SDK for [FluxMeter](https://fluxmeter.dev) token billing.
 
-**Docs:** [fluxmeter.dev](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter)
+**Website:** [fluxmeter.dev](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [API reference](../../docs/api-reference.md)
 
 Implements [`spec/schema/token-event-v1.json`](../../spec/schema/token-event-v1.json).
 
