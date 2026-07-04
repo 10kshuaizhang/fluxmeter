@@ -9,6 +9,12 @@ description: "Default OpenAI / Anthropic / Google models"
 # cache_read_price = input_price * cache_read_multiplier (default 0.5)
 cache_read_multiplier: 0.5
 
+# Monthly volume meter scope (v2.4: customer_model only)
+volume_scope: customer_model
+
+# Billing period for tier counters (v2.4: calendar_month only)
+billing_period: calendar_month
+
 models:
   gpt-4o:
     input_per_m: 2.50
@@ -16,6 +22,30 @@ models:
   gpt-4o-mini:
     input_per_m: 0.15
     output_per_m: 0.60
+  # Example volume pricing (entire event billed at tier determined by monthly volume):
+  # gpt-4o-mini-tiered:
+  #   pricing_mode: volume
+  #   input_per_m: 0.15
+  #   output_per_m: 0.60
+  #   tiers:
+  #     - up_to_tokens_m: 10
+  #       input_per_m: 0.15
+  #       output_per_m: 0.60
+  #     - up_to_tokens_m: null
+  #       input_per_m: 0.10
+  #       output_per_m: 0.40
+  # Example graduated pricing (tokens split across tiers; see contrib/pricing/tiered-example.json):
+  # claude-sonnet-4-tiered:
+  #   pricing_mode: graduated
+  #   input_per_m: 3.00
+  #   output_per_m: 15.00
+  #   tiers:
+  #     - up_to_tokens_m: 1
+  #       input_per_m: 2.00
+  #       output_per_m: 4.00
+  #     - up_to_tokens_m: null
+  #       input_per_m: 1.00
+  #       output_per_m: 2.00
   o1:
     input_per_m: 15.00
     output_per_m: 60.00

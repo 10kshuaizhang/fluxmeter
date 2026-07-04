@@ -447,7 +447,55 @@ Return configured webhook URL for a customer.
 
 ## Pricing
 
-Pricing is loaded from `config/pricing.json` (or classpath `pricing.json`). Flink uses `PRICING_FILE` env; API can hot-update Redis snapshot.
+Pricing is loaded from `config/pricing.json` (or classpath `pricing.json`). Flink uses `PRICING_FILE` env; Lite API loads the same file or Redis `pricing:current` on startup.
+
+### Pricing modes (v2.4)
+
+| `pricing_mode` | Behavior |
+|----------------|----------|
+| `flat` (default) | Fixed `input_per_m` / `output_per_m` per model |
+| `volume` | Monthly cumulative volume picks **one tier rate** for the entire event |
+| `graduated` | Tokens split across tier boundaries within the event |
+
+Catalog-level fields:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `volume_scope` | `customer_model` | Monthly meter key scope (v2.4: only this value) |
+| `billing_period` | `calendar_month` | UTC calendar month reset |
+
+**Example** (see [`contrib/pricing/tiered-example.json`](../contrib/pricing/tiered-example.json)):
+
+```json
+{
+  "volume_scope": "customer_model",
+  "billing_period": "calendar_month",
+  "models": {
+    "gpt-4o-mini": {
+      "pricing_mode": "volume",
+      "input_per_m": 0.15,
+      "output_per_m": 0.60,
+      "tiers": [
+        { "up_to_tokens_m": 10, "input_per_m": 0.15, "output_per_m": 0.60 },
+        { "up_to_tokens_m": null, "input_per_m": 0.10, "output_per_m": 0.40 }
+      ]
+    }
+  }
+}
+```
+
+- `up_to_tokens_m` is in **millions** of total tokens (all categories summed).
+- Last tier must have `"up_to_tokens_m": null` (open-ended).
+- Tier `up_to_tokens_m` values must be strictly increasing.
+
+**Runtime:**
+
+| Path | Volume state | Enable tiers |
+|------|--------------|--------------|
+| Lite (`POST /ingest`) | Redis `…:period:{YYYY-MM}:volume_tokens` | `PRICING_FILE=contrib/pricing/tiered-example.json` |
+| Flink (Full) | Keyed Flink `ValueState` per `tenant\|customer\|model` | Same `PRICING_FILE` on JobManager / submit |
+
+Production `config/pricing.json` remains flat — existing costs unchanged until you opt into a tier catalog.
 
 ### `GET /pricing`
 
@@ -545,6 +593,8 @@ Formula: `balance_usd` should equal `initial_balance + total_topup - total_deduc
 
 ## Re-Rating
 
+**Flat models only (v2.4).** `/rerate/*` computes deltas from aggregate Redis token counters — it cannot reconstruct per-event tier placement. Models with `pricing_mode` `volume` or `graduated` return **`422 Unprocessable Entity`**. For tier price changes, replay events from Kafka (see [integrations.md](integrations.md#re-rating-and-tiered-pricing)).
+
 ### `POST /rerate/preview`
 
 Preview the cost adjustment for a pricing change without applying it.
@@ -576,6 +626,8 @@ Prices are per million tokens.
 ```
 
 `adjustments` shows up to 50 customers (sorted by adjustment amount). Negative = credit (price decreased).
+
+**Error:** `422` if `model_id` uses volume or graduated pricing.
 
 ---
 

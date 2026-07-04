@@ -6,19 +6,29 @@ Requires: Redis on localhost:6379 (lite or full stack).
 
 from __future__ import annotations
 
+import json
 import sys
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 import redis
 
 sys.path.insert(0, "api")
 
-from lite_aggregate_lua import (  # noqa: E402
-    LiteAggregator,
+from lite_aggregate_lua import LiteAggregator  # noqa: E402
+from pricing_loader import (  # noqa: E402
+    PricingCatalog,
     calculate_cost_micro,
     normalize_model_id,
+    period_volume_key,
+    reload_catalog,
 )
+
+
+def _utc_now_ms() -> int:
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
 
 
 @pytest.fixture
@@ -32,11 +42,28 @@ def r():
 
 
 @pytest.fixture
+def tiered_catalog():
+    path = Path("contrib/pricing/tiered-example.json")
+    catalog = PricingCatalog(json.loads(path.read_text()))
+    reload_catalog(catalog)
+    return catalog
+
+
+@pytest.fixture
+def agg_tiered(r, tiered_catalog):
+    return LiteAggregator(r, catalog=tiered_catalog)
+
+
+@pytest.fixture
 def agg(r):
+    reload_catalog(PricingCatalog.load_from_file())
     return LiteAggregator(r)
 
 
 class TestPricingHelpers:
+    def setup_method(self):
+        reload_catalog(PricingCatalog.load_from_file())
+
     def test_normalize_model_id_version_suffix(self):
         assert normalize_model_id("gpt-4o-2024-08-06") == "gpt-4o"
 
@@ -147,3 +174,60 @@ class TestLiteAggregator:
         assert int(r.get(key_a) or 0) == 1
         assert int(r.get(key_b) or 0) == 1
         assert r.get(f"customer:{cid}:event_count") is None
+
+
+class TestVolumePricingLite:
+    def test_volume_tier_from_period_counter(self, agg_tiered, r):
+        cid = f"unit_vol_{uuid.uuid4().hex[:8]}"
+        ts = _utc_now_ms()
+        period_key = period_volume_key(None, cid, "gpt-4o-mini", ts)
+        r.set(period_key, "9000000")
+
+        event = {
+            "customerId": cid,
+            "modelId": "gpt-4o-mini",
+            "inputTokens": 1_000_000,
+            "outputTokens": 0,
+            "eventId": str(uuid.uuid4()),
+            "timestamp": ts,
+        }
+        result = agg_tiered.aggregate(event)
+        assert result["status"] == "ok"
+        assert result["cost_usd"] == pytest.approx(0.15, rel=1e-6)
+        assert int(r.get(period_key) or 0) == 10_000_000
+
+    def test_graduated_cross_tier(self, agg_tiered, r):
+        cid = f"unit_grad_{uuid.uuid4().hex[:8]}"
+        ts = _utc_now_ms()
+        period_key = period_volume_key(None, cid, "claude-sonnet-4", ts)
+        r.set(period_key, "900000")
+
+        event = {
+            "customerId": cid,
+            "modelId": "claude-sonnet-4",
+            "inputTokens": 100_000,
+            "outputTokens": 100_000,
+            "eventId": str(uuid.uuid4()),
+            "timestamp": ts,
+        }
+        result = agg_tiered.aggregate(event)
+        assert result["status"] == "ok"
+        assert result["cost_usd"] == pytest.approx(0.4, rel=1e-6)
+        assert int(r.get(period_key) or 0) == 1_100_000
+
+    def test_duplicate_does_not_increment_period(self, agg_tiered, r):
+        cid = f"unit_vol_dup_{uuid.uuid4().hex[:8]}"
+        ts = _utc_now_ms()
+        period_key = period_volume_key(None, cid, "gpt-4o-mini", ts)
+        eid = str(uuid.uuid4())
+        event = {
+            "customerId": cid,
+            "modelId": "gpt-4o-mini",
+            "inputTokens": 500,
+            "outputTokens": 0,
+            "eventId": eid,
+            "timestamp": ts,
+        }
+        agg_tiered.aggregate(event)
+        agg_tiered.aggregate(event)
+        assert int(r.get(period_key) or 0) == 500

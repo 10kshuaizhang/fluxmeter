@@ -305,6 +305,35 @@ while True:
 
 ---
 
+## Re-rating and tiered pricing
+
+FluxMeter v2.4 ships **flat**, **volume**, and **graduated** pricing in Lite and Flink. Retroactive re-rating (`POST /rerate/preview`, `POST /rerate/apply`) remains a **flat-model** shortcut: it applies `(new_price - old_price) × aggregate_token_counts` from Redis.
+
+### Why tier models need replay
+
+Volume and graduated pricing depend on **when** each event occurred relative to monthly cumulative volume. Aggregate counters alone do not store:
+
+- Which tier applied to each event
+- `monthly_tokens_before` at event time
+- Split token counts across tier boundaries (graduated)
+
+Changing tier breakpoints or rates therefore requires **reprocessing raw events**, not counter math.
+
+### Recommended workflow
+
+1. **Flat price change** (same model, no tiers): use `/rerate/preview` → `/rerate/apply`.
+2. **Tier catalog change** (add tiers, change breakpoints, switch `pricing_mode`):
+   - Update catalog via `PUT /admin/pricing` or `PRICING_FILE`
+   - Replay `token-events` from Kafka (or DLQ) through the pipeline with a new consumer group / reset offsets
+   - See [runbooks/dlq-replay.md](runbooks/dlq-replay.md)
+3. **Hybrid with Orb / Metronome**: export final `cost_usd` from FluxMeter after replay; let the billing platform own invoice-grade re-rating if you sync totals only.
+
+### Orb / Metronome note
+
+If FluxMeter handles real-time tier enforcement and you sync **pre-computed `cost_usd`** hourly, the external platform does not need to re-implement tiers — but you must replay locally before syncing corrected totals.
+
+---
+
 ## Integration Pattern Summary
 
 | Platform | Sync frequency | FluxMeter provides | Platform provides |

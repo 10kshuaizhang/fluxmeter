@@ -6,6 +6,46 @@ Format: `[version] — date — summary`
 
 ---
 
+## [2.5.0] — 2026-07-04
+
+### Added
+- **Stripe export modes**: `STRIPE_EXPORT_MODE=events|cost`, `BILLING_EXPORT_PERIOD=hourly|monthly`
+- **Rollup month buckets**: `rollup:{customer}:period:{YYYY-MM}` aligned to billing calendar
+- **Prepaid token packages**: `POST/GET /budget/{id}/package` + lite ingest drawdown
+- **Stripe Checkout**: `POST /tenants/{id}/checkout` on control plane
+- **Flink → Redis period sync**: `RedisSink` increments `period:*:volume_tokens`
+- **Docs**: [docs/pricing-hybrid-paths.md](docs/pricing-hybrid-paths.md)
+- **Tests**: `test_tier_e2e.py`, `test_phase2_billing.py`
+
+### Changed
+- **Python SDK** → **1.2.0** (engine 2.5.0 compatible; no breaking API changes)
+- **Version alignment**: engine, API, OpenAPI, Helm, control plane → **2.5.0**
+- **Phase 2 ROADMAP** items marked complete (tier pricing shipped in 2.4.0)
+
+---
+
+## [2.4.0] — 2026-07-04
+
+### Added
+- **Tiered pricing engine**: `pricing_mode` `flat` | `volume` | `graduated` in `PricingCatalog` (Java) and `api/pricing_loader.py` (Lite)
+- **Lite volume tracking**: Redis `period:{YYYY-MM}:volume_tokens` + atomic tier cost in Lua (`lite_aggregate_lua.py`)
+- **Flink volume state**: `UsageAggregateFunction` with keyed `ValueState` + `MonthlyVolumeMeter`
+- **Example catalog**: `contrib/pricing/tiered-example.json`
+- **Tests**: `PricingCatalogTest`, `UsageAggregateTierTest`, `MonthlyVolumeMeterTest`, `test_pricing_loader.py`, Lite Redis tier tests
+- **Re-rating guard**: `/rerate/*` returns `422` for non-flat models
+
+### Changed
+- **Pricing API validation**: monotonic tiers, open-ended last tier, `volume_scope` / `billing_period` checks
+- **Version alignment**: engine, API, OpenAPI, Helm → **2.4.0**
+- **Docs**: tier pricing in `docs/api-reference.md`; re-rating + tier replay in `docs/integrations.md`
+
+### Notes
+- Default `config/pricing.json` stays flat — no behavior change until you opt into a tier catalog
+- Span attribution (`parentSpanId` windows) still uses flat tier selection (volume meter is `customer|model` scoped)
+- Phase 2 Stripe Checkout wiring remains on ROADMAP; tier pricing P0 is complete
+
+---
+
 ## [2.2.2] — 2026-07-04
 
 ### Added

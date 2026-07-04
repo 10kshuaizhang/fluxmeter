@@ -74,7 +74,7 @@ Honest caveats:
 
 - This is self-hosted, not a hosted SaaS product.
 - Demo mode can run with auth disabled; production compose enforces API keys.
-- Tiered pricing schema exists, but monthly volume tracking is not fully shipped yet.
+- Tiered pricing (flat / volume / graduated) ships in Lite + Flink; use `contrib/pricing/tiered-example.json` as a template.
 - Agent spans use session windows, so long-running agents need careful timeout handling.
 - In my local setup, Redis Lua becomes the bottleneck above roughly 100K sustained events/sec.
 

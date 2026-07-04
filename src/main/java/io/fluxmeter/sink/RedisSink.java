@@ -2,6 +2,7 @@ package io.fluxmeter.sink;
 
 import io.fluxmeter.model.UsageAggregate;
 import io.fluxmeter.util.TenantKeys;
+import io.fluxmeter.util.BillingPeriod;
 
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
@@ -70,6 +71,11 @@ public class RedisSink extends RichSinkFunction<UsageAggregate> {
             pipe.incrByFloat(TenantKeys.globalKey(agg.getTenantId(), "total_cost_usd"), agg.getCostUsd());
 
             pipe.set(TenantKeys.globalKey(agg.getTenantId(), "last_window_end"), String.valueOf(agg.getWindowEnd()));
+
+            // ponytail: sync billing-period volume counter for Lite/Flink hybrid dashboards
+            String periodKey = BillingPeriod.periodVolumeKey(
+                    agg.getTenantId(), agg.getCustomerId(), agg.getModelId(), agg.getWindowEnd());
+            pipe.incrBy(periodKey, agg.getTotalTokens());
 
             pipe.sync();
         }

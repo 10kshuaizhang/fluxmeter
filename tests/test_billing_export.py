@@ -26,6 +26,7 @@ class TestUsageCollection:
             "customer:cust_1:cost_usd": "2.50",
             "billing:cust_1:stripe_customer_id": "cus_abc123",
             "billing:cust_1:last_reported_events": "50",
+            "billing:cust_1:last_reported_cost_usd": "0",
         }.get(k)
 
         usage = collect_customer_usage(mock_redis, "cust_1")
@@ -33,6 +34,7 @@ class TestUsageCollection:
         assert usage["stripe_customer_id"] == "cus_abc123"
         assert usage["new_events"] == 50  # 100 total - 50 already reported
         assert usage["total_cost_usd"] == 2.50
+        assert usage["new_cost_usd"] == 2.50
 
     def test_skips_customer_without_stripe_id(self):
         """Customers not linked to Stripe are skipped."""

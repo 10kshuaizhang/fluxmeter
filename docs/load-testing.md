@@ -43,7 +43,7 @@ Environment variables:
 
 ## Reference results (2026-06-22)
 
-MacBook docker-compose, **3 TaskManagers × 4 slots**, parallelism 12, `fluxmeter-2.2.2`:
+MacBook docker-compose, **3 TaskManagers × 4 slots**, parallelism 12, `fluxmeter-2.5.0`:
 
 | Target EPS | Avg EPS | Peak EPS | Notes |
 |------------|---------|----------|-------|

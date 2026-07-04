@@ -2,7 +2,7 @@
 
 Open source real-time metering and budget enforcement for AI token billing.
 
-**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v2.2.2** · **Open spec + SDKs** · **1M+ events/sec** · **<10ms budget check** · **Multi-provider**
+**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v2.5.0** · **Open spec + SDKs** · **1M+ events/sec** · **<10ms budget check** · **Multi-provider**
 
 **Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [API docs](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
 
@@ -237,7 +237,7 @@ make clean       # Stop + remove volumes + clean
 
 See **[ROADMAP.md](ROADMAP.md)** for the full plan. Highlights:
 
-- [ ] Tiered pricing volume tracking in Flink/Lite (schema exists; engine uses first tier)
+- [x] Tiered pricing (flat / volume / graduated) in Lite + Flink — see `contrib/pricing/tiered-example.json`
 - [ ] Full multi-tenant RBAC / org model
 - [ ] Streaming proxy (mid-response kill for extreme budget enforcement)
 - [ ] `@fluxmeter/client` on npm

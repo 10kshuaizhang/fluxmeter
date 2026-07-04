@@ -48,3 +48,9 @@ class TenantUsage(BaseModel):
     events_this_month: int = 0
     plan: PlanTier
     limits: dict
+
+
+class CheckoutRequest(BaseModel):
+    plan: PlanTier
+    success_url: str = "http://localhost:8001/checkout/success"
+    cancel_url: str = "http://localhost:8001/checkout/cancel"

@@ -1,10 +1,10 @@
 image:
   api:
     repository: fluxmeter/api
-    tag: "2.2.2"
+    tag: "2.5.0"
   webhookWorker:
     repository: fluxmeter/webhook-worker
-    tag: "2.2.2"
+    tag: "2.5.0"
 
 api:
   replicas: 2

@@ -25,12 +25,13 @@ from auth import (
 from budget_ops import get_effective_balance, reconcile_hold, reserve_hold
 from lite_aggregate_lua import LiteAggregator
 from billing_export import billing_export_loop, link_customer_stripe
+from pricing_loader import get_catalog, reload_catalog
 from rollup_worker import rollup_loop
 
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="2.2.2",
+    version="2.5.0",
 )
 
 LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"
@@ -66,6 +67,7 @@ def get_lite_aggregator():
 @app.on_event("startup")
 async def start_background_tasks():
     r = redis.Redis(connection_pool=pool)
+    reload_catalog(redis_client=r)
     if LITE_MODE:
         asyncio.create_task(rollup_loop(r))
     if os.getenv("STRIPE_API_KEY"):
@@ -159,6 +161,10 @@ class BudgetSetRequest(BaseModel):
     balance_usd: float
     alert_threshold_usd: Optional[float] = None
     max_rpm: Optional[int] = None  # Max requests per minute (rate limit)
+
+
+class PackageSetRequest(BaseModel):
+    tokens: int  # Prepaid token allowance (drawn down on lite ingest)
 
 
 class ModelUsage(BaseModel):
@@ -557,6 +563,27 @@ def topup_customer_budget(customer_id: str, amount_usd: float):
     return {"customer_id": customer_id, "new_balance_usd": new_balance, "added_usd": amount_usd}
 
 
+@app.post("/budget/{customer_id}/package", dependencies=[Depends(require_admin_key)])
+def set_customer_package(customer_id: str, req: PackageSetRequest):
+    """Set prepaid token package allowance (lite ingest drawdown)."""
+    if req.tokens < 0:
+        raise HTTPException(status_code=400, detail="tokens must be >= 0")
+    r = get_redis()
+    r.set(f"package:{customer_id}:tokens_remaining", str(req.tokens))
+    return {"customer_id": customer_id, "tokens_remaining": req.tokens}
+
+
+@app.get("/budget/{customer_id}/package", dependencies=[Depends(require_api_key)])
+def get_customer_package(
+    customer_id: str,
+    _auth: str = Depends(require_customer_access),
+):
+    """Remaining prepaid token package balance."""
+    r = get_redis()
+    remaining = int(r.get(f"package:{customer_id}:tokens_remaining") or 0)
+    return {"customer_id": customer_id, "tokens_remaining": remaining}
+
+
 class SpanUsage(BaseModel):
     span_id: str
     customer_id: Optional[str] = None
@@ -604,14 +631,28 @@ class ReRateRequest(BaseModel):
     end_timestamp: Optional[int] = None
 
 
+def _assert_flat_rerate(model_id: str) -> None:
+    """Re-rating uses aggregate counters — valid for flat models only."""
+    mode = get_catalog().model_pricing(model_id).pricing_mode
+    if mode != "flat":
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Re-rating applies to flat-priced models only; '{model_id}' "
+                f"uses pricing_mode={mode}. Replay events from Kafka for tier changes."
+            ),
+        )
+
+
 @app.post("/rerate/preview", dependencies=[Depends(require_admin_key)])
 def preview_rerate(req: ReRateRequest):
     """Preview retroactive re-rating adjustment without applying.
 
     Computes the cost delta for all customers who used the specified model,
     based on the difference between old and new pricing. Uses existing
-    Redis counters (no event replay needed).
+    Redis counters (no event replay needed). Flat-priced models only.
     """
+    _assert_flat_rerate(req.model_id)
     r = get_redis()
     # Find all customers with usage on this model
     pattern = f"customer:*:model:{req.model_id}:input_tokens"
@@ -656,8 +697,9 @@ def apply_rerate(req: ReRateRequest):
 
     Atomically updates each customer's cost_usd and the global total.
     If the customer has a budget, adjusts the balance accordingly
-    (price decrease = credit back to balance).
+    (price decrease = credit back to balance). Flat-priced models only.
     """
+    _assert_flat_rerate(req.model_id)
     r = get_redis()
     pattern = f"customer:*:model:{req.model_id}:input_tokens"
     applied = 0
@@ -799,6 +841,7 @@ def get_pricing():
 @app.put("/admin/pricing", dependencies=[Depends(require_admin_key)])
 def update_pricing(body: dict):
     """Hot-update pricing in Redis (Flink polls via PRICING_FILE or restart)."""
+    _validate_pricing_body(body)
     import json
 
     r = get_redis()
@@ -806,13 +849,67 @@ def update_pricing(body: dict):
     return {"status": "updated", "version": body.get("version", "unknown")}
 
 
-@app.post("/admin/pricing/validate", dependencies=[Depends(require_admin_key)])
-def validate_pricing(body: dict):
-    """Validate pricing JSON structure."""
+def _validate_pricing_body(body: dict) -> None:
+    """Raise HTTPException on invalid pricing catalog structure."""
     required = ("models", "defaults")
     for field in required:
         if field not in body:
             raise HTTPException(status_code=400, detail=f"Missing field: {field}")
+
+    volume_scope = body.get("volume_scope", "customer_model")
+    if volume_scope != "customer_model":
+        raise HTTPException(status_code=400, detail=f"Unsupported volume_scope: {volume_scope}")
+
+    billing_period = body.get("billing_period", "calendar_month")
+    if billing_period != "calendar_month":
+        raise HTTPException(status_code=400, detail=f"Unsupported billing_period: {billing_period}")
+
+    valid_modes = {"flat", "volume", "graduated"}
+    for model_id, model in body.get("models", {}).items():
+        tiers = model.get("tiers") or []
+        mode = model.get("pricing_mode")
+        if mode is not None and mode not in valid_modes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"models.{model_id}: invalid pricing_mode '{mode}'",
+            )
+        if mode == "flat" and tiers:
+            raise HTTPException(
+                status_code=400,
+                detail=f"models.{model_id}: pricing_mode=flat cannot have tiers",
+            )
+        if mode in ("volume", "graduated") and not tiers:
+            raise HTTPException(
+                status_code=400,
+                detail=f"models.{model_id}: pricing_mode={mode} requires tiers",
+            )
+        if tiers and mode is None:
+            mode = "volume"
+        if tiers:
+            prev_up_to = -1
+            for i, tier in enumerate(tiers):
+                up_to = tier.get("up_to_tokens_m")
+                if up_to is not None:
+                    if not isinstance(up_to, int) or up_to <= prev_up_to:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=(
+                                f"models.{model_id}: tiers[{i}] up_to_tokens_m "
+                                "must be strictly increasing"
+                            ),
+                        )
+                    prev_up_to = up_to
+            if tiers[-1].get("up_to_tokens_m") is not None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"models.{model_id}: last tier must have up_to_tokens_m: null",
+                )
+
+
+@app.post("/admin/pricing/validate", dependencies=[Depends(require_admin_key)])
+def validate_pricing(body: dict):
+    """Validate pricing JSON structure."""
+    _validate_pricing_body(body)
     return {"status": "valid", "models": len(body.get("models", {}))}
 
 

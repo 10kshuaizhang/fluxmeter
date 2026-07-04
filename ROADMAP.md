@@ -2,7 +2,7 @@
 
 Forward-looking plan for the FluxMeter project. **Website:** [fluxmeter.dev](https://fluxmeter.dev). For **what shipped**, see [changLog.md](changLog.md). For **milestone checklists**, see [progress.md](progress.md). For **architecture intent**, see [docs/DESIGN.md](docs/DESIGN.md).
 
-**Current version:** 2.2.2 (engine) · 1.1.0 (Python SDK on PyPI)  
+**Current version:** 2.5.0 (engine) · 1.2.0 (Python SDK on PyPI)  
 **Last updated:** 2026-07-04
 
 ---
@@ -23,10 +23,10 @@ Become the **open source standard** for real-time AI token metering and budget e
 | **Full path** (Flink) | Shipped | 1M eps bursts; span attribution; DLQ; budget kill signals |
 | **SaaS scaffold** | Shipped | Control plane `:8001`; tenant CRUD + plan limits; not a hosted product |
 | **Open spec** | Shipped | `spec/schema`, OpenAPI, semantic conventions |
-| **Python SDK** | Shipped | PyPI `fluxmeter` 1.1.0 (HTTP lite + Kafka full) |
+| **Python SDK** | Shipped | PyPI `fluxmeter` 1.2.0 (HTTP lite + Kafka full) |
 | **JS SDK** | In repo | `@fluxmeter/client` — not on npm yet |
 | **Production ops** | Partial | Helm, DR runbook, Prometheus profile, reconciliation job |
-| **Tiered pricing engine** | Partial | Schema exists; runtime uses first tier only |
+| **Tiered pricing engine** | Done | flat / volume / graduated; Lite + Flink; see `contrib/pricing/tiered-example.json` |
 
 ### Deployment paths
 
@@ -45,11 +45,11 @@ gantt
     title FluxMeter roadmap (indicative)
     dateFormat YYYY-MM
     section v2.x Hardening
-    Tiered pricing in Flink/Lite     :2026-07, 6w
+    Tiered pricing in Flink/Lite     :done, 2026-07, 6w
     JS SDK npm publish               :2026-07, 2w
-    Docs + README version sync       :2026-06, 1w
+    Docs + README version sync       :done, 2026-06, 1w
     section v3.0 SaaS
-    Tenant-scoped lite ingest        :2026-08, 4w
+    Tenant-scoped lite ingest        :done, 2026-07, 4w
     Control plane billing UI stub    :2026-09, 6w
     RBAC + org model                 :2026-10, 8w
     section v3.x Platform
@@ -64,34 +64,26 @@ Timelines are **indicative**, not commitments.
 
 ---
 
-## Phase 1 — v2.3: Polish & correctness (near-term)
+## Phase 1 — v2.3: Polish & correctness ✓
 
-**Goal:** Close gaps between docs, tests, and runtime; make Lite the obvious default DX.
-
-| Item | Priority | Description | Success criteria | Status |
-|------|----------|-------------|------------------|--------|
-| README / SHOW_HN version sync | P0 | Align marketing docs with engine version + dual-path story | README badge matches `build.gradle`; SHOW_HN synced | ✓ 2.2.2 |
-| `make test-unit` expansion | P1 | Single command for all no-Docker Python + Java unit tests | Documented in Makefile | ✓ |
-| OpenAPI 2.2.x completeness | P1 | Lite ingest responses, `link-stripe`, health `mode` | `validate-spec.sh` passes | ✓ |
-| Lite tenant key isolation | P2 | Honor `tenantId` in lite Lua paths (today: Flink only) | E2E test with tenant prefix | ✓ |
-| AggregationKeys in mainline | P1 | Commit `AggregationKeys.java` + unit tests (if not merged) | `make test-java` green | ✓ |
-| Local load-test profile docs | P2 | Document ~25K sustained @ 50K target on Mac docker | `docs/load-testing.md` | ✓ |
-
-**Target release:** 2.2.2 ✓ (2026-07-04) — tiered pricing remains Phase 2 / 2.4.0
+**Target release:** 2.2.2 ✓ (2026-07-04)
 
 ---
 
-## Phase 2 — v2.4: Billing depth (near-term)
+## Phase 2 — v2.4–2.5: Billing depth ✓
 
-**Goal:** Production-grade pricing and export without a hosted SaaS.
+**Goal:** Production-grade pricing and export without a hosted SaaS.  
+**Target release:** 2.5.0 ✓ (2026-07-04) — tier pricing in 2.4.0, billing export/packages in 2.5.0
 
-| Item | Priority | Description | Success criteria |
-|------|----------|-------------|------------------|
-| **Tiered pricing in engine** | P0 | Monthly volume tracking; apply correct tier in Flink + lite | Integration test per tier boundary |
-| Stripe Checkout wiring | P1 | Control plane `stripe_billing.py` → real subscription flow | Test mode E2E |
-| Calendar-aligned billing windows | P2 | Align rollup / export to billing period boundaries | Hourly + monthly export modes |
-| Cost-based Stripe export | P2 | Option to report `cost_usd` deltas, not just event counts | Config flag |
-| Credits / prepaid packages | P2 | First-class “package drawdown” beyond flat balance | API + docs |
+| Item | Priority | Success criteria | Status |
+|------|----------|------------------|--------|
+| **Tiered pricing in engine** | P0 | Integration test per tier boundary | ✓ 2.4.0 |
+| Stripe Checkout wiring | P1 | Test mode E2E | ✓ 2.5.0 (mock + endpoint) |
+| Calendar-aligned billing windows | P2 | Hourly + monthly export modes | ✓ 2.5.0 |
+| Cost-based Stripe export | P2 | Config flag | ✓ `STRIPE_EXPORT_MODE=cost` |
+| Credits / prepaid packages | P2 | API + docs | ✓ `/budget/{id}/package` |
+
+**Follow-ups (Phase 2.1):** Kafka replay job for tier re-rating; Stripe Checkout live E2E with test keys; span-level tier pricing.
 
 ---
 
@@ -131,7 +123,7 @@ Reference: original DESIGN “Approach C” deferred item #18.
 
 | Item | Priority | Description |
 |------|----------|-------------|
-| **npm publish** `@fluxmeter/client` | P1 | Parity with Python SDK 1.1.0 HTTP transport |
+| **npm publish** `@fluxmeter/client` | P1 | Parity with Python SDK 1.2.0 HTTP transport |
 | GHCR images | P2 | Pre-built API + Flink job images on release tags |
 | Hosted SaaS (optional) | P3 | Managed Lite/Full tiers — only if community demand |
 | Flink SQL / Table API port | P3 | Alternative job authoring for ops teams |
@@ -167,7 +159,7 @@ Parallel to version phases — grows the OpenCore surface without coupling to en
 | Audience | Start here |
 |----------|------------|
 | New contributor | [README.md](README.md) → `make demo` → this roadmap **Phase 1** |
-| Billing engineer | [docs/DESIGN.md](docs/DESIGN.md) → **Phase 2** tiered pricing |
+| Billing engineer | [docs/pricing-hybrid-paths.md](docs/pricing-hybrid-paths.md) → **Phase 2** |
 | SaaS builder | [docs/control-plane-api.md](docs/control-plane-api.md) → **Phase 3** |
 | Ops / SRE | [docs/disaster-recovery.md](docs/disaster-recovery.md) → **Phase 5** GHCR |
 
@@ -179,10 +171,9 @@ Parallel to version phases — grows the OpenCore surface without coupling to en
 
 | Release | Theme | Engine | Python SDK |
 |---------|-------|--------|------------|
-| **2.2.2** ✓ | Phase 1 polish (docs, tests, OpenAPI, lite tenant keys) | 2.2.2 | 1.1.0 |
-| **2.2.1** ✓ | Dual-path + CTO follow-up | 2.2.1 | 1.1.0 |
-| **2.3.0** | Reserved (Phase 1 landed in 2.2.2) | — | 1.1.x |
-| **2.4.0** | Tiered pricing + Stripe depth | 2.4.0 | 1.2.0 |
+| **2.5.0** ✓ | Phase 2 billing depth (export, packages, checkout) | 2.5.0 | 1.2.0 |
+| **2.4.0** ✓ | Tiered pricing (flat/volume/graduated) | 2.4.0 | 1.1.x |
+| **2.2.2** ✓ | Phase 1 polish | 2.2.2 | 1.1.0 |
 | **3.0.0** | Multi-tenant SaaS backend | 3.0.0 | 2.0.0 |
 | **3.1.0** | Streaming proxy + mid-flight kill | 3.1.0 | 2.1.0 |
 

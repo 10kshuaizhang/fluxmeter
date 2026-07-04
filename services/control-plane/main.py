@@ -11,9 +11,17 @@ from typing import Optional
 import redis
 from fastapi import Depends, FastAPI, HTTPException, Header
 
-from models import PLAN_LIMITS, PlanTier, TenantCreate, TenantResponse, TenantUsage
+from models import (
+    PLAN_LIMITS,
+    CheckoutRequest,
+    PlanTier,
+    TenantCreate,
+    TenantResponse,
+    TenantUsage,
+)
+from stripe_billing import create_checkout_session
 
-app = FastAPI(title="FluxMeter Control Plane", version="2.2.2")
+app = FastAPI(title="FluxMeter Control Plane", version="2.5.0")
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
@@ -149,3 +157,24 @@ async def delete_tenant(tenant_id: str, _=Depends(require_admin)):
     r.delete(f"tenant:{tenant_id}:max_events_month")
 
     return {"deleted": True, "tenant_id": tenant_id}
+
+
+@app.post("/tenants/{tenant_id}/checkout")
+async def tenant_checkout(tenant_id: str, body: CheckoutRequest, _=Depends(require_admin)):
+    """Create Stripe Checkout session for tenant plan upgrade."""
+    r = get_redis()
+    data = r.hgetall(f"cp:tenant:{tenant_id}")
+    if not data:
+        raise HTTPException(404, "Tenant not found")
+    stripe_cid = data.get("stripe_customer_id")
+    if not stripe_cid:
+        raise HTTPException(400, "Tenant has no stripe_customer_id")
+    if body.plan not in (PlanTier.growth, PlanTier.scale):
+        raise HTTPException(400, "Checkout supports growth or scale plans only")
+
+    url = create_checkout_session(
+        stripe_cid, body.plan.value, body.success_url, body.cancel_url
+    )
+    if not url:
+        raise HTTPException(503, "Stripe not configured or invalid plan price")
+    return {"checkout_url": url, "plan": body.plan.value}

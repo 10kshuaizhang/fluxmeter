@@ -2,9 +2,19 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 2.2.2
-**Current phase:** v2.3 — Polish & correctness (Phase 1 complete)
+**Current version:** 2.5.0
+**Current phase:** v2.4 — Billing depth (Phase 2 complete)
 **Design status:** APPROVED (2026-06-16)
+
+## Phase 2 Checklist (ROADMAP v2.4 billing depth)
+
+| Item | Status |
+|------|--------|
+| Tiered pricing in engine (Lite + Flink) | Done (2.4.0) |
+| Stripe Checkout wiring (control plane) | Done (2.5.0) |
+| Calendar-aligned billing windows (rollup month + export period) | Done (2.5.0) |
+| Cost-based Stripe export (`STRIPE_EXPORT_MODE=cost`) | Done (2.5.0) |
+| Credits / prepaid token packages | Done (2.5.0) |
 
 ## Phase 1 Checklist (ROADMAP v2.3 polish)
 
@@ -41,6 +51,8 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | v1.3 | External pricing catalog + API | Done |
 | v1.4 | Reconciliation job + DLQ replay | Done |
 | v2.0 | Helm + tiered pricing schema + monitoring rules | Done |
+| v2.5.0 | Phase 2 billing depth: Stripe export modes, packages, checkout, hybrid docs | Done |
+| v2.4.0 | Tiered pricing engine (flat/volume/graduated) in Java + Lite + Flink | Done |
 | v2.2.2 | Phase 1 polish: test-unit expansion, OpenAPI, lite tenant keys, docs sync | Done |
 | v2.2.1 | CTO follow-up: JUnit + Python unit tests, DR runbook, Prometheus, tenant keys | Done |
 | v2.2.0 | Phase 5 dual-path: SaaS control plane (tenant CRUD, plans, API keys) | Done |
@@ -140,7 +152,8 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
-- **2026-07-04** — **Official website** [fluxmeter.dev](https://fluxmeter.dev) linked across README, SHOW_HN, CONTRIBUTING, SDK READMEs, `pyproject.toml` / `package.json` metadata, spec + integrations + Helm docs.
+- **2026-07-04** — **v2.5.0 Phase 2 complete**: Stripe export modes, prepaid packages, Checkout, rollup month buckets, hybrid docs; tag v2.5.0.
+- **2026-07-04** — **v2.4.0 tiered pricing**: flat/volume/graduated in Lite + Flink; `contrib/pricing/tiered-example.json`.
 - **2026-07-04** — **Phase 1 closed**: HTTP tenant E2E in `test_lite_production.py`; doc version sync (`production-deploy.md`, `load-testing.md` → 2.2.2); ROADMAP Phase 1 table marked complete. Hotfix: Dockerfile `tenant_keys.py`, Lua balance string return.
 - **2026-07-04** — **v2.2.2 Phase 1 polish**: `make test-unit` expanded (billing, control-plane models, tenant_keys + Java); `make test-unit-redis` for lite Lua + rollup; OpenAPI health `mode`, lite ingest responses, `link-stripe`; `api/tenant_keys.py` + lite Lua `tenantId` isolation; `validate-spec.sh` content checks; load-test Mac ceiling note.
 - **2026-06-24** — **SHOW_HN.md** synced to v2.2.1: Lite-first narrative, honest throughput numbers, SaaS/Stripe/PyPI caveats; title hook shifted from 1M eps to <10ms budget check.

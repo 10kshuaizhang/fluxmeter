@@ -99,7 +99,7 @@ spec:
       cpu: 2
     replicas: 4
   job:
-    jarURI: s3://your-bucket/fluxmeter/fluxmeter-2.2.2.jar
+    jarURI: s3://your-bucket/fluxmeter/fluxmeter-2.5.0.jar
     entryClass: io.fluxmeter.job.TokenUsageAggregator
     parallelism: 8
     args:
@@ -231,7 +231,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: your-registry/fluxmeter-api:2.2.2
+          image: your-registry/fluxmeter-api:2.5.0
           ports:
             - containerPort: 8000
           env:

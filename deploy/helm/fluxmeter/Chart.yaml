@@ -2,5 +2,5 @@ apiVersion: v2
 name: fluxmeter
 description: FluxMeter streaming metering engine
 type: application
-version: 2.2.2
-appVersion: "2.2.2"
+version: 2.5.0
+appVersion: "2.5.0"

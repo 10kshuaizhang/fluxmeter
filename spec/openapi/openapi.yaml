@@ -4,7 +4,7 @@ info:
   description: |
     Real-time token usage queries, HTTP ingest, and budget enforcement.
     Implements the FluxMeter open spec — see `spec/schema/` and `spec/openapi/`.
-  version: 2.2.2
+  version: 2.5.0
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0

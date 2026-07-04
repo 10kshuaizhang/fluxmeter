@@ -13,13 +13,81 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * External pricing catalog loaded from JSON file or Redis snapshot.
- * Replaces hardcoded prices in UsageAggregate.
+ * Supports flat, volume (block), and graduated tier pricing.
  */
 public final class PricingCatalog {
+
+    public enum PricingMode {
+        FLAT, VOLUME, GRADUATED;
+
+        static PricingMode fromString(String raw, boolean hasTiers) {
+            if (raw == null || raw.isBlank()) {
+                return hasTiers ? VOLUME : FLAT;
+            }
+            return switch (raw.toLowerCase()) {
+                case "flat" -> FLAT;
+                case "volume" -> VOLUME;
+                case "graduated" -> GRADUATED;
+                default -> throw new IllegalArgumentException("Unknown pricing_mode: " + raw);
+            };
+        }
+    }
+
+    /** Which Redis/Flink key scopes monthly volume (v2.4: customer_model only). */
+    public enum VolumeScope {
+        CUSTOMER_MODEL("customer_model");
+
+        private final String jsonValue;
+
+        VolumeScope(String jsonValue) {
+            this.jsonValue = jsonValue;
+        }
+
+        static VolumeScope fromString(String raw) {
+            if (raw == null || raw.isBlank()) {
+                return CUSTOMER_MODEL;
+            }
+            for (VolumeScope scope : values()) {
+                if (scope.jsonValue.equals(raw)) {
+                    return scope;
+                }
+            }
+            throw new IllegalArgumentException("Unknown volume_scope: " + raw);
+        }
+
+        public String jsonValue() {
+            return jsonValue;
+        }
+    }
+
+    public enum BillingPeriod {
+        CALENDAR_MONTH("calendar_month");
+
+        private final String jsonValue;
+
+        BillingPeriod(String jsonValue) {
+            this.jsonValue = jsonValue;
+        }
+
+        static BillingPeriod fromString(String raw) {
+            if (raw == null || raw.isBlank()) {
+                return CALENDAR_MONTH;
+            }
+            for (BillingPeriod period : values()) {
+                if (period.jsonValue.equals(raw)) {
+                    return period;
+                }
+            }
+            throw new IllegalArgumentException("Unknown billing_period: " + raw);
+        }
+
+        public String jsonValue() {
+            return jsonValue;
+        }
+    }
 
     private static volatile PricingCatalog INSTANCE = PricingCatalog.loadDefault();
 
@@ -28,18 +96,24 @@ public final class PricingCatalog {
     private final List<String> prefixModels;
     private final double cacheReadMultiplier;
     private final String version;
+    private final VolumeScope volumeScope;
+    private final BillingPeriod billingPeriod;
 
     private PricingCatalog(
             Map<String, ModelPricing> models,
             ModelPricing defaults,
             List<String> prefixModels,
             double cacheReadMultiplier,
-            String version) {
+            String version,
+            VolumeScope volumeScope,
+            BillingPeriod billingPeriod) {
         this.models = models;
         this.defaults = defaults;
         this.prefixModels = prefixModels;
         this.cacheReadMultiplier = cacheReadMultiplier;
         this.version = version;
+        this.volumeScope = volumeScope;
+        this.billingPeriod = billingPeriod;
     }
 
     public static PricingCatalog get() {
@@ -52,6 +126,14 @@ public final class PricingCatalog {
 
     public String getVersion() {
         return version;
+    }
+
+    public VolumeScope getVolumeScope() {
+        return volumeScope;
+    }
+
+    public BillingPeriod getBillingPeriod() {
+        return billingPeriod;
     }
 
     public static PricingCatalog loadDefault() {
@@ -88,7 +170,7 @@ public final class PricingCatalog {
 
         ModelPricing defaults = ModelPricing.fromJson(root.get("defaults"));
         if (defaults == null) {
-            defaults = new ModelPricing(1.0, 3.0, 0.1, null);
+            defaults = new ModelPricing(PricingMode.FLAT, 1.0, 3.0, 0.1, null);
         }
 
         List<String> prefixModels = new ArrayList<>();
@@ -102,7 +184,13 @@ public final class PricingCatalog {
                 : 0.5;
 
         String version = root.has("version") ? root.get("version").asText("1") : "1";
-        return new PricingCatalog(models, defaults, prefixModels, cacheMult, version);
+        VolumeScope volumeScope = VolumeScope.fromString(
+                root.has("volume_scope") ? root.get("volume_scope").asText() : null);
+        BillingPeriod billingPeriod = BillingPeriod.fromString(
+                root.has("billing_period") ? root.get("billing_period").asText() : null);
+
+        return new PricingCatalog(
+                models, defaults, prefixModels, cacheMult, version, volumeScope, billingPeriod);
     }
 
     public String normalizeModelId(String model) {
@@ -120,24 +208,15 @@ public final class PricingCatalog {
         return model;
     }
 
-  /** Cost in microdollars using flat rates (monthly volume for tiers in v2). */
     public long calculateEventCostMicro(TokenEvent event) {
         return calculateEventCostMicro(event, 0L);
     }
 
+    /** Cost in microdollars; monthlyTokensBefore drives volume/graduated tier selection. */
     public long calculateEventCostMicro(TokenEvent event, long monthlyTokensBefore) {
         String model = normalizeModelId(event.getModelId());
         ModelPricing pricing = models.getOrDefault(model, defaults);
-        Tier tier = pricing.selectTier(monthlyTokensBefore);
-
-        long cost = 0;
-        cost += Math.round(event.getInputTokens() * tier.inputPerM);
-        cost += Math.round(event.getOutputTokens() * tier.outputPerM);
-        cost += Math.round(event.getCacheReadTokens() * tier.inputPerM * cacheReadMultiplier);
-        cost += Math.round(event.getReasoningTokens() * tier.outputPerM);
-        cost += Math.round(event.getCacheWriteTokens() * tier.inputPerM);
-        cost += Math.round(event.getEmbeddingTokens() * tier.embeddingPerM);
-        return cost;
+        return pricing.calculateEventCostMicro(event, monthlyTokensBefore, cacheReadMultiplier);
     }
 
     public double calculateEventCost(TokenEvent event) {
@@ -149,6 +228,8 @@ public final class PricingCatalog {
         Map<String, Object> out = new HashMap<>();
         out.put("version", version);
         out.put("cache_read_multiplier", cacheReadMultiplier);
+        out.put("volume_scope", volumeScope.jsonValue());
+        out.put("billing_period", billingPeriod.jsonValue());
         Map<String, Object> modelMap = new HashMap<>();
         for (Map.Entry<String, ModelPricing> e : models.entrySet()) {
             modelMap.put(e.getKey(), e.getValue().toMap());
@@ -179,19 +260,28 @@ public final class PricingCatalog {
                 "text-embedding-3-large", "text-embedding-3-small");
         return new PricingCatalog(
                 models,
-                new ModelPricing(1.0, 3.0, 0.1, null),
+                new ModelPricing(PricingMode.FLAT, 1.0, 3.0, 0.1, null),
                 prefixes,
                 0.5,
-                "builtin");
+                "builtin",
+                VolumeScope.CUSTOMER_MODEL,
+                BillingPeriod.CALENDAR_MONTH);
     }
 
     public static final class ModelPricing {
+        private final PricingMode pricingMode;
         private final double inputPerM;
         private final double outputPerM;
         private final double embeddingPerM;
         private final List<Tier> tiers;
 
-        public ModelPricing(double inputPerM, double outputPerM, double embeddingPerM, List<Tier> tiers) {
+        public ModelPricing(
+                PricingMode pricingMode,
+                double inputPerM,
+                double outputPerM,
+                double embeddingPerM,
+                List<Tier> tiers) {
+            this.pricingMode = pricingMode;
             this.inputPerM = inputPerM;
             this.outputPerM = outputPerM;
             this.embeddingPerM = embeddingPerM;
@@ -199,7 +289,7 @@ public final class PricingCatalog {
         }
 
         static ModelPricing flat(double input, double output, double embedding) {
-            return new ModelPricing(input, output, embedding, null);
+            return new ModelPricing(PricingMode.FLAT, input, output, embedding, null);
         }
 
         static ModelPricing fromJson(JsonNode node) {
@@ -224,14 +314,100 @@ public final class PricingCatalog {
                             t.has("embedding_per_m") ? t.get("embedding_per_m").asDouble() : embedding));
                 }
             }
-            return new ModelPricing(input, output, embedding, tiers.isEmpty() ? null : tiers);
+
+            boolean hasTiers = !tiers.isEmpty();
+            String modeRaw = node.has("pricing_mode") ? node.get("pricing_mode").asText() : null;
+            PricingMode mode = PricingMode.fromString(modeRaw, hasTiers);
+            if (mode == PricingMode.FLAT && hasTiers) {
+                throw new IllegalArgumentException("pricing_mode=flat cannot have tiers");
+            }
+            if ((mode == PricingMode.VOLUME || mode == PricingMode.GRADUATED) && !hasTiers) {
+                throw new IllegalArgumentException("pricing_mode=" + modeRaw + " requires tiers");
+            }
+
+            return new ModelPricing(mode, input, output, embedding, hasTiers ? tiers : null);
+        }
+
+        long calculateEventCostMicro(TokenEvent event, long monthlyTokensBefore, double cacheReadMultiplier) {
+            return switch (pricingMode) {
+                case FLAT -> costAtTier(event, selectTier(monthlyTokensBefore), cacheReadMultiplier);
+                case VOLUME -> costAtTier(event, selectTier(monthlyTokensBefore), cacheReadMultiplier);
+                case GRADUATED -> costGraduated(event, monthlyTokensBefore, cacheReadMultiplier);
+            };
+        }
+
+        /** Volume meter uses total_tokens; categories share one cursor across the event. */
+        private long costGraduated(TokenEvent event, long monthlyTokensBefore, double cacheReadMultiplier) {
+            long cursor = monthlyTokensBefore;
+            long cost = 0;
+            cost += costCategoryGraduated(event.getInputTokens(), cursor, cacheReadMultiplier, Category.INPUT);
+            cursor += event.getInputTokens();
+            cost += costCategoryGraduated(event.getOutputTokens(), cursor, cacheReadMultiplier, Category.OUTPUT);
+            cursor += event.getOutputTokens();
+            cost += costCategoryGraduated(event.getCacheReadTokens(), cursor, cacheReadMultiplier, Category.CACHE_READ);
+            cursor += event.getCacheReadTokens();
+            cost += costCategoryGraduated(event.getReasoningTokens(), cursor, cacheReadMultiplier, Category.REASONING);
+            cursor += event.getReasoningTokens();
+            cost += costCategoryGraduated(event.getCacheWriteTokens(), cursor, cacheReadMultiplier, Category.CACHE_WRITE);
+            cursor += event.getCacheWriteTokens();
+            cost += costCategoryGraduated(event.getEmbeddingTokens(), cursor, cacheReadMultiplier, Category.EMBEDDING);
+            return cost;
+        }
+
+        private long costCategoryGraduated(
+                long tokens, long cursor, double cacheReadMultiplier, Category category) {
+            long remaining = tokens;
+            long cost = 0;
+            while (remaining > 0) {
+                Tier tier = tierAtToken(cursor);
+                long tierEnd = tierEndTokens(tier);
+                long capacity = tierEnd == Long.MAX_VALUE ? remaining : Math.min(remaining, tierEnd - cursor);
+                if (capacity <= 0) {
+                    // ponytail: guard against misconfigured tiers; fall through to last tier
+                    tier = tiers.get(tiers.size() - 1);
+                    capacity = remaining;
+                }
+                cost += Math.round(capacity * rateFor(tier, category, cacheReadMultiplier));
+                cursor += capacity;
+                remaining -= capacity;
+            }
+            return cost;
+        }
+
+        private long costAtTier(TokenEvent event, Tier tier, double cacheReadMultiplier) {
+            long cost = 0;
+            cost += Math.round(event.getInputTokens() * tier.inputPerM);
+            cost += Math.round(event.getOutputTokens() * tier.outputPerM);
+            cost += Math.round(event.getCacheReadTokens() * tier.inputPerM * cacheReadMultiplier);
+            cost += Math.round(event.getReasoningTokens() * tier.outputPerM);
+            cost += Math.round(event.getCacheWriteTokens() * tier.inputPerM);
+            cost += Math.round(event.getEmbeddingTokens() * tier.embeddingPerM);
+            return cost;
+        }
+
+        private static double rateFor(Tier tier, Category category, double cacheReadMultiplier) {
+            return switch (category) {
+                case INPUT -> tier.inputPerM;
+                case OUTPUT, REASONING -> tier.outputPerM;
+                case CACHE_READ -> tier.inputPerM * cacheReadMultiplier;
+                case CACHE_WRITE -> tier.inputPerM;
+                case EMBEDDING -> tier.embeddingPerM;
+            };
         }
 
         Tier selectTier(long monthlyTokens) {
             if (tiers.isEmpty()) {
                 return new Tier(null, inputPerM, outputPerM, embeddingPerM);
             }
-            long tokensM = monthlyTokens / 1_000_000L;
+            return tierAtToken(monthlyTokens);
+        }
+
+        /** Tier containing token index {@code tokenIndex} (0-based cumulative volume). */
+        Tier tierAtToken(long tokenIndex) {
+            if (tiers.isEmpty()) {
+                return new Tier(null, inputPerM, outputPerM, embeddingPerM);
+            }
+            long tokensM = tokenIndex / 1_000_000L;
             for (Tier tier : tiers) {
                 if (tier.upToTokensM == null || tokensM < tier.upToTokensM) {
                     return tier;
@@ -240,8 +416,19 @@ public final class PricingCatalog {
             return tiers.get(tiers.size() - 1);
         }
 
+        /** Exclusive upper bound in raw tokens for {@code tier}. */
+        static long tierEndTokens(Tier tier) {
+            if (tier.upToTokensM == null) {
+                return Long.MAX_VALUE;
+            }
+            return tier.upToTokensM * 1_000_000L;
+        }
+
         Map<String, Object> toMap() {
             Map<String, Object> m = new HashMap<>();
+            if (pricingMode != PricingMode.FLAT) {
+                m.put("pricing_mode", pricingMode.name().toLowerCase());
+            }
             m.put("input_per_m", inputPerM);
             m.put("output_per_m", outputPerM);
             m.put("embedding_per_m", embeddingPerM);
@@ -259,6 +446,10 @@ public final class PricingCatalog {
             }
             return m;
         }
+    }
+
+    private enum Category {
+        INPUT, OUTPUT, CACHE_READ, REASONING, CACHE_WRITE, EMBEDDING
     }
 
     public static final class Tier {

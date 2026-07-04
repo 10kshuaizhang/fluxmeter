@@ -32,3 +32,4 @@ All extensions must align with:
 | [providers/openai.md](providers/openai.md) | OpenAI response → TokenEvent |
 | [providers/anthropic.md](providers/anthropic.md) | Anthropic response → TokenEvent |
 | [pricing/openai-2025-06.json](pricing/openai-2025-06.json) | Reference pricing snapshot |
+| [pricing/tiered-example.json](pricing/tiered-example.json) | Volume + graduated tier examples |

@@ -1,0 +1,38 @@
+{
+  "version": "tiered-example-1",
+  "effective_date": "2026-07-01",
+  "description": "Volume + graduated tier examples for integration tests (not production defaults)",
+  "cache_read_multiplier": 0.5,
+  "volume_scope": "customer_model",
+  "billing_period": "calendar_month",
+  "models": {
+    "gpt-4o-mini": {
+      "pricing_mode": "volume",
+      "input_per_m": 0.15,
+      "output_per_m": 0.60,
+      "tiers": [
+        { "up_to_tokens_m": 10, "input_per_m": 0.15, "output_per_m": 0.60 },
+        { "up_to_tokens_m": 100, "input_per_m": 0.12, "output_per_m": 0.48 },
+        { "up_to_tokens_m": null, "input_per_m": 0.10, "output_per_m": 0.40 }
+      ]
+    },
+    "claude-sonnet-4": {
+      "pricing_mode": "graduated",
+      "input_per_m": 3.00,
+      "output_per_m": 15.00,
+      "tiers": [
+        { "up_to_tokens_m": 1, "input_per_m": 2.00, "output_per_m": 4.00 },
+        { "up_to_tokens_m": null, "input_per_m": 1.00, "output_per_m": 2.00 }
+      ]
+    }
+  },
+  "defaults": {
+    "input_per_m": 1.00,
+    "output_per_m": 3.00,
+    "embedding_per_m": 0.10
+  },
+  "prefix_models": [
+    "gpt-4o-mini",
+    "claude-sonnet-4"
+  ]
+}

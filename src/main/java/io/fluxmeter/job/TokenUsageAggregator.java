@@ -152,36 +152,6 @@ public class TokenUsageAggregator {
     }
 
     /**
-     * Incremental aggregation: pre-aggregates events as they arrive.
-     * Only one UsageAggregate is kept in memory per key per window.
-     * Event-level dedup via seenEventIds in UsageAggregate (bounded per window).
-     */
-    public static class UsageAggregateFunction
-            implements AggregateFunction<TokenEvent, UsageAggregate, UsageAggregate> {
-
-        @Override
-        public UsageAggregate createAccumulator() {
-            return new UsageAggregate();
-        }
-
-        @Override
-        public UsageAggregate add(TokenEvent event, UsageAggregate acc) {
-            acc.addEvent(event);
-            return acc;
-        }
-
-        @Override
-        public UsageAggregate getResult(UsageAggregate acc) {
-            return acc;
-        }
-
-        @Override
-        public UsageAggregate merge(UsageAggregate a, UsageAggregate b) {
-            return a.merge(b);
-        }
-    }
-
-    /**
      * Adds window metadata (start/end timestamps, key) to the pre-aggregated result.
      */
     public static class WindowMetadataFunction
@@ -224,6 +194,7 @@ public class TokenUsageAggregator {
 
         @Override
         public SpanAggregate add(TokenEvent event, SpanAggregate acc) {
+            // ponytail: span key is parentSpanId; tier volume is customer|model scoped — flat for spans
             double cost = UsageAggregate.calculateEventCost(event);
             acc.addEvent(event, cost);
             return acc;

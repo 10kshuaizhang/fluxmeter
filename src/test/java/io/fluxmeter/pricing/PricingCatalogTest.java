@@ -29,7 +29,6 @@ class PricingCatalogTest {
         event.setModelId("gpt-4o");
         event.setInputTokens(1_000_000);
         event.setOutputTokens(0);
-        // input_per_m = 2.50 → 1M tokens × 2.50 = 2_500_000 microdollars ($2.50)
         assertEquals(2_500_000L, PricingCatalog.get().calculateEventCostMicro(event));
     }
 
@@ -40,7 +39,6 @@ class PricingCatalogTest {
         event.setInputTokens(10_000);
         event.setOutputTokens(5_000);
         long micro = PricingCatalog.get().calculateEventCostMicro(event);
-        // 10000*15 + 5000*75 = 150000 + 375000 = 525000 micro
         assertEquals(525_000L, micro);
         assertTrue(PricingCatalog.get().calculateEventCost(event) > 0.5);
     }
@@ -59,5 +57,72 @@ class PricingCatalogTest {
 
         assertTrue(withCache < withoutCache);
         assertEquals(withoutCache / 2, withCache);
+    }
+
+    @Test
+    void volumePricing_entireEventUsesTierFromMonthlyBefore() throws Exception {
+        byte[] json = Files.readAllBytes(Path.of("contrib/pricing/tiered-example.json"));
+        PricingCatalog.reload(PricingCatalog.loadFromBytes(json));
+
+        TokenEvent event = new TokenEvent();
+        event.setModelId("gpt-4o-mini");
+        event.setInputTokens(1_000_000);
+        event.setOutputTokens(0);
+
+        // 9M before → tier-1 (up_to 10M): 1M × 0.15 = 150_000 micro
+        assertEquals(150_000L, PricingCatalog.get().calculateEventCostMicro(event, 9_000_000L));
+
+        // 10M before → tier-2: 1M × 0.12 = 120_000 micro
+        assertEquals(120_000L, PricingCatalog.get().calculateEventCostMicro(event, 10_000_000L));
+    }
+
+    @Test
+    void volumePricing_tierBoundaryUsesMillionsFloor() throws Exception {
+        byte[] json = Files.readAllBytes(Path.of("contrib/pricing/tiered-example.json"));
+        PricingCatalog.reload(PricingCatalog.loadFromBytes(json));
+
+        TokenEvent event = new TokenEvent();
+        event.setModelId("gpt-4o-mini");
+        event.setInputTokens(100_000);
+
+        // 9_999_999 tokens → tokensM=9, still tier-1
+        assertEquals(15_000L, PricingCatalog.get().calculateEventCostMicro(event, 9_999_999L));
+    }
+
+    @Test
+    void graduatedPricing_splitsAcrossTierBoundary() throws Exception {
+        byte[] json = Files.readAllBytes(Path.of("contrib/pricing/tiered-example.json"));
+        PricingCatalog.reload(PricingCatalog.loadFromBytes(json));
+
+        TokenEvent event = new TokenEvent();
+        event.setModelId("claude-sonnet-4");
+        event.setInputTokens(100_000);
+        event.setOutputTokens(100_000);
+
+        // monthlyBefore=900K: input 100K @ tier1 (2.0), output 100K @ tier2 (2.0)
+        long cost = PricingCatalog.get().calculateEventCostMicro(event, 900_000L);
+        assertEquals(400_000L, cost);
+    }
+
+    @Test
+    void graduatedPricing_allInFirstTier() throws Exception {
+        byte[] json = Files.readAllBytes(Path.of("contrib/pricing/tiered-example.json"));
+        PricingCatalog.reload(PricingCatalog.loadFromBytes(json));
+
+        TokenEvent event = new TokenEvent();
+        event.setModelId("claude-sonnet-4");
+        event.setInputTokens(50_000);
+        event.setOutputTokens(50_000);
+
+        // input 50K×2.0 + output 50K×4.0 = 100K + 200K = 300K micro
+        assertEquals(300_000L, PricingCatalog.get().calculateEventCostMicro(event, 0L));
+    }
+
+    @Test
+    void catalogDefaults_volumeScopeAndBillingPeriod() throws Exception {
+        byte[] json = Files.readAllBytes(Path.of("contrib/pricing/tiered-example.json"));
+        PricingCatalog catalog = PricingCatalog.loadFromBytes(json);
+        assertEquals(PricingCatalog.VolumeScope.CUSTOMER_MODEL, catalog.getVolumeScope());
+        assertEquals(PricingCatalog.BillingPeriod.CALENDAR_MONTH, catalog.getBillingPeriod());
     }
 }
