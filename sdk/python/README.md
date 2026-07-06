@@ -15,8 +15,27 @@ pip install fluxmeter
 ```python
 from fluxmeter import FluxMeter
 
-meter = FluxMeter(kafka_brokers="localhost:9094")
+# Lite (HTTP) — no Kafka
+meter = FluxMeter(api_url="http://localhost:8000")
 meter.track("cust_123", "gpt-4o", input_tokens=500, output_tokens=150)
+
+# Full (Kafka + WAL)
+meter = FluxMeter(kafka_brokers="localhost:9094")
+```
+
+## Wrap (path activation)
+
+```python
+from openai import OpenAI
+from fluxmeter import FluxMeter, wrap, BudgetExceededError, StreamKilledError
+
+meter = FluxMeter(api_url="http://localhost:8000")
+client = wrap(OpenAI(), meter, customer_id="cust_123", fail_open=True)
+try:
+    client.chat.completions.create(model="gpt-4o-mini", messages=[...])
+except BudgetExceededError:
+    pass  # provider never called
+# stream=True → StreamKilledError if est cost exceeds reserve
 ```
 
 ## OpenAI Integration

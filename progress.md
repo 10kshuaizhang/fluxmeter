@@ -2,11 +2,33 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 2.6.2
-**Current phase:** v2.4 — Billing depth (Phase 2 complete)
-**Design status:** APPROVED (2026-06-16)
+**Current version:** 2.7.0 · Python SDK **1.4.0**  
+**Current phase:** Phase 3 — Path activation (v2.7) **complete** (npmjs.org push if/when `npm login`)  
+**Design status:** APPROVED (2026-06-16)  
+**Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md)
 
-## Phase 2 Checklist (ROADMAP v2.4 billing depth)
+## Phase 3 Checklist (ROADMAP v2.7 path activation) — **done**
+
+| Item | Status |
+|------|--------|
+| Mid-stream kill demo (GIF + thin proxy/SDK path) | Done — `demos/path_activation_demo.py` (+ `--live`); StreamKilledError in wrap |
+| Wrap SDK `wrap(OpenAI())` fail-open (Python) | Done — SDK 1.4.0 `fluxmeter.wrap` on PyPI |
+| npm publish `@fluxmeter/client` | Pack-ready **1.3.0**; registry push blocked without `npm login` (see sdk/js/README) |
+| Lite budget webhook (no Kafka dependency) | Done — `webhook_deliver` on Lite `/ingest` |
+| Light hierarchy caps (parent span/session at `check`) | Done — `POST /budget/{id}/cap` |
+| Soft alert thresholds (70% / 90% warn) | Done — `BUDGET_WARN` with `warn_pct` 70/90 |
+
+## Phase 4 Checklist (ROADMAP v2.8 complementary export)
+
+| Item | Status |
+|------|--------|
+| Metronome / Orb / Stripe production exporters | Not started (Stripe stub exists) |
+| Partner docs (`metronome.md` / `orb.md` / `stripe.md`) | Not started |
+| Agent hierarchy budgets (parent→child reserve) | Not started |
+| Per-key / API-key budgets | Not started |
+| Feature / workflow metadata dims | Not started |
+
+## Phase 2 Checklist (ROADMAP v2.4–2.6 billing depth) ✓
 
 | Item | Status |
 |------|--------|
@@ -15,8 +37,10 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Calendar-aligned billing windows (rollup month + export period) | Done (2.5.0) |
 | Cost-based Stripe export (`STRIPE_EXPORT_MODE=cost`) | Done (2.5.0) |
 | Credits / prepaid token packages | Done (2.5.0) |
+| Period / day / session billing queries | Done (2.6.1) |
+| Lite span aggregation (`parentSpanId`) | Done (2.6.2) |
 
-## Phase 1 Checklist (ROADMAP v2.3 polish)
+## Phase 1 Checklist (ROADMAP v2.3 polish) ✓
 
 | Item | Status |
 |------|--------|
@@ -46,20 +70,14 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Week 4g | HTTP ingest endpoint + e2e verification | Done |
 | Week 4h | Performance optimization (OptimizedRedisSink, batching, hash consolidation) | Done |
 | Week 4i | Integration tests (15 scenarios, 15 passed) | Done |
-| Next | npm publish, open source launch, marketing | Partial — Python **1.1.0 on PyPI** ✓; JS SDK in repo (`@fluxmeter/client` not yet on npm); `run-e2e-all.sh` covers unit/lite/full/saas |
-| v1.2 | Single-path billing, customer API keys, webhooks | Done |
-| v1.3 | External pricing catalog + API | Done |
-| v1.4 | Reconciliation job + DLQ replay | Done |
-| v2.0 | Helm + tiered pricing schema + monitoring rules | Done |
-| v2.5.0 | Phase 2 billing depth: Stripe export modes, packages, checkout, hybrid docs | Done |
-| v2.4.0 | Tiered pricing engine (flat/volume/graduated) in Java + Lite + Flink | Done |
-| v2.2.2 | Phase 1 polish: test-unit expansion, OpenAPI, lite tenant keys, docs sync | Done |
-| v2.2.1 | CTO follow-up: JUnit + Python unit tests, DR runbook, Prometheus, tenant keys | Done |
-| v2.2.0 | Phase 5 dual-path: SaaS control plane (tenant CRUD, plans, API keys) | Done |
-| v2.1.0 | Phase 2 dual-path: atomic Lua lite aggregator + inline budget | Done |
-| v2.1.0 | Phase 4 dual-path: Stripe billing export (Meters API) | Done |
-| v2.0.2 | Budget API fix, 4-TM high-throughput compose | Done |
-| v2.0.1 | E2E tests, load-test script, Flink aggregate fix | Done |
+| v1.2–v2.0 | Billing path, pricing catalog, reconciliation, Helm | Done |
+| v2.2.x | Control plane scaffold, polish, tests | Done |
+| v2.4–2.6 | Tiered pricing, billing export/packages, period/span queries, China models | Done |
+| **v2.7 Phase 3** | Path activation: kill demo, wrap, webhook, hierarchy, soft warns | **Done** |
+| v2.8 Phase 4 | Metronome/Orb exporters + agent hierarchy budgets | **Active / next** |
+| v3.0 Phase 5 | Gateway path (meter + limit + mid-flight kill) | Planned |
+| v3.1+ Phase 6 | Multi-tenant SaaS RBAC (demand-gated) | Planned |
+| Distribution | Python **1.4.0 on PyPI**; JS SDK **1.3.0** pack-ready | Partial (npmjs pending auth) |
 
 ---
 
@@ -152,6 +170,10 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-07-06** — **Phase 3 closed**: soft `BUDGET_WARN` 70/90 ladder; Python SDK **1.4.0** published to PyPI; npm pack ready (npmjs needs login).
+- **2026-07-06** — **v2.7.0 Phase 3 path activation**: Lite webhooks (no Kafka); Python `wrap()` + HTTP meter + stream kill; hierarchy caps at `/check`; `demos/path_activation_demo.py`; JS SDK 1.3.0.
+- **2026-07-06** — **优先级重排 + 行业校准**：[ROADMAP.md](ROADMAP.md) 下一主线改为 Phase 3 **Path activation**（kill demo / wrap SDK / npm / Lite webhook），exporters + hierarchy budgets 为 Phase 4，Gateway 产品化 Phase 5，Full SaaS RBAC **后移并 demand-gated**；调研报告 [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md)（Cursor/Copilot、LiteLLM、Kong/OpenMeter、SpendGuard、Salesforce Flex、Anthropic spend limits、转售 wallet 等）。
+- **2026-07-06** — **战略定位 vs Metronome/Stripe/Orb**（保留）：runtime 蓝海、complement don’t replace、不抢 invoice/contract/payment SoR；叙事杠杆提前到 v2.7。
 - **2026-07-05** — **客户故事文档**：[`docs/customer-stories-lite.md`](docs/customer-stories-lite.md) — TokenBridge / ClipLive SaaS 风格 Use Case + 4 周并行实施方案。
 - **2026-07-05** — **v2.6.2 Lite span**：`parentSpanId` ingest → `increment_span` + E2E tests；客户 B 剪辑任务可 `GET /usage/span/{job_id}`。
 - **2026-07-05** — **客户接入文档**：[`docs/customer-integration-lite.md`](docs/customer-integration-lite.md) — Token 中转站 + 直播 AI 剪辑 Lite 实施方案；Review 缺口（webhook、metadata、双账本、Python HTTP SDK）。

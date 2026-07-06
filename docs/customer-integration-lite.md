@@ -431,21 +431,9 @@ ingest 带 parentSpanId
 
 ---
 
-### 6.2 [P1] Lite 模式 Budget Webhook 不触发
+### 6.2 ~~[P1] Lite 模式 Budget Webhook 不触发~~ ✓ Shipped v2.7.0
 
-**现状：** `POST /budget/{id}/webhook` 写入 Redis，但 `webhook-worker` 消费 **Kafka `budget-alerts`**，Lite compose 无 Kafka。Lite ingest 仅在响应 JSON 里带 `budget_alert: BUDGET_EXHAUSTED`。
-
-**影响：** 两客户若依赖「余额告警推送到飞书/Slack」，需自建轮询或改 FluxMeter。
-
-**设计选项：**
-
-| 方案 | 描述 |
-|------|------|
-| A. Lite 内联 webhook | Lua 或 `aggregate()` 返回 `-1` 时，API 层异步 `httpx.post(webhook_url)` |
-| B. Redis 队列 worker | Lite 栈增加轻量 `lite-webhook-worker`（BLPOP，无 Kafka） |
-| C. 客户侧 | 轮询 `GET /budget/{id}` 或解析 ingest 响应 |
-
-**推荐：** 方案 A（最少组件）+ 可选 B（可靠投递重试）。
+**已交付：** Lite `/ingest` 经 `BackgroundTasks` 调用 `webhook_deliver.deliver_lite_alerts`（HMAC 与 Full worker 同形）。`BUDGET_EXHAUSTED` 立即投递；`BUDGET_LOW` 在触及 `alert_threshold_usd` 时投递并 debounce。
 
 ---
 

@@ -27,7 +27,7 @@ def test_wal_single_send_path():
 
 def test_wal_enabled_no_immediate_kafka():
     """With WAL on, _send does not call produce directly."""
-    with patch("fluxmeter.client.Producer") as mock_cls:
+    with patch("confluent_kafka.Producer") as mock_cls:
         mock_producer = MagicMock()
         mock_cls.return_value = mock_producer
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -42,7 +42,7 @@ def test_wal_enabled_no_immediate_kafka():
 
 def test_flush_drains_wal_before_close():
     """flush() sends WAL events synchronously before closing."""
-    with patch("fluxmeter.client.Producer") as mock_cls:
+    with patch("confluent_kafka.Producer") as mock_cls:
         mock_producer = MagicMock()
         mock_cls.return_value = mock_producer
         with tempfile.TemporaryDirectory() as tmpdir:

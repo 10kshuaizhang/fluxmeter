@@ -57,3 +57,17 @@ Use `parentSpanId` on `track()` for agent task totals; `sessionId` for project-l
 npm install
 npm run build
 ```
+
+## Publish (npm)
+
+Package name: `@fluxmeter/client` · current version in `package.json`.
+
+```bash
+cd sdk/js
+npm install
+npm run build
+npm pack          # inspect tarball
+npm publish --access public
+```
+
+Requires an npm account with publish rights to the `@fluxmeter` scope (or unscoped rename). CI can set `NODE_AUTH_TOKEN`.

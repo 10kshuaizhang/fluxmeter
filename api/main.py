@@ -11,7 +11,7 @@ import uuid
 from typing import Optional
 
 import redis
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -25,6 +25,7 @@ from auth import (
 )
 from budget_ops import get_effective_balance, reconcile_hold, reserve_hold
 from lite_aggregate_lua import LiteAggregator
+from webhook_deliver import deliver_lite_alerts
 from billing_export import billing_export_loop, link_customer_stripe
 from pricing_loader import get_catalog, reload_catalog
 from rollup_worker import rollup_loop
@@ -33,7 +34,7 @@ from usage_buckets import read_session, read_usage_bucket, rollup_day_key, rollu
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="2.6.2",
+    version="2.7.0",
 )
 
 LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"
@@ -159,6 +160,47 @@ class WebhookConfig(BaseModel):
     webhook_secret: Optional[str] = None
 
 
+class HierarchyCapConfig(BaseModel):
+    """Hard spend cap for a span (agent run) or session."""
+    kind: str  # "span" | "session"
+    id: str
+    max_cost_usd: float
+
+
+def _check_hierarchy_cap(
+    r: redis.Redis,
+    *,
+    parent_span_id: Optional[str],
+    session_id: Optional[str],
+    estimated_cost_usd: float,
+) -> Optional[dict]:
+    """Return deny payload if span/session cap would be exceeded, else None."""
+    checks: list[tuple[str, str]] = []
+    if parent_span_id:
+        checks.append(("span", parent_span_id))
+    if session_id:
+        checks.append(("session", session_id))
+    for kind, scope_id in checks:
+        max_raw = r.get(f"{kind}:{scope_id}:max_cost_usd")
+        if max_raw is None:
+            continue
+        try:
+            max_cost = float(max_raw)
+        except (TypeError, ValueError):
+            continue
+        spent = float(r.get(f"{kind}:{scope_id}:cost_usd") or 0)
+        if spent + max(estimated_cost_usd, 0.0) > max_cost:
+            return {
+                "allowed": False,
+                "reason": "hierarchy_cap",
+                "scope": kind,
+                "scope_id": scope_id,
+                "spent_usd": spent,
+                "max_cost_usd": max_cost,
+            }
+    return None
+
+
 class BudgetSetRequest(BaseModel):
     balance_usd: float
     alert_threshold_usd: Optional[float] = None
@@ -249,6 +291,7 @@ class IngestEvent(BaseModel):
 @app.post("/ingest", status_code=202)
 def ingest_event(
     event: IngestEvent,
+    background_tasks: BackgroundTasks,
     _: None = Depends(require_api_key),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
@@ -269,6 +312,10 @@ def ingest_event(
     if LITE_MODE:
         agg = get_lite_aggregator()
         result = agg.aggregate(event_dict)
+        # Lite: fire webhook without Kafka (BUDGET_LOW / BUDGET_EXHAUSTED)
+        background_tasks.add_task(
+            deliver_lite_alerts, get_redis(), event.customerId, result, event.modelId
+        )
         return Response(status_code=202, content=json.dumps(result),
                         media_type="application/json")
 
@@ -286,6 +333,7 @@ def ingest_event(
 @app.post("/ingest/batch", status_code=202)
 def ingest_batch(
     events: list[IngestEvent],
+    background_tasks: BackgroundTasks,
     _: None = Depends(require_api_key),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
@@ -311,6 +359,11 @@ def ingest_batch(
                 event_dict["timestamp"] = int(time.time() * 1000)
             event_dicts.append(event_dict)
         results = agg.aggregate_batch(event_dicts)
+        r = get_redis()
+        for event, result in zip(events, results):
+            background_tasks.add_task(
+                deliver_lite_alerts, r, event.customerId, result, event.modelId
+            )
         return Response(status_code=202, content=json.dumps({"results": results}),
                         media_type="application/json")
 
@@ -498,6 +551,10 @@ def set_customer_budget(customer_id: str, req: BudgetSetRequest):
     r.set(f"{budget_key}:debt_usd", "0")
     r.set(f"{budget_key}:total_deducted_usd", "0")
     r.set(f"{budget_key}:total_topup_usd", "0")
+    # Reset soft-alert debounce so ladder can fire again after top-up/reset
+    r.delete(f"{budget_key}:webhook_low_sent")
+    for pct in (70, 90):
+        r.delete(f"{budget_key}:webhook_warn_{pct}_sent")
     if req.alert_threshold_usd is not None:
         r.set(f"{budget_key}:alert_threshold_usd", str(req.alert_threshold_usd))
     if req.max_rpm is not None:
@@ -509,6 +566,8 @@ def set_customer_budget(customer_id: str, req: BudgetSetRequest):
 def check_budget(
     customer_id: str,
     estimated_cost_usd: float = 0.0,
+    parent_span_id: Optional[str] = None,
+    session_id: Optional[str] = None,
     _: None = Depends(require_api_key),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
@@ -585,6 +644,20 @@ def check_budget(
                 "requests_this_minute": requests_this_minute,
                 "source": "redis",
             }
+
+        hierarchy = _check_hierarchy_cap(
+            r, parent_span_id=parent_span_id, session_id=session_id,
+            estimated_cost_usd=estimated_cost_usd,
+        )
+        if hierarchy is not None:
+            hierarchy.update({
+                "balance_usd": balance_val,
+                "held_usd": held_val,
+                "effective_balance_usd": effective,
+                "requests_this_minute": requests_this_minute,
+                "source": "redis",
+            })
+            return hierarchy
 
         # All passed — increment rate counter
         pipe = r.pipeline()
@@ -868,6 +941,25 @@ def reconcile_budget(customer_id: str, reserved_usd: float, actual_usd: float = 
     result = reconcile_hold(r, customer_id, reserved_usd)
     result["actual_usd"] = actual_usd
     return result
+
+
+@app.post("/budget/{customer_id}/cap", dependencies=[Depends(require_admin_key)])
+def set_hierarchy_cap(customer_id: str, config: HierarchyCapConfig):
+    """Set a hard spend cap on a span (agent run) or session. Enforced at /check."""
+    if config.kind not in ("span", "session"):
+        raise HTTPException(status_code=400, detail="kind must be 'span' or 'session'")
+    if config.max_cost_usd < 0:
+        raise HTTPException(status_code=400, detail="max_cost_usd must be >= 0")
+    r = get_redis()
+    # Bind cap to customer for audit; enforcement keys match usage_buckets counters
+    r.set(f"{config.kind}:{config.id}:max_cost_usd", str(config.max_cost_usd))
+    r.set(f"{config.kind}:{config.id}:cap_customer_id", customer_id)
+    return {
+        "customer_id": customer_id,
+        "kind": config.kind,
+        "id": config.id,
+        "max_cost_usd": config.max_cost_usd,
+    }
 
 
 @app.post("/budget/{customer_id}/webhook", dependencies=[Depends(require_admin_key)])

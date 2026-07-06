@@ -6,7 +6,7 @@ from fluxmeter.client import FluxMeter
 
 def _mock_meter():
     """Create a FluxMeter with mocked Kafka producer."""
-    with patch("fluxmeter.client.Producer") as mock_producer_cls:
+    with patch("confluent_kafka.Producer") as mock_producer_cls:
         mock_producer = MagicMock()
         mock_producer_cls.return_value = mock_producer
         meter = FluxMeter(kafka_brokers="localhost:9094", wal_enabled=False)

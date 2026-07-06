@@ -1,4 +1,4 @@
-"""FluxMeter client — sends token usage events to Kafka."""
+"""FluxMeter client — sends token usage events via Kafka or HTTP API."""
 
 from __future__ import annotations
 
@@ -7,13 +7,13 @@ import logging
 import atexit
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Optional
-
-from confluent_kafka import Producer
 
 from fluxmeter.event import TokenEvent
 from fluxmeter.streaming import StreamingWrapper
-from fluxmeter.wal import WriteAheadLog
 
 logger = logging.getLogger(__name__)
 
@@ -55,55 +55,129 @@ def _parse_openai_usage(response) -> dict:
 
 
 class FluxMeter:
-    """Main FluxMeter client. Sends token events to Kafka for real-time aggregation.
+    """Main FluxMeter client.
 
-    Events are persisted to a local WAL (write-ahead log) BEFORE sending to Kafka.
-    If Kafka is unavailable, events accumulate on disk and flush when it recovers.
-    This guarantees zero event loss regardless of Kafka availability.
+    Modes:
+      - HTTP (Lite/default): ``FluxMeter(api_url="http://localhost:8000")``
+      - Kafka (Full): ``FluxMeter(kafka_brokers="localhost:9094")`` with local WAL
 
     Usage:
         from fluxmeter import FluxMeter
 
-        meter = FluxMeter(kafka_brokers="localhost:9094")
+        meter = FluxMeter(api_url="http://localhost:8000")
         meter.track(customer_id="cust_123", model_id="gpt-4o", input_tokens=500, output_tokens=150)
     """
 
     def __init__(
         self,
-        kafka_brokers: str = "localhost:9094",
+        kafka_brokers: Optional[str] = None,
+        api_url: Optional[str] = None,
+        api_key: Optional[str] = None,
         topic: str = "token-events",
         environment: Optional[str] = None,
         producer_config: Optional[dict] = None,
         wal_enabled: bool = True,
         wal_path: str = "~/.fluxmeter/wal",
     ):
+        self._api_url = api_url.rstrip("/") if api_url else None
+        self._api_key = api_key
         self._topic = topic
         self._environment = environment
         self._delivery_errors = 0
         self._events_sent = 0
         self._wal_enabled = wal_enabled
+        self._producer = None
+        self._wal = None
 
+        if self._api_url:
+            atexit.register(self.flush)
+            return
+
+        # Kafka path (Full mode)
+        from confluent_kafka import Producer
+        from fluxmeter.wal import WriteAheadLog
+
+        brokers = kafka_brokers or "localhost:9094"
         config = {
-            "bootstrap.servers": kafka_brokers,
+            "bootstrap.servers": brokers,
             "linger.ms": 5,
             "batch.num.messages": 10000,
             "compression.type": "lz4",
-            "acks": "all",  # Wait for all replicas (no data loss on broker crash)
+            "acks": "all",
         }
         if producer_config:
             config.update(producer_config)
 
         self._producer = Producer(config)
 
-        # Local WAL: events persisted to disk before Kafka send
         if wal_enabled:
             self._wal = WriteAheadLog(path=wal_path)
             self._flush_thread = threading.Thread(target=self._wal_flush_loop, daemon=True)
             self._flush_thread.start()
-        else:
-            self._wal = None
 
         atexit.register(self.flush)
+
+    def _http_json(self, method: str, path: str, body: Optional[dict] = None, query: Optional[dict] = None) -> dict:
+        url = f"{self._api_url}{path}"
+        if query:
+            url = f"{url}?{urllib.parse.urlencode({k: v for k, v in query.items() if v is not None})}"
+        data = None
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["X-API-Key"] = self._api_key
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=5.0) as resp:
+                raw = resp.read().decode("utf-8")
+                return json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode("utf-8")
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError:
+                raise RuntimeError(f"HTTP {e.code}: {raw}") from e
+
+    def check(
+        self,
+        customer_id: str,
+        estimated_cost_usd: float = 0.0,
+        *,
+        parent_span_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> dict:
+        """Pre-request budget gate. Requires ``api_url``."""
+        if not self._api_url:
+            raise RuntimeError("check() requires api_url (HTTP mode)")
+        return self._http_json(
+            "GET",
+            f"/budget/{urllib.parse.quote(customer_id, safe='')}/check",
+            query={
+                "estimated_cost_usd": estimated_cost_usd,
+                "parent_span_id": parent_span_id,
+                "session_id": session_id,
+            },
+        )
+
+    def reserve(self, customer_id: str, estimated_cost_usd: float) -> dict:
+        """Hold estimated cost for streaming. Requires admin-capable ``api_key`` in HTTP mode."""
+        if not self._api_url:
+            raise RuntimeError("reserve() requires api_url (HTTP mode)")
+        return self._http_json(
+            "POST",
+            f"/budget/{urllib.parse.quote(customer_id, safe='')}/reserve",
+            query={"estimated_cost_usd": estimated_cost_usd},
+        )
+
+    def reconcile(self, customer_id: str, reserved_usd: float, actual_usd: float = 0.0) -> dict:
+        if not self._api_url:
+            raise RuntimeError("reconcile() requires api_url (HTTP mode)")
+        return self._http_json(
+            "POST",
+            f"/budget/{urllib.parse.quote(customer_id, safe='')}/reconcile",
+            query={"reserved_usd": reserved_usd, "actual_usd": actual_usd},
+        )
 
     def track(
         self,
@@ -175,6 +249,7 @@ class FluxMeter:
         *,
         session_id: Optional[str] = None,
         span_id: Optional[str] = None,
+        parent_span_id: Optional[str] = None,
         latency_ms: int = 0,
         environment: Optional[str] = None,
     ) -> TokenEvent:
@@ -185,6 +260,7 @@ class FluxMeter:
             response: OpenAI ChatCompletion response (or dict).
             session_id: Optional conversation session ID.
             span_id: Optional observability span ID.
+            parent_span_id: Optional parent agent-run span for cost rollup.
             latency_ms: Request latency in ms.
             environment: Override instance-level environment.
 
@@ -196,6 +272,7 @@ class FluxMeter:
             customer_id=customer_id,
             provider="openai",
             span_id=span_id,
+            parent_span_id=parent_span_id,
             session_id=session_id,
             latency_ms=latency_ms,
             environment=environment,
@@ -456,8 +533,17 @@ class FluxMeter:
         )
 
     def _send(self, event: TokenEvent) -> None:
-        """Persist event to WAL, then send to Kafka. Zero data loss."""
+        """Send event via HTTP ingest or Kafka WAL."""
         event_dict = event.to_dict()
+
+        if self._api_url:
+            try:
+                self._http_json("POST", "/ingest", body=event_dict)
+                self._events_sent += 1
+            except Exception as e:
+                self._delivery_errors += 1
+                logger.debug("HTTP ingest failed: %s", e)
+            return
 
         if self._wal:
             self._wal.append(event_dict)
@@ -538,12 +624,15 @@ class FluxMeter:
             logger.debug("FluxMeter delivery failed: %s", err)
 
     def flush(self, timeout: float = 10.0) -> None:
-        """Flush pending events. Drains WAL before closing."""
+        """Flush pending events. Drains WAL before closing (Kafka mode)."""
+        if self._api_url:
+            return
         if self._wal:
             deadline = time.time() + timeout
             while time.time() < deadline and self._flush_wal_once():
                 pass
-        self._producer.flush(timeout=timeout)
+        if self._producer:
+            self._producer.flush(timeout=timeout)
         if self._wal:
             self._wal.close()
 

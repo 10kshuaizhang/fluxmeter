@@ -1,0 +1,36 @@
+name: Publish JS SDK to npm
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/js
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+          scope: "@fluxmeter"
+
+      - name: Install and build
+        run: |
+          npm install
+          npm run build
+
+      - name: Publish
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Skip notice
+        if: ${{ secrets.NPM_TOKEN == '' }}
+        run: echo "NPM_TOKEN secret not set — skip publish (pack only validated via build)"

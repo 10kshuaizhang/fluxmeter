@@ -499,9 +499,31 @@ Release hold after streaming completes. Does **not** credit or debit `balance_us
 
 ---
 
+### `POST /budget/{customer_id}/cap`
+
+Set a hard spend cap on a **span** (agent run) or **session**. Enforced on `GET /budget/{id}/check` when the matching `parent_span_id` / `session_id` query param is supplied.
+
+```bash
+curl -X POST localhost:8000/budget/cust_123/cap \
+  -H "X-API-Key: $FLUXMETER_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"kind":"span","id":"job_42","max_cost_usd":1.0}'
+```
+
+`GET /budget/cust_123/check?estimated_cost_usd=0.05&parent_span_id=job_42` returns `reason=hierarchy_cap` when `spent + estimate > max`.
+
 ### `POST /budget/{customer_id}/webhook`
 
-Configure HTTPS webhook for `BUDGET_LOW` and `BUDGET_EXHAUSTED` alerts. Delivered by the `webhook-worker` service (consumes `budget-alerts` Kafka topic).
+Configure HTTPS webhook for budget alerts:
+
+| `type` | When |
+|--------|------|
+| `BUDGET_WARN` | Spent ≥ 70% or 90% of `initial_balance + topups` (payload includes `warn_pct`, `spent_pct`) |
+| `BUDGET_LOW` | `balance_usd` ≤ `alert_threshold_usd` |
+| `BUDGET_EXHAUSTED` | Balance hits zero after Lite/Full deduction |
+
+- **Lite mode:** delivered inline after `/ingest` (no Kafka). Each tier is debounced until spend falls below that tier (or budget is reset).
+- **Full mode:** `BUDGET_LOW` / `BUDGET_EXHAUSTED` via `webhook-worker` (Kafka `budget-alerts`); `BUDGET_WARN` ladder is Lite-path today (`BUDGET_WARN_PCTS=70,90`).
 
 **Auth:** Admin key
 

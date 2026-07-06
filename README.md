@@ -8,7 +8,7 @@ Open-source, self-hostable **real-time AI token metering and budget enforcement*
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v2.6.1** · **Open spec + SDKs** · **1M+ events/sec** · **<10ms budget check** · **Multi-provider**
+**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v2.7.0** · **Open spec + SDKs** · **1M+ events/sec** · **<10ms budget check** · **Multi-provider**
 
 **Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [Docs](https://github.com/10kshuaizhang/fluxmeter/tree/main/docs) · [API reference](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
 
@@ -88,6 +88,19 @@ from fluxmeter import FluxMeter
 
 meter = FluxMeter(kafka_brokers="localhost:9094")
 meter.track_openai("cust_123", openai_response, latency_ms=1200)
+```
+
+**Wrap (path activation — check before every call):**
+```python
+from openai import OpenAI
+from fluxmeter import FluxMeter, wrap, BudgetExceededError
+
+meter = FluxMeter(api_url="http://localhost:8000")  # Lite HTTP, no Kafka
+client = wrap(OpenAI(), meter, customer_id="cust_123", fail_open=True)
+try:
+    client.chat.completions.create(model="gpt-4o-mini", messages=[...])
+except BudgetExceededError:
+    ...  # never hit the provider
 ```
 
 **JavaScript SDK** (HTTP or Kafka):
@@ -273,7 +286,7 @@ See **[ROADMAP.md](ROADMAP.md)** for the full plan. Highlights:
 
 - [x] Tiered pricing (flat / volume / graduated) in Lite + Flink — see `contrib/pricing/tiered-example.json`
 - [ ] Full multi-tenant RBAC / org model
-- [ ] Streaming proxy (mid-response kill for extreme budget enforcement)
+- [x] Wrap SDK + mid-stream kill (`wrap(OpenAI())`, `StreamKilledError`) — full HTTP proxy still Phase 5
 - [ ] `@fluxmeter/client` on npm
 - [x] Webhook delivery for budget alerts
 - [x] Customer-scoped API keys

@@ -6,6 +6,26 @@ Format: `[version] — date — summary`
 
 ---
 
+## [2.7.0] — 2026-07-06
+
+### Added
+- **Lite budget webhooks**: `BUDGET_LOW` / `BUDGET_EXHAUSTED` / **`BUDGET_WARN`** fire on `/ingest` without Kafka (`api/webhook_deliver.py`)
+- **Soft alert ladder**: `BUDGET_WARN` at 70% and 90% of `(initial_balance + topups)` spent (`warn_pct`, `spent_pct` in payload; `BUDGET_WARN_PCTS` env)
+- **Python `wrap(OpenAI())`**: pre-call `check`, post-call `track`, fail-open; mid-stream `StreamKilledError` when est cost exceeds reserve (SDK **1.4.0**)
+- **HTTP-mode Python SDK**: `FluxMeter(api_url=...)` for Lite ingest / check / reserve (no Kafka dependency)
+- **Hierarchy caps**: `POST /budget/{id}/cap` + `check?parent_span_id=` / `session_id=` enforce span/session hard max spend
+- **Path activation demo**: `demos/path_activation_demo.py` (self-check + optional `--live`)
+- **JS SDK 1.3.0**: built for npm (`sdk/js`)
+
+### Changed
+- Engine / API version **2.7.0**; Phase 3 path activation complete (npm registry push optional if unauthenticated)
+
+### Notes
+- Full-mode webhooks still use Kafka `webhook-worker`; Lite shares HMAC payload shape
+- Python SDK **1.4.0** on PyPI
+
+---
+
 ## [2.6.2] — 2026-07-05
 
 ### Added
