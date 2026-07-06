@@ -171,7 +171,7 @@ Timelines are **indicative**, not commitments. Sequence matters more than months
 |------|----------|-------------|------------------|--------|
 | **Mid-stream kill demo** | P0 | Thin SDK path: reserve → stream → `StreamKilledError`; runnable demo | Kill on overrun; `demos/path_activation_demo.py` | ✓ 2.7.0 |
 | **Wrap SDK** | P0 | `wrap(OpenAI())` (Python): pre-call `check`, post-call `track`, fail-open | One-liner; fail-open on API outage | ✓ SDK 1.4.0 |
-| **npm publish** `@fluxmeter/client` | P0 | Parity with Python HTTP transport | Package on npm | Partial — pack ready, push pending |
+| **npm publish** `@fluxmeter/client` | P0 | Parity with Python HTTP transport | Package on npm | Pack + workflow ready; needs `NPM_TOKEN` secret |
 | **Lite budget webhook** | P0 | Fire `BUDGET_LOW` / `BUDGET_EXHAUSTED` without Kafka | Lite ingest triggers HTTPS webhook | ✓ 2.7.0 |
 | Light hierarchy caps | P1 | Parent span / session **hard** max spend at `check` | Children cannot exceed parent cap | ✓ 2.7.0 |
 | Soft alert thresholds | P2 | 70% / 90% warn ladder beyond `alert_threshold_usd` | `BUDGET_WARN` events | ✓ 2.7.0 |
