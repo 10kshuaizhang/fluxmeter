@@ -25,12 +25,12 @@ jobs:
           npm install
           npm run build
 
-      - name: Publish
-        if: ${{ secrets.NPM_TOKEN != '' }}
-        run: npm publish --access public
+      - name: Publish to npmjs
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Skip notice
-        if: ${{ secrets.NPM_TOKEN == '' }}
-        run: echo "NPM_TOKEN secret not set — skip publish (pack only validated via build)"
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "NPM_TOKEN secret not set — build ok, skip registry publish"
+            exit 0
+          fi
+          npm publish --access public

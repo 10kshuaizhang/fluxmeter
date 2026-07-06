@@ -13,7 +13,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 |------|--------|
 | Mid-stream kill demo (GIF + thin proxy/SDK path) | Done — `demos/path_activation_demo.py` (+ `--live`); StreamKilledError in wrap |
 | Wrap SDK `wrap(OpenAI())` fail-open (Python) | Done — SDK 1.4.0 `fluxmeter.wrap` on PyPI |
-| npm publish `@fluxmeter/client` | Pack-ready **1.3.0**; registry push blocked without `npm login` (see sdk/js/README) |
+| npm publish `@fluxmeter/client` | Pack-ready **1.3.0** + `.github/workflows/npm-publish.yml`; set repo secret `NPM_TOKEN` then run workflow |
 | Lite budget webhook (no Kafka dependency) | Done — `webhook_deliver` on Lite `/ingest` |
 | Light hierarchy caps (parent span/session at `check`) | Done — `POST /budget/{id}/cap` |
 | Soft alert thresholds (70% / 90% warn) | Done — `BUDGET_WARN` with `warn_pct` 70/90 |
