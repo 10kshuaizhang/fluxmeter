@@ -33,6 +33,10 @@ def rollup_day_key(customer_id: str, date: str) -> str:
     return f"rollup:{customer_id}:d:{date}"
 
 
+def model_period_key(customer_id: str, model_id: str, period: str) -> str:
+    return f"rollup:{customer_id}:model:{model_id}:period:{period}"
+
+
 def read_usage_bucket(r: redis.Redis, key: str) -> dict[str, Any] | None:
     """Read a rollup hash. Returns None if bucket is missing or empty."""
     if not r.exists(key):
@@ -144,6 +148,7 @@ def read_session(r: redis.Redis, session_id: str) -> dict[str, Any] | None:
 __all__ = [
     "rollup_month_key",
     "rollup_day_key",
+    "model_period_key",
     "read_usage_bucket",
     "increment_session",
     "increment_span",

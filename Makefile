@@ -1,4 +1,4 @@
-.PHONY: build demo demo-full demo-lite start start-full start-lite start-saas stop-saas stop clean generate submit-job benchmark correctness-bench validate-spec load-test load-test-quick test-e2e test-lite test-unit test-unit-redis test-java
+.PHONY: build demo demo-full demo-lite demo-gateway start start-full start-lite start-saas stop-saas stop clean generate submit-job benchmark correctness-bench validate-spec load-test load-test-quick test-e2e test-lite test-unit test-unit-redis test-java
 
 JAR = $(shell ls -t build/libs/fluxmeter-*.jar 2>/dev/null | head -1)
 
@@ -15,6 +15,7 @@ demo: start
 	@echo " FluxMeter Demo Running (Lite Mode)"
 	@echo "==================================="
 	@echo " API:     http://localhost:8000/docs"
+	@echo " Gateway: http://localhost:8080/v1/chat/completions (OpenAI-compatible proxy)"
 	@echo " Grafana: http://localhost:3000 (admin/fluxmeter)"
 	@echo ""
 	@echo " Try: curl -X POST localhost:8000/ingest -H 'Content-Type: application/json' \\"
@@ -23,6 +24,10 @@ demo: start
 
 # Backward-compatible alias
 demo-lite: demo
+
+# Gateway mock self-check (no live OpenAI)
+demo-gateway:
+	PYTHONPATH=api python demos/gateway_demo.py
 
 # Start lite infrastructure (default)
 start:
@@ -91,7 +96,7 @@ test-unit:
 		tests/test_hierarchy_reserve.py tests/test_api_key_budget.py tests/test_billing_dims.py \
 		tests/test_control_plane_models.py tests/test_tenant_keys.py \
 		tests/test_pricing_loader.py tests/test_pricing_validate.py \
-		tests/test_rerate_tier.py tests/test_phase2_billing.py -v --timeout=60
+		tests/test_rerate_tier.py tests/test_phase2_billing.py tests/test_gateway.py -v --timeout=60
 	./gradlew test -q
 
 test-unit-redis:

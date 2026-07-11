@@ -410,6 +410,264 @@ paths:
       responses:
         "202":
           description: Applied
+  /intelligence/root-cause:
+    get:
+      summary: Root cause spend delta decomposition
+      description: Compare two calendar months; decompose cost change by model, customer, and attribution dims.
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+            example: "2026-07"
+        - name: baseline_period
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+            example: "2026-06"
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            default: global
+            example: global
+          description: "global or customer:{customer_id}"
+      responses:
+        "200":
+          description: Root cause report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RootCauseReport"
+  /intelligence/unit-economics:
+    get:
+      summary: Per-customer unit economics
+      description: Revenue vs cost, margin, and recommendations. Requires revenue overlay or admin POST.
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+            example: "2026-07"
+      responses:
+        "200":
+          description: Customer economics rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CustomerEconomics"
+  /intelligence/simulate:
+    post:
+      summary: What-if scenario simulation
+      description: "Scenarios: model_switch, prompt_reduction, token_grant"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SimulationRequest"
+      responses:
+        "200":
+          description: Simulation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimulationResult"
+        "400":
+          description: Missing required fields for scenario
+  /intelligence/revenue/{customer_id}:
+    post:
+      summary: Set customer revenue for a period
+      description: Admin only. Manual revenue when no billing overlay is connected.
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevenueBody"
+      responses:
+        "200":
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /intelligence/import/openmeter:
+    post:
+      summary: Import OpenMeter revenue overlay
+      description: Admin only. Imports revenue events from OpenMeter export payload.
+      parameters:
+        - name: period
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+          description: Required if omitted from request body
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenMeterImportPayload"
+      responses:
+        "200":
+          description: Import counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenMeterImportResult"
+        "400":
+          description: period required in body or query
+  /intelligence/summary:
+    get:
+      summary: Prescriptive Finance/CEO summary
+      description: Root-cause headline plus unprofitable customers for the period.
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+            example: "2026-07"
+        - name: baseline_period
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+            example: "2026-06"
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntelligenceSummary"
+  /intelligence/pricing-recommendations:
+    get:
+      summary: Pricing optimizer recommendations
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+      responses:
+        "200":
+          description: Recommendations sorted by ROI
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PricingRecommendation"
+  /intelligence/profitability:
+    get:
+      summary: Profitability dashboard
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+        - name: months
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 3
+      responses:
+        "200":
+          description: Dashboard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfitabilityDashboard"
+  /intelligence/forecast:
+    get:
+      summary: Spend forecast vs budget
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+            default: global
+      responses:
+        "200":
+          description: Forecast
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpendForecast"
+  /intelligence/report:
+    get:
+      summary: Finance/CEO report export
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+        - name: baseline_period
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+        - name: format
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [json, markdown]
+            default: json
+      responses:
+        "200":
+          description: Report JSON or markdown
+  /intelligence/alerts/webhook:
+    post:
+      summary: Configure intelligence alert webhook
+      description: Admin only. Alternative to FLUXMETER_INTEL_WEBHOOK_URL env.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntelWebhookBody"
+      responses:
+        "200":
+          description: Configured
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -633,3 +891,257 @@ components:
           type: integer
         end_timestamp:
           type: integer
+    Contributor:
+      type: object
+      properties:
+        dimension:
+          type: string
+        key:
+          type: string
+        current_cost_usd:
+          type: number
+        baseline_cost_usd:
+          type: number
+        delta_usd:
+          type: number
+        delta_pct:
+          type: number
+        share_of_total_delta_pct:
+          type: number
+    RootCauseReport:
+      type: object
+      properties:
+        period:
+          type: string
+        baseline_period:
+          type: string
+        total_cost_usd:
+          type: number
+        baseline_cost_usd:
+          type: number
+        delta_usd:
+          type: number
+        delta_pct:
+          type: number
+        summary:
+          type: string
+        contributors:
+          type: array
+          items:
+            $ref: "#/components/schemas/Contributor"
+    CustomerEconomics:
+      type: object
+      properties:
+        customer_id:
+          type: string
+        period:
+          type: string
+        revenue_usd:
+          type: number
+          nullable: true
+        cost_usd:
+          type: number
+        margin_usd:
+          type: number
+          nullable: true
+        margin_pct:
+          type: number
+          nullable: true
+        status:
+          type: string
+          enum: [profitable, loss, unknown_revenue]
+        recommendation:
+          type: string
+          nullable: true
+    SimulationResult:
+      type: object
+      properties:
+        scenario:
+          type: string
+        annual_savings_usd:
+          type: number
+          nullable: true
+        annual_profit_delta_usd:
+          type: number
+          nullable: true
+        notes:
+          type: string
+    SimulationRequest:
+      type: object
+      required:
+        - scenario
+      properties:
+        scenario:
+          type: string
+          enum: [model_switch, prompt_reduction, token_grant]
+        input_tokens:
+          type: integer
+        output_tokens:
+          type: integer
+        from_model:
+          type: string
+        to_model:
+          type: string
+        cost_usd:
+          type: number
+        input_reduction_pct:
+          type: number
+        grant_tokens:
+          type: integer
+        signup_lift_pct:
+          type: number
+        avg_revenue_per_customer_usd:
+          type: number
+        customer_count:
+          type: integer
+        monthly_occurrences:
+          type: integer
+          default: 1
+    RevenueBody:
+      type: object
+      required:
+        - period
+        - revenue_usd
+      properties:
+        period:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+        revenue_usd:
+          type: number
+    OpenMeterImportPayload:
+      type: object
+      properties:
+        period:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              subject:
+                type: string
+              customerId:
+                type: string
+              value:
+                type: number
+    OpenMeterImportResult:
+      type: object
+      properties:
+        revenue_rows:
+          type: integer
+        ignored_rows:
+          type: integer
+    IntelligenceSummary:
+      type: object
+      properties:
+        headline:
+          type: string
+        root_cause_summary:
+          type: string
+        loss_customers:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomerEconomics"
+    PricingRecommendation:
+      type: object
+      properties:
+        customer_id:
+          type: string
+        period:
+          type: string
+        action:
+          type: string
+        current_margin_pct:
+          type: number
+          nullable: true
+        suggested_change:
+          type: string
+        roi_annual_usd:
+          type: number
+          nullable: true
+        confidence:
+          type: string
+    ProductEconomics:
+      type: object
+      properties:
+        product:
+          type: string
+        period:
+          type: string
+        cost_usd:
+          type: number
+        revenue_usd:
+          type: number
+          nullable: true
+        margin_usd:
+          type: number
+          nullable: true
+        margin_pct:
+          type: number
+          nullable: true
+    PeriodTotals:
+      type: object
+      properties:
+        period:
+          type: string
+        cost_usd:
+          type: number
+        revenue_usd:
+          type: number
+          nullable: true
+        margin_usd:
+          type: number
+          nullable: true
+    ProfitabilityDashboard:
+      type: object
+      properties:
+        period:
+          type: string
+        months:
+          type: integer
+        totals:
+          type: object
+        by_customer:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomerEconomics"
+        by_product:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductEconomics"
+        trend:
+          type: array
+          items:
+            $ref: "#/components/schemas/PeriodTotals"
+    SpendForecast:
+      type: object
+      properties:
+        period:
+          type: string
+        scope:
+          type: string
+        mtd_cost_usd:
+          type: number
+        forecast_eom_cost_usd:
+          type: number
+        budget_usd:
+          type: number
+          nullable: true
+        variance_usd:
+          type: number
+          nullable: true
+        status:
+          type: string
+        summary:
+          type: string
+    IntelWebhookBody:
+      type: object
+      required:
+        - url
+      properties:
+        url:
+          type: string
+        secret:
+          type: string
+          default: ""

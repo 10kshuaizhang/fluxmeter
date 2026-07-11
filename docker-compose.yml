@@ -35,6 +35,28 @@ services:
         limits:
           memory: 256M
 
+  gateway:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: fluxmeter-gateway-lite
+    command: uvicorn gateway_app:app --host 0.0.0.0 --port 8080
+    ports:
+      - "8080:8080"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      FLUXMETER_LITE_MODE: "true"
+      FLUXMETER_AUTH_OPTIONAL: "true"
+      BUDGET_FAIL_POLICY: "open"
+      GATEWAY_UPSTREAM_BASE: https://api.openai.com/v1
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
   grafana:
     image: grafana/grafana:10.3.1
     container_name: fluxmeter-grafana-lite

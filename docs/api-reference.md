@@ -864,6 +864,12 @@ while True:
 
 ---
 
+## Intelligence
+
+Prescriptive monetization endpoints — root cause, unit economics, simulation, revenue overlay. Full guide with curl examples: **[intelligence-api.md](intelligence-api.md)**.
+
+---
+
 ## Error Responses
 
 All error responses follow this format:

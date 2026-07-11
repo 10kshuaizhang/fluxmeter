@@ -38,6 +38,10 @@ except BudgetExceededError:
 # stream=True → StreamKilledError if est cost exceeds reserve
 ```
 
+## Gateway (zero-code ingest)
+
+Point OpenAI `base_url` at FluxMeter Gateway (`http://localhost:8080/v1`) with header `X-FluxMeter-Customer-Id` — no SDK `track_*` needed. See [docs/gateway.md](../../docs/gateway.md).
+
 ## OpenAI Integration
 
 ```python

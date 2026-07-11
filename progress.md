@@ -2,12 +2,52 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 2.8.0 · Python SDK **1.5.0**  
-**Current phase:** Phase 4 — Complementary export (v2.8) **complete** · Next: Phase 5 Gateway  
-**Design status:** APPROVED (2026-06-16)  
-**Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md)
+**Current version:** 3.2.0 · Python SDK **1.5.0**  
+**Current phase:** Pillar B Intelligence (**complete** · 3.0–3.1) · Phase G Gateway (**done**) · Metering (**maintained**) · Phase 7+ (**demand-gated**)  
+**Design status:** APPROVED (2026-06-16) · Intelligence pivot APPROVED (2026-07-11)  
+**Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md) · pivot: [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md)
 
-## Phase 4 Checklist (ROADMAP v2.8 complementary export) — **done**
+## Phase 5 Checklist (Intelligence MVP — Pillar B) — **done**
+
+| Item | Status |
+|------|--------|
+| Root Cause Analysis (model / agent / team / customer drill-down) | Done — `GET /intelligence/root-cause` + `root_cause.py` |
+| Unit Economics (revenue vs cost, margin, loss alerts + recommendations) | Done — `GET /intelligence/unit-economics` + revenue store |
+| Scenario Simulation (≥3 what-if scenario types) | Done — model switch, prompt reduction, token grant |
+| Dual-source ingest: FluxMeter native + overlay (OpenMeter or Langfuse) | Done — native reader + OpenMeter overlay connector |
+| Prescriptive Finance/CEO summary page | Done — unit economics recommendations + root-cause narrative |
+| Landing page realignment (Layer 4 narrative) | Done — README + docs/intelligence-api.md |
+
+## Phase 6 Checklist (Intelligence v1.0 — Pillar B) — **done**
+
+| Item | Status |
+|------|--------|
+| Pricing Optimizer (recommendations + ROI) | Done — `GET /intelligence/pricing-recommendations` |
+| Profitability Dashboard (margin + trends) | Done — `GET /intelligence/profitability` |
+| Anomaly Alerts + webhook workflow | Done — `intel_alert_worker.py` + `POST /intelligence/alerts/webhook` |
+| Basic Forecasting (spend vs budget) | Done — `GET /intelligence/forecast` |
+| Export / Sharing (Finance report) | Done — `GET /intelligence/report?format=markdown` |
+
+## Phase G Checklist (Gateway P1 — Pillar A) — **done**
+
+| Item | Status |
+|------|--------|
+| Streaming AI proxy (OpenAI-compatible, auto-ingest) | Done — `POST /v1/chat/completions` on `:8080` |
+| Pre-request budget check (deny before upstream) | Done — HTTP 402, zero upstream calls when exhausted |
+| Mid-response stream kill | Done — `stream_guard.py`, <1s in unit tests |
+| Docker / compose gateway service | Done — `docker-compose.yml` + full `api/` Dockerfile |
+| Docs + demo | Done — `docs/gateway.md`, `demos/gateway_demo.py`, `make demo-gateway` |
+
+## Metering maintenance (Pillar A — ongoing)
+
+| Item | Status |
+|------|--------|
+| Lite/Full correctness regression (`make test-java`, `make test-lite`) | Ongoing — green at 3.1.0 |
+| Pricing catalog + exporter maintenance | Ongoing |
+| Python SDK + JS npm publish | Partial — PyPI 1.5.0; npm pack-ready |
+| Phase G Gateway proxy (side track, non-blocking) | Done — `gateway_app.py` + `:8080` + docs/gateway.md |
+
+## Foundation F4 Checklist (v2.8 complementary export) — **done**
 
 | Item | Status |
 |------|--------|
@@ -18,7 +58,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Feature / workflow metadata dims | Done — `billing_dims.py` + `GET /usage/dim` |
 | Open token-event interop | Done — `spec/schema/external-export-mappings.md` |
 
-## Phase 3 Checklist (ROADMAP v2.7 path activation) — **done**
+## Foundation F3 Checklist (v2.7 path activation) — **done**
 
 | Item | Status |
 |------|--------|
@@ -29,7 +69,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Light hierarchy caps (parent span/session at `check`) | Done — `POST /budget/{id}/cap` |
 | Soft alert thresholds (70% / 90% warn) | Done — `BUDGET_WARN` with `warn_pct` 70/90 |
 
-## Phase 2 Checklist (ROADMAP v2.4–2.6 billing depth) ✓
+## Foundation F2 Checklist (v2.4–2.6 billing depth) ✓
 
 | Item | Status |
 |------|--------|
@@ -41,7 +81,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Period / day / session billing queries | Done (2.6.1) |
 | Lite span aggregation (`parentSpanId`) | Done (2.6.2) |
 
-## Phase 1 Checklist (ROADMAP v2.3 polish) ✓
+## Foundation F1 Checklist (v2.3 polish) ✓
 
 | Item | Status |
 |------|--------|
@@ -74,11 +114,12 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | v1.2–v2.0 | Billing path, pricing catalog, reconciliation, Helm | Done |
 | v2.2.x | Control plane scaffold, polish, tests | Done |
 | v2.4–2.6 | Tiered pricing, billing export/packages, period/span queries, China models | Done |
-| **v2.7 Phase 3** | Path activation: kill demo, wrap, webhook, hierarchy, soft warns | **Done** |
-| v2.8 Phase 4 | Metronome/Orb exporters + agent hierarchy budgets | Done |
-| v3.x Phase 5 | Gateway proxy meter+limit+kill | **Active / next** |
-| v3.0 Phase 5 | Gateway path (meter + limit + mid-flight kill) | Planned |
-| v3.1+ Phase 6 | Multi-tenant SaaS RBAC (demand-gated) | Planned |
+| **F3 v2.7** | Path activation: kill demo, wrap, webhook, hierarchy, soft warns | **Done** |
+| F4 v2.8 | Metronome/Orb exporters + agent hierarchy budgets | Done |
+| **Phase 5** | Intelligence MVP: root cause, unit economics, simulation, overlay | **Done** |
+| Phase G | Gateway proxy meter+limit+kill (metering side track) | **Done** — 3.2.0 |
+| **Phase 6** | Intelligence v1.0: pricing optimizer, profitability, alerts, forecast, export | **Done** |
+| Phase 7+ | Hosted SaaS, NL agent, enterprise RBAC (demand-gated) | Planned |
 | Distribution | Python **1.4.0 on PyPI**; JS SDK **1.3.0** pack-ready | Partial (npmjs pending auth) |
 
 ---
@@ -172,6 +213,11 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-07-11** — **Intelligence scope closed (MVP)**: Pillar B complete at 3.0–3.1; no 4.0.0 Intelligence track — Phase 7+ demand-gated only.
+- **2026-07-11** — **v3.2.0 Phase G Gateway P1**: OpenAI-compatible proxy (`gateway_app.py` :8080), pre-check + stream kill + proxy-only ingest; `budget_gate.py`; `docs/gateway.md`; Dockerfile full `api/` copy.
+- **2026-07-11** — **v3.1.0 Phase 6 Intelligence v1.0**: pricing optimizer, profitability dashboard, forecast, anomaly alerts worker, report export; 29 intelligence tests green.
+- **2026-07-11** — **v3.0.0 Intelligence MVP**: root cause, unit economics, simulation (3 scenario types), OpenMeter overlay; model-period rollup on lite ingest; Layer 4 product narrative; `docs/intelligence-api.md` + OpenAPI `/intelligence/*`.
+- **2026-07-11** — **Intelligence MVP implementation plan**: [docs/superpowers/plans/2026-07-11-intelligence-mvp.md](docs/superpowers/plans/2026-07-11-intelligence-mvp.md); [docs/DESIGN.md](docs/DESIGN.md) amended for dual-pillar platform vision.
 - **2026-07-11** — **v2.8.0 Phase 4 complementary export**: Metronome/Orb/Stripe multi-target export; partner recipes; hierarchy `reserve?parent_span_id=`; per-key API budgets; metadata dims + `GET /usage/dim`; interop spec; Python SDK **1.5.0**.
 - **2026-07-11** — **v2.7.1 Flink EO hardening**: explicit checkpoint EXACTLY_ONCE + timeout; RedisSink atomic Lua; Java late/watermark + WindowMetadata + RedisSink idempotency tests; TEST_PLAN #2 window SET NX; `make correctness-bench`.
 - **2026-07-06** — **Phase 3 closed**: soft `BUDGET_WARN` 70/90 ladder; Python SDK **1.4.0** published to PyPI; npm pack ready (npmjs needs login).

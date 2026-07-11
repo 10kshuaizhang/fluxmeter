@@ -6,6 +6,60 @@ Format: `[version] — date — summary`
 
 ---
 
+## [3.2.0] — 2026-07-11
+
+### Added
+- **Gateway MVP** (`api/gateway/`, `gateway_app.py`): OpenAI-compatible proxy on `:8080` with pre-check, stream reserve, mid-flight kill, proxy-only ingest
+- **Shared budget gate** (`api/budget_gate.py`) — `/check` and Gateway reuse same logic
+- **Docs**: [`docs/gateway.md`](docs/gateway.md), [`demos/gateway_demo.py`](demos/gateway_demo.py)
+- **Docker**: `gateway` service in lite compose; Dockerfile copies full `api/` tree (fixes Intelligence module gap)
+
+### Changed
+- Engine / API / Gateway version **3.2.0**; Phase G P1 complete (P2 LiteLLM/TPM/predictive deferred)
+- `make demo` prints Gateway URL; `make demo-gateway` for mock self-check
+
+### Notes
+- Stream kill uses heuristic token estimate when provider omits usage chunks (same as SDK `wrap()`)
+- Helm gateway deployment deferred to Phase G.1 — same image, `uvicorn gateway_app:app`
+
+---
+
+## [3.1.0] — 2026-07-11
+
+### Added
+- **Pricing Optimizer**: `GET /intelligence/pricing-recommendations` — rule-based price increase / model switch with annual ROI
+- **Profitability Dashboard**: `GET /intelligence/profitability` — cross-customer margin, product breakdown, multi-month trend
+- **Spend Forecast**: `GET /intelligence/forecast` — linear EOM projection vs budget
+- **Anomaly Alerts**: background worker + `POST /intelligence/alerts/webhook` — `INTEL_COST_SPIKE`, `INTEL_MARGIN_LOSS`, `INTEL_FORECAST_RISK`
+- **Report Export**: `GET /intelligence/report?format=markdown|json` — Finance/CEO one-pager
+- **Native reader extensions**: daily costs, global period trends, dim margin series
+
+### Changed
+- Engine / API version **3.1.0**; Phase 6 Intelligence v1.0 complete
+- [`docs/intelligence-api.md`](docs/intelligence-api.md) — Phase 6 endpoints
+
+### Notes
+- Alert webhook: `FLUXMETER_INTEL_WEBHOOK_URL` env or admin POST; debounce 24h per alert type
+- Product revenue allocation uses cost-share heuristic (ponytail); per-SKU revenue deferred to Phase 7+
+
+---
+
+## [3.0.0] — 2026-07-11
+
+### Added
+- **Intelligence MVP**: root cause analysis, unit economics, scenario simulation, OpenMeter overlay ingest (`api/intelligence/`)
+- **Model-period rollup** on lite ingest (`usage_buckets.py` + `lite_aggregate_lua.py`)
+- **Docs**: [docs/intelligence-api.md](docs/intelligence-api.md), landing copy, OpenAPI `/intelligence/*` paths
+
+### Changed
+- **Product narrative** shifts to Layer 4 (Monetization Intelligence); metering pillar retained and maintained
+- Engine / API version **3.0.0**
+
+### Notes
+- Major bump = product narrative shift, not breaking API for existing metering endpoints
+
+---
+
 ## [2.8.0] — 2026-07-11
 
 ### Added

@@ -16,7 +16,6 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from auth import (
-    check_api_key_budget,
     create_customer_api_key,
     record_api_key_spend,
     require_admin_key,
@@ -27,20 +26,26 @@ from auth import (
     revoke_customer_api_key,
     set_api_key_budget,
 )
+from budget_gate import check_hierarchy_cap, run_budget_check
 from budget_ops import get_effective_balance, reconcile_hold, reserve_hold
 from lite_aggregate_lua import LiteAggregator
 from webhook_deliver import deliver_lite_alerts
 from billing_export import billing_export_loop, link_customer_platform, link_customer_stripe
 from pricing_loader import billing_period_month, get_catalog, reload_catalog
 from rollup_worker import rollup_loop
+from intelligence.intel_alert_worker import intel_alert_loop
 from usage_buckets import read_session, read_usage_bucket, rollup_day_key, rollup_month_key
 from billing_dims import increment_dims, read_dim_usage, validate_metadata
 
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="2.8.0",
+    version="3.2.0",
 )
+
+from intelligence.routes import router as intelligence_router
+
+app.include_router(intelligence_router)
 
 LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"
 SPEC_OPENAPI_PATH = os.getenv(
@@ -80,30 +85,12 @@ async def start_background_tasks():
         asyncio.create_task(rollup_loop(r))
     if os.getenv("STRIPE_API_KEY"):
         asyncio.create_task(billing_export_loop(r))
+    if os.getenv("FLUXMETER_INTEL_WEBHOOK_URL") or r.get("intel:webhook:url"):
+        asyncio.create_task(intel_alert_loop(r))
 
 
 # --- Layer 1: In-process budget cache (always available, 0.01ms) ---
-_budget_cache: dict[str, dict] = {}  # {customer_id: {"balance": float, "ts": float, "max_rpm": int}}
-CACHE_TTL_SEC = 30  # Stale after 30 seconds
-
-
-def cache_get(customer_id: str) -> Optional[dict]:
-    """Get cached budget. Returns None if not cached or expired."""
-    entry = _budget_cache.get(customer_id)
-    if entry and (time.time() - entry["ts"]) < CACHE_TTL_SEC:
-        return entry
-    return None
-
-
-def cache_set(customer_id: str, balance: float, max_rpm: int = 0, held: float = 0.0):
-    """Update cache with fresh Redis data."""
-    _budget_cache[customer_id] = {
-        "balance": balance,
-        "held": held,
-        "max_rpm": max_rpm,
-        "ts": time.time(),
-    }
-
+# Implemented in budget_gate.py (cache_get / cache_set)
 
 # Kafka producer for HTTP ingest
 _kafka_producer = None
@@ -172,38 +159,7 @@ class HierarchyCapConfig(BaseModel):
     max_cost_usd: float
 
 
-def _check_hierarchy_cap(
-    r: redis.Redis,
-    *,
-    parent_span_id: Optional[str],
-    session_id: Optional[str],
-    estimated_cost_usd: float,
-) -> Optional[dict]:
-    """Return deny payload if span/session cap would be exceeded, else None."""
-    checks: list[tuple[str, str]] = []
-    if parent_span_id:
-        checks.append(("span", parent_span_id))
-    if session_id:
-        checks.append(("session", session_id))
-    for kind, scope_id in checks:
-        max_raw = r.get(f"{kind}:{scope_id}:max_cost_usd")
-        if max_raw is None:
-            continue
-        try:
-            max_cost = float(max_raw)
-        except (TypeError, ValueError):
-            continue
-        spent = float(r.get(f"{kind}:{scope_id}:cost_usd") or 0)
-        if spent + max(estimated_cost_usd, 0.0) > max_cost:
-            return {
-                "allowed": False,
-                "reason": "hierarchy_cap",
-                "scope": kind,
-                "scope_id": scope_id,
-                "spent_usd": spent,
-                "max_cost_usd": max_cost,
-            }
-    return None
+_check_hierarchy_cap = check_hierarchy_cap  # backwards compat for tests importing main
 
 
 class BudgetSetRequest(BaseModel):
@@ -648,150 +604,15 @@ def check_budget(
     """
     require_customer_access(customer_id, x_api_key)
 
-    # --- Try Layer 2: Redis (authoritative, 1-5ms) ---
-    try:
-        r = get_redis()
-        budget_key = f"budget:{customer_id}"
-
-        # Rate limit check
-        rate_limit_key = f"ratelimit:{customer_id}:{int(time.time()) // 60}"
-        requests_this_minute = int(r.get(rate_limit_key) or 0)
-        max_rpm = r.get(f"budget:{customer_id}:max_rpm")
-        max_rpm_val = int(max_rpm) if max_rpm else 0
-
-        if max_rpm_val > 0 and requests_this_minute >= max_rpm_val:
-            return {
-                "allowed": False, "balance_usd": None,
-                "reason": "rate_limited",
-                "requests_this_minute": requests_this_minute,
-                "max_rpm": max_rpm_val, "source": "redis",
-            }
-
-        # Budget check
-        balance = r.get(f"{budget_key}:balance_usd")
-
-        if balance is None:
-            pipe = r.pipeline()
-            pipe.incr(rate_limit_key)
-            pipe.expire(rate_limit_key, 120)
-            pipe.execute()
-            return {"allowed": True, "balance_usd": None, "reason": "no_budget_configured",
-                    "requests_this_minute": requests_this_minute + 1, "source": "redis"}
-
-        balance_val, held_val, effective = get_effective_balance(r, customer_id)
-
-        # Update cache with fresh data
-        cache_set(customer_id, balance_val, max_rpm_val, held_val)
-
-        if effective <= 0:
-            return {
-                "allowed": False,
-                "balance_usd": balance_val,
-                "held_usd": held_val,
-                "effective_balance_usd": effective,
-                "reason": "budget_exhausted",
-                "requests_this_minute": requests_this_minute,
-                "source": "redis",
-            }
-
-        if estimated_cost_usd > 0 and effective < estimated_cost_usd:
-            return {
-                "allowed": False,
-                "balance_usd": balance_val,
-                "held_usd": held_val,
-                "effective_balance_usd": effective,
-                "reason": "insufficient_balance",
-                "requests_this_minute": requests_this_minute,
-                "source": "redis",
-            }
-
-        hierarchy = _check_hierarchy_cap(
-            r, parent_span_id=parent_span_id, session_id=session_id,
-            estimated_cost_usd=estimated_cost_usd,
-        )
-        if hierarchy is not None:
-            hierarchy.update({
-                "balance_usd": balance_val,
-                "held_usd": held_val,
-                "effective_balance_usd": effective,
-                "requests_this_minute": requests_this_minute,
-                "source": "redis",
-            })
-            return hierarchy
-
-        _, key_id = resolve_key_context(x_api_key)
-        if key_id:
-            key_deny = check_api_key_budget(r, key_id, estimated_cost_usd)
-            if key_deny is not None:
-                key_deny.update({
-                    "balance_usd": balance_val,
-                    "held_usd": held_val,
-                    "effective_balance_usd": effective,
-                    "requests_this_minute": requests_this_minute,
-                    "source": "redis",
-                })
-                return key_deny
-
-        # All passed — increment rate counter
-        pipe = r.pipeline()
-        pipe.incr(rate_limit_key)
-        pipe.expire(rate_limit_key, 120)
-        pipe.execute()
-
-        return {
-            "allowed": True,
-            "balance_usd": balance_val,
-            "held_usd": held_val,
-            "effective_balance_usd": effective,
-            "reason": "ok",
-            "requests_this_minute": requests_this_minute + 1,
-            "source": "redis",
-        }
-
-    except Exception:
-        # --- Layer 1 fallback: In-process cache (0.01ms) ---
-        cached = cache_get(customer_id)
-        if cached:
-            balance_val = cached["balance"]
-            held_val = cached.get("held", 0.0)
-            effective = balance_val - held_val
-            if effective <= 0:
-                return {
-                    "allowed": False,
-                    "balance_usd": balance_val,
-                    "held_usd": held_val,
-                    "effective_balance_usd": effective,
-                    "reason": "budget_exhausted",
-                    "source": "cache",
-                }
-            if estimated_cost_usd > 0 and effective < estimated_cost_usd:
-                return {
-                    "allowed": False,
-                    "balance_usd": balance_val,
-                    "held_usd": held_val,
-                    "effective_balance_usd": effective,
-                    "reason": "insufficient_balance",
-                    "source": "cache",
-                }
-            return {
-                "allowed": True,
-                "balance_usd": balance_val,
-                "held_usd": held_val,
-                "effective_balance_usd": effective,
-                "reason": "ok",
-                "source": "cache",
-            }
-
-        # --- Cache expired or never populated: apply fail policy ---
-        # Default: fail-open (allow). Configurable per customer in Redis
-        # (budget:{id}:fail_policy = "open" | "closed") — but Redis is down,
-        # so we use the global default.
-        fail_policy = os.getenv("BUDGET_FAIL_POLICY", "closed")
-        if fail_policy == "closed":
-            return {"allowed": False, "balance_usd": None,
-                    "reason": "redis_unavailable_fail_closed", "source": "policy"}
-        return {"allowed": True, "balance_usd": None,
-                "reason": "redis_unavailable_fail_open", "source": "policy"}
+    _, key_id = resolve_key_context(x_api_key)
+    return run_budget_check(
+        get_redis(),
+        customer_id,
+        estimated_cost_usd,
+        parent_span_id=parent_span_id,
+        session_id=session_id,
+        key_id=key_id,
+    )
 
 
 @app.post("/budget/{customer_id}/topup", dependencies=[Depends(require_admin_key)])

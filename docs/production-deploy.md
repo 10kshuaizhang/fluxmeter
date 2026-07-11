@@ -7,6 +7,10 @@ This guide covers deploying FluxMeter to production on Kubernetes. The docker-co
 ## Architecture (Production)
 
 ```
+[Client apps]
+        ↓
+[Gateway (optional, OpenAI-compatible proxy — meter + limit + kill)]
+        ↓
 [SDK / HTTP Ingest]
         ↓
 [Kafka Cluster (3 brokers, RF=3)]
@@ -17,6 +21,8 @@ This guide covers deploying FluxMeter to production on Kubernetes. The docker-co
         ↓
 [API (2+ replicas behind load balancer)]
 ```
+
+Gateway docs: [gateway.md](gateway.md). Deploy with the same API image and `uvicorn gateway_app:app --port 8080`.
 
 ---
 

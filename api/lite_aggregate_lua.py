@@ -14,13 +14,14 @@ import redis
 
 from pricing_loader import (
     PricingCatalog,
+    billing_period_month,
     calculate_cost_micro,
     normalize_model_id,
     period_volume_key,
     reload_catalog,
 )
 from tenant_keys import budget_prefix, customer_prefix, global_key
-from usage_buckets import increment_session, increment_span
+from usage_buckets import DAY_BUCKET_TTL, increment_session, increment_span, model_period_key
 
 # KEYS: [1]=idemp, [2]=customer, [3]=model, [4]=budget_bal, [5]=budget_thresh,
 #       [6]=global_prefix, [7]=period_volume, [8]=package_tokens
@@ -323,6 +324,17 @@ class LiteAggregator:
                 cost_usd=cost_usd,
                 event_ts_ms=now_ms,
             )
+
+        period = billing_period_month(now_ms)
+        mp_key = model_period_key(customer_id, normalized_model, period)
+        pipe = self._redis.pipeline()
+        pipe.hincrbyfloat(mp_key, "cost_usd", cost_usd)
+        pipe.hincrby(mp_key, "event_count", 1)
+        pipe.hincrby(mp_key, "total_tokens", total_t)
+        pipe.hincrby(mp_key, "input_tokens", input_t)
+        pipe.hincrby(mp_key, "output_tokens", output_t)
+        pipe.expire(mp_key, DAY_BUCKET_TTL)
+        pipe.execute()
 
         response = {"status": "ok", "cost_usd": cost_usd}
         if status_code == -1:
