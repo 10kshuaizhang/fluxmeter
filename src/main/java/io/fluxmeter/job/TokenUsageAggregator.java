@@ -21,6 +21,7 @@ import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
+import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 
@@ -58,8 +59,11 @@ public class TokenUsageAggregator {
         // --- Exactly-once: enable checkpointing ---
         if (!checkpointDir.isEmpty()) {
             env.enableCheckpointing(30_000); // 30s checkpoint interval
+            env.getCheckpointConfig().setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE);
             env.getCheckpointConfig().setCheckpointStorage(checkpointDir);
             env.getCheckpointConfig().setMinPauseBetweenCheckpoints(10_000);
+            env.getCheckpointConfig().setCheckpointTimeout(10 * 60_000L);
+            env.getCheckpointConfig().setTolerableCheckpointFailureNumber(3);
             env.getCheckpointConfig().setExternalizedCheckpointCleanup(
                     CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
         }
@@ -165,6 +169,12 @@ public class TokenUsageAggregator {
         public void process(String key, Context context, Iterable<UsageAggregate> elements,
                             Collector<UsageAggregate> out) {
             UsageAggregate agg = elements.iterator().next();
+            applyKeyAndWindow(key, agg, context.window().getStart(), context.window().getEnd());
+            out.collect(agg);
+        }
+
+        /** Package-visible for unit tests — key shape: tenant|customer|model or customer|model. */
+        static void applyKeyAndWindow(String key, UsageAggregate agg, long windowStart, long windowEnd) {
             String[] parts = key.split("\\|", -1);
             if (parts.length >= 3) {
                 agg.setTenantId(parts[0]);
@@ -177,9 +187,8 @@ public class TokenUsageAggregator {
                 agg.setCustomerId(key);
                 agg.setModelId("unknown");
             }
-            agg.setWindowStart(context.window().getStart());
-            agg.setWindowEnd(context.window().getEnd());
-            out.collect(agg);
+            agg.setWindowStart(windowStart);
+            agg.setWindowEnd(windowEnd);
         }
     }
 

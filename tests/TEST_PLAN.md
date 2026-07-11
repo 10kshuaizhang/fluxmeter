@@ -15,6 +15,8 @@ Each test targets a specific failure mode that would cause financial loss.
 
 **Test:** Send events, wait for window to fire, record counters. Manually re-send the same events with same timestamps. Wait for another window cycle. Assert: counters unchanged (SET NX blocked the replay).
 
+**Implemented:** `TestIdempotency.test_window_replay_set_nx_not_double_counted` in `tests/test_integration.py` (Redis `applied:*` SET NX replay). Also `RedisSinkIdempotencyTest` (Java, Redis-gated) and window `eventId` dedup via `test_duplicate_events_not_double_counted`.
+
 ### 3. Rate Limit Boundary Precision
 **Scenario:** Exactly `max_rpm` requests allowed, `max_rpm + 1` denied. Window rolls over after 60s.
 

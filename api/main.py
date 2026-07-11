@@ -16,25 +16,30 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from auth import (
+    check_api_key_budget,
     create_customer_api_key,
+    record_api_key_spend,
     require_admin_key,
     require_api_key,
     require_customer_access,
     resolve_customer_from_key,
+    resolve_key_context,
     revoke_customer_api_key,
+    set_api_key_budget,
 )
 from budget_ops import get_effective_balance, reconcile_hold, reserve_hold
 from lite_aggregate_lua import LiteAggregator
 from webhook_deliver import deliver_lite_alerts
-from billing_export import billing_export_loop, link_customer_stripe
-from pricing_loader import get_catalog, reload_catalog
+from billing_export import billing_export_loop, link_customer_platform, link_customer_stripe
+from pricing_loader import billing_period_month, get_catalog, reload_catalog
 from rollup_worker import rollup_loop
 from usage_buckets import read_session, read_usage_bucket, rollup_day_key, rollup_month_key
+from billing_dims import increment_dims, read_dim_usage, validate_metadata
 
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="2.7.0",
+    version="2.8.0",
 )
 
 LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"
@@ -286,6 +291,12 @@ class IngestEvent(BaseModel):
     latencyMs: int = 0
     environment: Optional[str] = None
     timestamp: Optional[int] = None
+    metadata: Optional[dict[str, str]] = None
+
+
+class ApiKeyBudgetRequest(BaseModel):
+    daily_budget_usd: Optional[float] = None
+    monthly_budget_usd: Optional[float] = None
 
 
 @app.post("/ingest", status_code=202)
@@ -305,13 +316,28 @@ def ingest_event(
     """
     require_customer_access(event.customerId, x_api_key)
 
+    try:
+        validated_meta = validate_metadata(event.metadata)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     event_dict = event.model_dump(exclude_none=True)
+    if validated_meta:
+        event_dict["metadata"] = validated_meta
     if "timestamp" not in event_dict:
         event_dict["timestamp"] = int(time.time() * 1000)
 
     if LITE_MODE:
         agg = get_lite_aggregator()
         result = agg.aggregate(event_dict)
+        if result.get("status") == "ok":
+            r = get_redis()
+            cost = float(result.get("cost_usd") or 0)
+            if validated_meta and cost > 0:
+                increment_dims(r, validated_meta, cost_usd=cost, event_ts_ms=event_dict["timestamp"])
+            _, key_id = resolve_key_context(x_api_key)
+            if key_id and cost > 0:
+                record_api_key_spend(r, key_id, cost)
         # Lite: fire webhook without Kafka (BUDGET_LOW / BUDGET_EXHAUSTED)
         background_tasks.add_task(
             deliver_lite_alerts, get_redis(), event.customerId, result, event.modelId
@@ -354,12 +380,27 @@ def ingest_batch(
         agg = get_lite_aggregator()
         event_dicts = []
         for event in events:
+            try:
+                validated_meta = validate_metadata(event.metadata)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             event_dict = event.model_dump(exclude_none=True)
+            if validated_meta:
+                event_dict["metadata"] = validated_meta
             if "timestamp" not in event_dict:
                 event_dict["timestamp"] = int(time.time() * 1000)
             event_dicts.append(event_dict)
         results = agg.aggregate_batch(event_dicts)
         r = get_redis()
+        _, key_id = resolve_key_context(x_api_key)
+        for event_dict, result in zip(event_dicts, results):
+            if result.get("status") == "ok":
+                cost = float(result.get("cost_usd") or 0)
+                meta = event_dict.get("metadata")
+                if meta and cost > 0:
+                    increment_dims(r, meta, cost_usd=cost, event_ts_ms=event_dict["timestamp"])
+                if key_id and cost > 0:
+                    record_api_key_spend(r, key_id, cost)
         for event, result in zip(events, results):
             background_tasks.add_task(
                 deliver_lite_alerts, r, event.customerId, result, event.modelId
@@ -505,6 +546,25 @@ def get_session_usage(
         event_count=data["event_count"],
         cost_usd=data["cost_usd"],
     )
+
+
+@app.get("/usage/dim/{dim_key}/{dim_value}", dependencies=[Depends(require_api_key)])
+def get_dim_usage(
+    dim_key: str,
+    dim_value: str,
+    period: Optional[str] = None,
+):
+    """Usage for a whitelisted metadata dimension (room_id, feature, etc.)."""
+    if period and not re.fullmatch(r"\d{4}-\d{2}", period):
+        raise HTTPException(status_code=400, detail="period must be YYYY-MM")
+    r = get_redis()
+    data = read_dim_usage(r, dim_key, dim_value, period=period)
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No usage for dim {dim_key}={dim_value}",
+        )
+    return data
 
 
 def _fetch_customer_budget(customer_id: str) -> CustomerBudget:
@@ -658,6 +718,19 @@ def check_budget(
                 "source": "redis",
             })
             return hierarchy
+
+        _, key_id = resolve_key_context(x_api_key)
+        if key_id:
+            key_deny = check_api_key_budget(r, key_id, estimated_cost_usd)
+            if key_deny is not None:
+                key_deny.update({
+                    "balance_usd": balance_val,
+                    "held_usd": held_val,
+                    "effective_balance_usd": effective,
+                    "requests_this_minute": requests_this_minute,
+                    "source": "redis",
+                })
+                return key_deny
 
         # All passed — increment rate counter
         pipe = r.pipeline()
@@ -919,26 +992,36 @@ def apply_rerate(req: ReRateRequest):
 
 
 @app.post("/budget/{customer_id}/reserve", dependencies=[Depends(require_admin_key)])
-def reserve_budget(customer_id: str, estimated_cost_usd: float):
+def reserve_budget(
+    customer_id: str,
+    estimated_cost_usd: float,
+    parent_span_id: Optional[str] = None,
+):
     """Reserve budget hold for streaming (does not deduct balance — Sink deducts actual).
 
     Flow: reserve(estimate) → LLM call → track(actual) → reconcile(estimate)
+    Optional parent_span_id: also reserve against span cap (requires POST /budget/{id}/cap).
     """
     if estimated_cost_usd <= 0:
         raise HTTPException(status_code=400, detail="estimated_cost_usd must be positive")
     r = get_redis()
     if not r.exists(f"budget:{customer_id}:balance_usd"):
         raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
-    return reserve_hold(r, customer_id, estimated_cost_usd)
+    return reserve_hold(r, customer_id, estimated_cost_usd, parent_span_id=parent_span_id)
 
 
 @app.post("/budget/{customer_id}/reconcile", dependencies=[Depends(require_admin_key)])
-def reconcile_budget(customer_id: str, reserved_usd: float, actual_usd: float = 0.0):
+def reconcile_budget(
+    customer_id: str,
+    reserved_usd: float,
+    actual_usd: float = 0.0,
+    parent_span_id: Optional[str] = None,
+):
     """Release hold after streaming. Balance unchanged (Flink Sink deducted actual)."""
     r = get_redis()
     if not r.exists(f"budget:{customer_id}:balance_usd"):
         raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
-    result = reconcile_hold(r, customer_id, reserved_usd)
+    result = reconcile_hold(r, customer_id, reserved_usd, parent_span_id=parent_span_id)
     result["actual_usd"] = actual_usd
     return result
 
@@ -984,13 +1067,36 @@ def get_budget_webhook(customer_id: str):
     return {"customer_id": customer_id, "webhook_url": url}
 
 
+class BillingLinkRequest(BaseModel):
+    platform: str  # stripe | metronome | orb
+    external_customer_id: str
+
+
+@app.post("/admin/billing/{customer_id}/link", dependencies=[Depends(require_admin_key)])
+def link_billing_platform(customer_id: str, body: BillingLinkRequest):
+    """Link a FluxMeter customer to Stripe / Metronome / Orb for periodic export."""
+    platform = body.platform.lower()
+    if platform not in ("stripe", "metronome", "orb"):
+        raise HTTPException(400, detail="platform must be stripe, metronome, or orb")
+    if not body.external_customer_id:
+        raise HTTPException(400, detail="external_customer_id required")
+    r = get_redis()
+    link_customer_platform(r, customer_id, platform, body.external_customer_id)
+    return {
+        "linked": True,
+        "customer_id": customer_id,
+        "platform": platform,
+        "external_customer_id": body.external_customer_id,
+    }
+
+
 @app.post("/admin/billing/{customer_id}/link-stripe")
 async def link_stripe(customer_id: str, body: dict, _=Depends(require_admin_key)):
     """Link a customer to a Stripe customer for automatic usage billing."""
     stripe_cid = body.get("stripe_customer_id")
     if not stripe_cid:
         raise HTTPException(400, "stripe_customer_id required")
-    r = redis.Redis(connection_pool=pool)
+    r = get_redis()
     link_customer_stripe(r, customer_id, stripe_cid)
     return {"linked": True, "customer_id": customer_id, "stripe_customer_id": stripe_cid}
 
@@ -999,6 +1105,30 @@ async def link_stripe(customer_id: str, body: dict, _=Depends(require_admin_key)
 def create_api_key(customer_id: str):
     """Create a customer-scoped API key (ingest/check for this customer only)."""
     return create_customer_api_key(customer_id)
+
+
+@app.post(
+    "/admin/customers/{customer_id}/api-keys/{key_id}/budget",
+    dependencies=[Depends(require_admin_key)],
+)
+def set_api_key_budget_endpoint(
+    customer_id: str,
+    key_id: str,
+    body: ApiKeyBudgetRequest,
+):
+    """Set daily/monthly spend caps on a reseller API key."""
+    r = get_redis()
+    meta_raw = r.get(f"apikey:meta:{key_id}")
+    if not meta_raw:
+        raise HTTPException(status_code=404, detail="API key not found")
+    meta = json.loads(meta_raw)
+    if meta.get("customer_id") != customer_id:
+        raise HTTPException(status_code=404, detail="API key not found for customer")
+    return set_api_key_budget(
+        key_id,
+        daily_budget_usd=body.daily_budget_usd,
+        monthly_budget_usd=body.monthly_budget_usd,
+    )
 
 
 @app.delete("/admin/api-keys/{key_id}", dependencies=[Depends(require_admin_key)])

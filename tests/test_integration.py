@@ -207,6 +207,54 @@ class TestIdempotency:
         assert usage["input_tokens"] < 1500, "duplicate eventId was double-counted"
         assert usage["input_tokens"] >= 1000
 
+    def test_window_replay_set_nx_not_double_counted(self):
+        """TEST_PLAN #2: re-applying the same window via SET NX must not double-count.
+
+        After Flink writes `applied:{customer}|{model}|{windowStart}`, a sink replay
+        (same idempotency key) must SKIP and leave counters unchanged.
+        """
+        import redis as redis_lib
+
+        try:
+            r = redis_lib.Redis(host="localhost", port=6379, decode_responses=True)
+            r.ping()
+        except redis_lib.ConnectionError:
+            pytest.skip("Redis not available on localhost:6379")
+
+        cust = f"test_win_replay_{uuid.uuid4().hex[:8]}"
+        ingest(cust, "gpt-4o-mini", input_tokens=10_000, output_tokens=0)
+        push_watermarks_and_wait(cust, models=["gpt-4o-mini"])
+
+        usage = wait_for_customer_usage(
+            cust,
+            min_events=1,
+            min_input_tokens=10_000,
+            timeout=180,
+            keepalive_model="gpt-4o-mini",
+        )
+        input_before = usage["input_tokens"]
+        cost_before = usage["cost_usd"]
+
+        applied = list(r.scan_iter(match=f"applied:{cust}|*", count=100))
+        assert applied, f"expected Flink applied:* key for {cust}"
+
+        # Same contract as RedisSink / BudgetEnforcerSink: SET NX then INCR
+        replay_lua = (
+            "if redis.call('SET', KEYS[1], '1', 'NX', 'EX', '3600') == false then\n"
+            "  return 'SKIP'\n"
+            "end\n"
+            "redis.call('INCRBY', KEYS[2], ARGV[1])\n"
+            "return 'OK'"
+        )
+        for key in applied:
+            result = r.eval(replay_lua, 2, key, f"customer:{cust}:input_tokens", 10_000)
+            assert result == "SKIP", f"replay of {key} should SKIP, got {result}"
+
+        usage2 = get_usage(cust)
+        assert usage2 is not None
+        assert usage2["input_tokens"] == input_before
+        assert abs(usage2["cost_usd"] - cost_before) < 1e-6
+
 
 # ============================================================
 # TEST 2: Budget Accuracy Under Concurrent Load

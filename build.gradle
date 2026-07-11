@@ -5,7 +5,7 @@ plugins {
 }
 
 group = 'io.fluxmeter'
-version = '2.7.0'
+version = '2.8.0'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_17
@@ -47,6 +47,12 @@ dependencies {
     // Unit tests
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    // Flink on test classpath (flinkProvided is compileOnly at runtime)
+    testImplementation "org.apache.flink:flink-streaming-java:${flinkVersion}"
+    testImplementation "org.apache.flink:flink-runtime:${flinkVersion}"
+    testImplementation "org.apache.flink:flink-test-utils:${flinkVersion}"
+    testImplementation "org.apache.flink:flink-clients:${flinkVersion}"
 }
 
 application {
@@ -67,4 +73,10 @@ tasks.named('jar') {
 
 tasks.named('test') {
     useJUnitPlatform()
+    // Flink serializers need reflective access on Java 17+
+    jvmArgs = [
+        '--add-opens=java.base/java.util=ALL-UNNAMED',
+        '--add-opens=java.base/java.lang=ALL-UNNAMED',
+        '--add-opens=java.base/java.lang.invoke=ALL-UNNAMED',
+    ]
 }

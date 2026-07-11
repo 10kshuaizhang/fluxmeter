@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# TokenFlink Baseline Comparison: Flink (streaming) vs ClickHouse (store-then-query)
+# FluxMeter Baseline Comparison: Flink (streaming) vs ClickHouse (store-then-query)
 # Run this AFTER `make demo-full` has the pipeline running
 
 CLICKHOUSE_URL="http://localhost:8123"
 REDIS_CLI="docker exec fluxmeter-redis redis-cli"
 
 echo "=============================================="
-echo " TokenFlink vs ClickHouse Baseline Comparison"
+echo " FluxMeter vs ClickHouse Baseline Comparison"
 echo "=============================================="
 echo ""
 

@@ -1,4 +1,4 @@
-.PHONY: build demo demo-full demo-lite start start-full start-lite start-saas stop-saas stop clean generate submit-job benchmark validate-spec load-test load-test-quick test-e2e test-lite test-unit test-unit-redis test-java
+.PHONY: build demo demo-full demo-lite start start-full start-lite start-saas stop-saas stop clean generate submit-job benchmark correctness-bench validate-spec load-test load-test-quick test-e2e test-lite test-unit test-unit-redis test-java
 
 JAR = $(shell ls -t build/libs/fluxmeter-*.jar 2>/dev/null | head -1)
 
@@ -87,7 +87,8 @@ test-e2e:
 
 test-unit:
 	pip install -q -r tests/requirements.txt
-	pytest tests/test_auth_unit.py tests/test_billing_export.py \
+	pytest tests/test_auth_unit.py tests/test_billing_export.py tests/test_billing_export_partners.py \
+		tests/test_hierarchy_reserve.py tests/test_api_key_budget.py tests/test_billing_dims.py \
 		tests/test_control_plane_models.py tests/test_tenant_keys.py \
 		tests/test_pricing_loader.py tests/test_pricing_validate.py \
 		tests/test_rerate_tier.py tests/test_phase2_billing.py -v --timeout=60
@@ -122,6 +123,11 @@ load-test-quick:
 # Run the baseline comparison (Flink vs ClickHouse)
 benchmark:
 	./baseline/benchmark.sh
+
+# Known-event correctness + Flink checkpoint health (full mode)
+correctness-bench:
+	chmod +x scripts/correctness-bench.sh
+	./scripts/correctness-bench.sh
 
 # Run the load generator locally (requires Java 17, full mode)
 generate:

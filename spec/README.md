@@ -14,6 +14,7 @@ This layer is the **growth engine**: SDKs and integrations target these artifact
 | [`schema/semantic-conventions.md`](schema/semantic-conventions.md) | Field meanings (like OTel semantic conventions) |
 | [`schema/pricing-template.yaml`](schema/pricing-template.yaml) | Pricing table template for contrib/community |
 | [`openapi/openapi.yaml`](openapi/openapi.yaml) | HTTP API contract (ingest, usage, budget) |
+| [`schema/external-export-mappings.md`](schema/external-export-mappings.md) | FluxMeter → Metronome / Orb / Stripe field mapping |
 
 ## SDKs (implementations of this spec)
 

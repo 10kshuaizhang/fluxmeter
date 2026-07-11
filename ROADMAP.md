@@ -2,9 +2,9 @@
 
 Forward-looking plan for the FluxMeter project. **Website:** [fluxmeter.dev](https://fluxmeter.dev). For **what shipped**, see [changLog.md](changLog.md). For **milestone checklists**, see [progress.md](progress.md). For **architecture intent**, see [docs/DESIGN.md](docs/DESIGN.md). For **industry calibration**, see [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md).
 
-**Current version:** 2.7.0 (engine) · 1.4.0 (Python SDK on PyPI) · 1.3.0 (JS SDK pack-ready)  
-**Active phase:** Phase 4 — Complementary export (v2.8)  
-**Last updated:** 2026-07-06
+**Current version:** 2.8.0 (engine) · 1.5.0 (Python SDK) · 1.3.0 (JS SDK pack-ready)  
+**Active phase:** Phase 5 — Gateway path (v3.x)  
+**Last updated:** 2026-07-11
 
 ---
 
@@ -98,7 +98,7 @@ That gap is FluxMeter’s blue ocean: **Runtime Guardrail + Metering Fabric**, n
 | **JS SDK** | In repo | `@fluxmeter/client` — not on npm yet |
 | **Production ops** | Partial | Helm, DR runbook, Prometheus profile, reconciliation job |
 | **Path activation** | Partial (2.7.0) | `wrap()`, Lite webhooks, hierarchy caps, kill demo; GIF / npm push optional |
-| **Invoice exporters** | Partial | Stripe Meters stub; no Metronome/Orb production export |
+| **Invoice exporters** | Shipped | Stripe / Metronome / Orb built-in export (2.8.0) |
 
 ### Deployment paths
 
@@ -196,14 +196,14 @@ Timelines are **indicative**, not commitments. Sequence matters more than months
      └── kill / deny ──► stop burning tokens
 ```
 
-| Item | Priority | Description | Success criteria |
-|------|----------|-------------|------------------|
-| **Metronome / Orb / Stripe exporters** | P0 | Production event export beyond Stripe stub | Recipe + integration test with mock sink |
-| **Partner docs** | P0 | `docs/integrations/metronome.md`, `orb.md`, `stripe.md` copy-paste recipes | Cold-start in one afternoon |
-| **Agent hierarchy budgets** | P0 | Parent → child reserve-confirm; optional concurrent agent pool | Tests for over-parent deny |
-| Per-key / API-key budgets | P1 | Reseller pattern (daily/monthly cap per key, SmarToken-like) | Key scope on `check` |
-| Feature / workflow attribution | P1 | Persist whitelist `metadata` dims; query by dim | `room_id` / `feature` slice queries |
-| Open token-event interop | P1 | Stable mapping 1:1 to Metronome/Orb event shapes | Spec appendix |
+| Item | Priority | Description | Success criteria | Status |
+|------|----------|-------------|------------------|--------|
+| **Metronome / Orb / Stripe exporters** | P0 | Production event export beyond Stripe stub | Recipe + integration test with mock sink | ✓ 2.8.0 |
+| **Partner docs** | P0 | `docs/integrations/metronome.md`, `orb.md`, `stripe.md` copy-paste recipes | Cold-start in one afternoon | ✓ 2.8.0 |
+| **Agent hierarchy budgets** | P0 | Parent → child reserve-confirm; optional concurrent agent pool | Tests for over-parent deny | ✓ 2.8.0 |
+| Per-key / API-key budgets | P1 | Reseller pattern (daily/monthly cap per key, SmarToken-like) | Key scope on `check` | ✓ 2.8.0 |
+| Feature / workflow attribution | P1 | Persist whitelist `metadata` dims; query by dim | `room_id` / `feature` slice queries | ✓ 2.8.0 |
+| Open token-event interop | P1 | Stable mapping 1:1 to Metronome/Orb event shapes | Spec appendix | ✓ 2.8.0 |
 
 **Success metric for “noticed” (qualitative):**
 

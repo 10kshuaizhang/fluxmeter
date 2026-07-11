@@ -450,6 +450,7 @@ Reserve budget **hold** for streaming responses. Increases `held_usd` only — d
 
 **Query params:**
 - `estimated_cost_usd` (float, required, must be > 0)
+- `parent_span_id` (string, optional): When set and span has `POST /cap`, also reserves against span pool (`reason=hierarchy_reserve` on deny)
 
 **Response:** `200 OK`
 ```json
@@ -459,7 +460,9 @@ Reserve budget **hold** for streaming responses. Increases `held_usd` only — d
   "held_usd": 0.50,
   "effective_balance_usd": 49.50,
   "reserved_usd": 0.50,
-  "reason": "reserved"
+  "reason": "reserved",
+  "span_held_usd": 0.50,
+  "parent_span_id": "job_42"
 }
 ```
 
@@ -485,6 +488,7 @@ Release hold after streaming completes. Does **not** credit or debit `balance_us
 **Query params:**
 - `reserved_usd` (float): Amount originally reserved (released from `held_usd`)
 - `actual_usd` (float, optional): Actual cost for your logs; not used to adjust balance
+- `parent_span_id` (string, optional): Release matching span hold when reserve used hierarchy
 
 **Response:** `200 OK`
 ```json
@@ -510,7 +514,49 @@ curl -X POST localhost:8000/budget/cust_123/cap \
   -d '{"kind":"span","id":"job_42","max_cost_usd":1.0}'
 ```
 
-`GET /budget/cust_123/check?estimated_cost_usd=0.05&parent_span_id=job_42` returns `reason=hierarchy_cap` when `spent + estimate > max`.
+`GET /budget/cust_123/check?estimated_cost_usd=0.05&parent_span_id=job_42` returns `reason=hierarchy_cap` when `spent + estimate > max`. Concurrent streaming reserves use `POST /reserve?parent_span_id=job_42` (`reason=hierarchy_reserve`).
+
+---
+
+### `POST /admin/billing/{customer_id}/link`
+
+Link FluxMeter customer to Stripe, Metronome, or Orb for built-in hourly/monthly export.
+
+**Auth:** Admin key
+
+```json
+{"platform": "metronome", "external_customer_id": "mtr_customer_uuid"}
+```
+
+Env: `BILLING_EXPORT_TARGETS=stripe,metronome,orb`, plus platform API keys. See [integrations/stripe.md](integrations/stripe.md).
+
+---
+
+### `POST /admin/customers/{customer_id}/api-keys/{key_id}/budget`
+
+Set daily/monthly spend caps on a reseller API key. Enforced on `/check` when the request uses that customer key.
+
+```json
+{"daily_budget_usd": 10.0, "monthly_budget_usd": 200.0}
+```
+
+Deny reasons: `api_key_daily_budget`, `api_key_monthly_budget`.
+
+---
+
+### `GET /usage/dim/{dim_key}/{dim_value}`
+
+Usage for a whitelisted ingest metadata dimension (`FLUXMETER_USAGE_DIMS`, default `room_id,feature`).
+
+Query: `period=YYYY-MM` (optional monthly slice).
+
+```json
+{"dim_key": "room_id", "dim_value": "room-42", "cost_usd": 12.5, "event_count": 100}
+```
+
+Ingest accepts `metadata` on `POST /ingest` (≤8 string keys, whitelist only).
+
+---
 
 ### `POST /budget/{customer_id}/webhook`
 

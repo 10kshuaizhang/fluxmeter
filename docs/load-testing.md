@@ -19,9 +19,22 @@ make load-test
 # Skip 1M tier
 make load-test-quick
 
+# Known-event correctness (cost/counters) + Flink checkpoint health
+make correctness-bench
+
 # Manual infinite run at 1M target
 make generate
 ```
+
+## Exactly-once semantics (Full / Flink)
+
+FluxMeter’s financial EO is **application-level effectively-once**:
+
+1. Flink checkpoints (30s, `CheckpointingMode.EXACTLY_ONCE`) restore operator state + Kafka offsets when `CHECKPOINT_DIR` is set.
+2. Redis sinks use window-level `SET NX` (`applied:{customer}|{model}|{windowStart}`) inside a single Lua EVAL so a crash cannot mark a window applied without writing counters (`BudgetEnforcerSink` / `RedisSink`).
+3. Watermarks: 5s bounded out-of-orderness + 30s idleness; **no** `allowedLateness` (late events → Kafka DLQ) so window re-fires cannot fight SET NX.
+
+Throughput load tests do **not** assert EO; use `make correctness-bench` and `TestIdempotency` in `tests/test_integration.py` for correctness.
 
 ## Staged script
 

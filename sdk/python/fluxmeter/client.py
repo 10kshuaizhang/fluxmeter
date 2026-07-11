@@ -160,23 +160,42 @@ class FluxMeter:
             },
         )
 
-    def reserve(self, customer_id: str, estimated_cost_usd: float) -> dict:
+    def reserve(
+        self,
+        customer_id: str,
+        estimated_cost_usd: float,
+        *,
+        parent_span_id: Optional[str] = None,
+    ) -> dict:
         """Hold estimated cost for streaming. Requires admin-capable ``api_key`` in HTTP mode."""
         if not self._api_url:
             raise RuntimeError("reserve() requires api_url (HTTP mode)")
+        query: dict[str, object] = {"estimated_cost_usd": estimated_cost_usd}
+        if parent_span_id:
+            query["parent_span_id"] = parent_span_id
         return self._http_json(
             "POST",
             f"/budget/{urllib.parse.quote(customer_id, safe='')}/reserve",
-            query={"estimated_cost_usd": estimated_cost_usd},
+            query=query,
         )
 
-    def reconcile(self, customer_id: str, reserved_usd: float, actual_usd: float = 0.0) -> dict:
+    def reconcile(
+        self,
+        customer_id: str,
+        reserved_usd: float,
+        actual_usd: float = 0.0,
+        *,
+        parent_span_id: Optional[str] = None,
+    ) -> dict:
         if not self._api_url:
             raise RuntimeError("reconcile() requires api_url (HTTP mode)")
+        query: dict[str, object] = {"reserved_usd": reserved_usd, "actual_usd": actual_usd}
+        if parent_span_id:
+            query["parent_span_id"] = parent_span_id
         return self._http_json(
             "POST",
             f"/budget/{urllib.parse.quote(customer_id, safe='')}/reconcile",
-            query={"reserved_usd": reserved_usd, "actual_usd": actual_usd},
+            query=query,
         )
 
     def track(

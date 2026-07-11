@@ -6,6 +6,46 @@ Format: `[version] — date — summary`
 
 ---
 
+## [2.8.0] — 2026-07-11
+
+### Added
+- **Multi-platform billing export**: Metronome + Orb + hardened Stripe in `api/billing_export.py` (`BILLING_EXPORT_TARGETS`, idempotent deltas, Stripe retry)
+- **Generic customer link**: `POST /admin/billing/{id}/link` (`platform`: stripe | metronome | orb)
+- **Partner recipes**: [docs/integrations/stripe.md](docs/integrations/stripe.md), [metronome.md](docs/integrations/metronome.md), [orb.md](docs/integrations/orb.md)
+- **Hierarchy reserve-confirm**: `POST /budget/{id}/reserve?parent_span_id=` atomically holds customer + span cap pool
+- **Per-key API budgets**: `POST /admin/customers/{id}/apikeys/{key_id}/budget`; enforced on `/check` with customer API keys
+- **Metadata dims**: ingest `metadata` (whitelist `FLUXMETER_USAGE_DIMS`); `GET /usage/dim/{key}/{value}?period=YYYY-MM`
+- **Interop spec**: [spec/schema/external-export-mappings.md](spec/schema/external-export-mappings.md)
+- **Python SDK 1.5.0**: `reserve(parent_span_id=)` / `reconcile(parent_span_id=)`
+
+### Changed
+- [docs/integrations.md](docs/integrations.md) trimmed; first-class export docs linked
+- Engine / API version **2.8.0**; Phase 4 complementary export complete
+
+### Notes
+- Export tests: `tests/test_billing_export_partners.py`, `tests/test_hierarchy_reserve.py` (requires `lupa` for fakeredis Lua)
+
+---
+
+## [2.7.1] — 2026-07-11
+
+### Fixed
+- **RedisSink crash window**: SET NX + pipeline replaced with a single Lua EVAL (idempotency + counters + rollup) so a mid-flight crash cannot leave `applied:*` set without writes
+
+### Added
+- **Flink harness tests**: `LateDataSideOutputTest` (watermark → late side output, no allowedLateness), `WindowMetadataFunctionTest`, `RedisSinkIdempotencyTest` (Redis-gated)
+- **TEST_PLAN #2**: `TestIdempotency.test_window_replay_set_nx_not_double_counted` (window SET NX replay)
+- **`make correctness-bench`**: known-event cost/counter assertion + Flink checkpoint health summary
+
+### Changed
+- Checkpoint config: explicit `EXACTLY_ONCE`, 10m timeout, `tolerableCheckpointFailureNumber(3)`
+- Docs: EO semantics in [load-testing.md](docs/load-testing.md); `progress.md` late-data note aligned with code (no allowedLateness → DLQ)
+
+### Notes
+- Engine version **2.7.1**; Java tests need `--add-opens` for Flink serializers on Java 17+
+
+---
+
 ## [2.7.0] — 2026-07-06
 
 ### Added

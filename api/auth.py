@@ -7,10 +7,13 @@ import json
 import logging
 import os
 import secrets
+import time
 import uuid
 
 import redis
 from fastapi import Header, HTTPException
+
+from pricing_loader import billing_period_day, billing_period_month
 
 logger = logging.getLogger(__name__)
 
@@ -50,24 +53,30 @@ def _check_global_key(provided: str | None, expected: str, label: str) -> None:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
-def resolve_customer_from_key(provided: str | None) -> str | None:
-    """Resolve customer_id from per-customer API key, or None if not a customer key."""
+def resolve_key_context(provided: str | None) -> tuple[str | None, str | None]:
+    """Return (customer_id, key_id) for a customer API key, else (None, None)."""
     if not provided:
-        return None
+        return None, None
     r = _redis()
     data = r.get(f"apikey:{_hash_key(provided)}")
     if not data:
-        return None
+        return None, None
     try:
         payload = json.loads(data)
         key_id = payload.get("key_id")
         if key_id:
             meta = r.get(f"apikey:meta:{key_id}")
             if meta and json.loads(meta).get("revoked"):
-                return None
-        return payload["customer_id"]
+                return None, None
+        return payload.get("customer_id"), key_id
     except (json.JSONDecodeError, KeyError):
-        return None
+        return None, None
+
+
+def resolve_customer_from_key(provided: str | None) -> str | None:
+    """Resolve customer_id from per-customer API key, or None if not a customer key."""
+    customer_id, _ = resolve_key_context(provided)
+    return customer_id
 
 
 def is_admin_key(provided: str | None) -> bool:
@@ -112,6 +121,92 @@ def revoke_customer_api_key(key_id: str) -> bool:
     if customer_id:
         r.srem(f"customer:{customer_id}:apikeys", key_id)
     return True
+
+
+def set_api_key_budget(
+    key_id: str,
+    *,
+    daily_budget_usd: float | None = None,
+    monthly_budget_usd: float | None = None,
+) -> dict:
+    """Set optional daily/monthly spend caps on an API key."""
+    r = _redis()
+    meta_raw = r.get(f"apikey:meta:{key_id}")
+    if not meta_raw:
+        raise HTTPException(status_code=404, detail="API key not found")
+    info = json.loads(meta_raw)
+    if daily_budget_usd is not None:
+        info["daily_budget_usd"] = daily_budget_usd
+    if monthly_budget_usd is not None:
+        info["monthly_budget_usd"] = monthly_budget_usd
+    r.set(f"apikey:meta:{key_id}", json.dumps(info))
+    return {
+        "key_id": key_id,
+        "customer_id": info.get("customer_id"),
+        "daily_budget_usd": info.get("daily_budget_usd"),
+        "monthly_budget_usd": info.get("monthly_budget_usd"),
+    }
+
+
+def check_api_key_budget(
+    r: redis.Redis,
+    key_id: str,
+    estimated_cost_usd: float,
+) -> dict | None:
+    """Return deny payload if key daily/monthly cap would be exceeded."""
+    meta_raw = r.get(f"apikey:meta:{key_id}")
+    if not meta_raw:
+        return None
+    info = json.loads(meta_raw)
+    daily_cap = info.get("daily_budget_usd")
+    monthly_cap = info.get("monthly_budget_usd")
+    if daily_cap is None and monthly_cap is None:
+        return None
+
+    now_ms = int(time.time() * 1000)
+    day = billing_period_day(now_ms)
+    month = billing_period_month(now_ms)
+    est = max(estimated_cost_usd, 0.0)
+
+    if daily_cap is not None:
+        daily_spent = float(r.get(f"apikey:{key_id}:spent:d:{day}") or 0)
+        if daily_spent + est > float(daily_cap):
+            return {
+                "allowed": False,
+                "reason": "api_key_daily_budget",
+                "key_id": key_id,
+                "spent_usd": daily_spent,
+                "budget_usd": float(daily_cap),
+                "period": day,
+            }
+
+    if monthly_cap is not None:
+        monthly_spent = float(r.get(f"apikey:{key_id}:spent:m:{month}") or 0)
+        if monthly_spent + est > float(monthly_cap):
+            return {
+                "allowed": False,
+                "reason": "api_key_monthly_budget",
+                "key_id": key_id,
+                "spent_usd": monthly_spent,
+                "budget_usd": float(monthly_cap),
+                "period": month,
+            }
+    return None
+
+
+def record_api_key_spend(r: redis.Redis, key_id: str, cost_usd: float) -> None:
+    """Increment per-key spend counters after ingest."""
+    if cost_usd <= 0:
+        return
+    now_ms = int(time.time() * 1000)
+    day = billing_period_day(now_ms)
+    month = billing_period_month(now_ms)
+    pipe = r.pipeline()
+    pipe.incrbyfloat(f"apikey:{key_id}:spent:d:{day}", cost_usd)
+    pipe.expire(f"apikey:{key_id}:spent:d:{day}", 86400 * 2)
+    pipe.incrbyfloat(f"apikey:{key_id}:spent:m:{month}", cost_usd)
+    pipe.expire(f"apikey:{key_id}:spent:m:{month}", 86400 * 62)
+    pipe.execute()
 
 
 def require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:

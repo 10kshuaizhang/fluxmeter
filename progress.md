@@ -2,10 +2,21 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 2.7.0 · Python SDK **1.4.0**  
-**Current phase:** Phase 3 — Path activation (v2.7) **complete** (npmjs.org push if/when `npm login`)  
+**Current version:** 2.8.0 · Python SDK **1.5.0**  
+**Current phase:** Phase 4 — Complementary export (v2.8) **complete** · Next: Phase 5 Gateway  
 **Design status:** APPROVED (2026-06-16)  
 **Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md)
+
+## Phase 4 Checklist (ROADMAP v2.8 complementary export) — **done**
+
+| Item | Status |
+|------|--------|
+| Metronome / Orb / Stripe production exporters | Done — `billing_export.py` + `BILLING_EXPORT_TARGETS` |
+| Partner docs (`metronome.md` / `orb.md` / `stripe.md`) | Done — `docs/integrations/` |
+| Agent hierarchy budgets (parent→child reserve) | Done — `reserve?parent_span_id=` + Lua |
+| Per-key / API-key budgets | Done — admin budget endpoint + `/check` |
+| Feature / workflow metadata dims | Done — `billing_dims.py` + `GET /usage/dim` |
+| Open token-event interop | Done — `spec/schema/external-export-mappings.md` |
 
 ## Phase 3 Checklist (ROADMAP v2.7 path activation) — **done**
 
@@ -17,16 +28,6 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Lite budget webhook (no Kafka dependency) | Done — `webhook_deliver` on Lite `/ingest` |
 | Light hierarchy caps (parent span/session at `check`) | Done — `POST /budget/{id}/cap` |
 | Soft alert thresholds (70% / 90% warn) | Done — `BUDGET_WARN` with `warn_pct` 70/90 |
-
-## Phase 4 Checklist (ROADMAP v2.8 complementary export)
-
-| Item | Status |
-|------|--------|
-| Metronome / Orb / Stripe production exporters | Not started (Stripe stub exists) |
-| Partner docs (`metronome.md` / `orb.md` / `stripe.md`) | Not started |
-| Agent hierarchy budgets (parent→child reserve) | Not started |
-| Per-key / API-key budgets | Not started |
-| Feature / workflow metadata dims | Not started |
 
 ## Phase 2 Checklist (ROADMAP v2.4–2.6 billing depth) ✓
 
@@ -74,7 +75,8 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | v2.2.x | Control plane scaffold, polish, tests | Done |
 | v2.4–2.6 | Tiered pricing, billing export/packages, period/span queries, China models | Done |
 | **v2.7 Phase 3** | Path activation: kill demo, wrap, webhook, hierarchy, soft warns | **Done** |
-| v2.8 Phase 4 | Metronome/Orb exporters + agent hierarchy budgets | **Active / next** |
+| v2.8 Phase 4 | Metronome/Orb exporters + agent hierarchy budgets | Done |
+| v3.x Phase 5 | Gateway proxy meter+limit+kill | **Active / next** |
 | v3.0 Phase 5 | Gateway path (meter + limit + mid-flight kill) | Planned |
 | v3.1+ Phase 6 | Multi-tenant SaaS RBAC (demand-gated) | Planned |
 | Distribution | Python **1.4.0 on PyPI**; JS SDK **1.3.0** pack-ready | Partial (npmjs pending auth) |
@@ -88,7 +90,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | 1 | Code review (critical findings) | Done | Budget race (Lua), null filter, cacheWrite pricing, negative topup |
 | 2 | Exactly-once + checkpointing | Done | CHECKPOINT_DIR env, committed offsets, externalized state |
 | 3 | Sink idempotency | Done | Redis SET NX per window ID, 1h TTL |
-| 4 | Late event handling | Done | allowedLateness(30s) + side output for beyond-30s |
+| 4 | Late event handling | Done | No allowedLateness (avoids SET NX conflict); sideOutputLateData → Kafka DLQ; watermark 5s OOO + 30s idleness |
 | 5 | Agent span cost attribution | Done | parentSpanId, session windows, SpanSink, API |
 
 ---
@@ -170,6 +172,8 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-07-11** — **v2.8.0 Phase 4 complementary export**: Metronome/Orb/Stripe multi-target export; partner recipes; hierarchy `reserve?parent_span_id=`; per-key API budgets; metadata dims + `GET /usage/dim`; interop spec; Python SDK **1.5.0**.
+- **2026-07-11** — **v2.7.1 Flink EO hardening**: explicit checkpoint EXACTLY_ONCE + timeout; RedisSink atomic Lua; Java late/watermark + WindowMetadata + RedisSink idempotency tests; TEST_PLAN #2 window SET NX; `make correctness-bench`.
 - **2026-07-06** — **Phase 3 closed**: soft `BUDGET_WARN` 70/90 ladder; Python SDK **1.4.0** published to PyPI; npm pack ready (npmjs needs login).
 - **2026-07-06** — **v2.7.0 Phase 3 path activation**: Lite webhooks (no Kafka); Python `wrap()` + HTTP meter + stream kill; hierarchy caps at `/check`; `demos/path_activation_demo.py`; JS SDK 1.3.0.
 - **2026-07-06** — **优先级重排 + 行业校准**：[ROADMAP.md](ROADMAP.md) 下一主线改为 Phase 3 **Path activation**（kill demo / wrap SDK / npm / Lite webhook），exporters + hierarchy budgets 为 Phase 4，Gateway 产品化 Phase 5，Full SaaS RBAC **后移并 demand-gated**；调研报告 [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md)（Cursor/Copilot、LiteLLM、Kong/OpenMeter、SpendGuard、Salesforce Flex、Anthropic spend limits、转售 wallet 等）。
