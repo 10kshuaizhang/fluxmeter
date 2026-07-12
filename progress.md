@@ -2,7 +2,7 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 3.2.0 · Python SDK **1.5.0**  
+**Current version:** 3.2.1 · Python SDK **1.5.0**  
 **Current phase:** Pillar B Intelligence (**complete** · 3.0–3.1) · Phase G Gateway (**done**) · Metering (**maintained**) · Phase 7+ (**demand-gated**)  
 **Design status:** APPROVED (2026-06-16) · Intelligence pivot APPROVED (2026-07-11)  
 **Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md) · pivot: [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md)
@@ -213,6 +213,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-07-12** — **v3.2.1 Lite lifetime usage fix**: rollup archives `customer:{id}:buf:*` only; `GET /usage/customer/{id}` lifetime totals match Full mode post-rollup.
 - **2026-07-11** — **Intelligence scope closed (MVP)**: Pillar B complete at 3.0–3.1; no 4.0.0 Intelligence track — Phase 7+ demand-gated only.
 - **2026-07-11** — **v3.2.0 Phase G Gateway P1**: OpenAI-compatible proxy (`gateway_app.py` :8080), pre-check + stream kill + proxy-only ingest; `budget_gate.py`; `docs/gateway.md`; Dockerfile full `api/` copy.
 - **2026-07-11** — **v3.1.0 Phase 6 Intelligence v1.0**: pricing optimizer, profitability dashboard, forecast, anomaly alerts worker, report export; 29 intelligence tests green.

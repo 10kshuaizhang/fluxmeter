@@ -6,6 +6,16 @@ Format: `[version] — date — summary`
 
 ---
 
+## [3.2.1] — 2026-07-12
+
+### Fixed
+- **Lite rollup lifetime usage**: `customer:{id}:*` counters are no longer reset by the rollup worker; ingest mirrors increments to `customer:{id}:buf:*` for period/day/minute compaction only
+- **`GET /usage/customer/{id}`** in Lite mode now returns lifetime cumulative totals (aligned with Full mode and API docs)
+- **`GET /budget/{id}` `total_spent_usd`** follows corrected lifetime `customer:{id}:cost_usd`
+
+### Notes
+- Upgrade from pre-3.2.1 Lite: lifetime history lost by old rollup resets is not recoverable; one-time legacy pending drain rolls the last open buffer window into period buckets
+
 ## [3.2.0] — 2026-07-11
 
 ### Added

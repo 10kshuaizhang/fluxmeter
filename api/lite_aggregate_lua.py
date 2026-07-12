@@ -183,6 +183,14 @@ redis.call('INCRBY', ckey .. ':event_count', 1)
 redis.call('INCRBYFLOAT', ckey .. ':cost_usd', cost_usd)
 if cache_read > 0 then redis.call('INCRBY', ckey .. ':cache_read_tokens', cache_read) end
 if reasoning > 0 then redis.call('INCRBY', ckey .. ':reasoning_tokens', reasoning) end
+-- Rollup buffer (lifetime keys above are never reset by rollup worker)
+redis.call('INCRBY', ckey .. ':buf:input_tokens', input_t)
+redis.call('INCRBY', ckey .. ':buf:output_tokens', output_t)
+redis.call('INCRBY', ckey .. ':buf:total_tokens', total_t)
+redis.call('INCRBY', ckey .. ':buf:event_count', 1)
+redis.call('INCRBYFLOAT', ckey .. ':buf:cost_usd', cost_usd)
+if cache_read > 0 then redis.call('INCRBY', ckey .. ':buf:cache_read_tokens', cache_read) end
+if reasoning > 0 then redis.call('INCRBY', ckey .. ':buf:reasoning_tokens', reasoning) end
 
 local mkey = KEYS[3]
 redis.call('INCRBY', mkey .. ':input_tokens', input_t)

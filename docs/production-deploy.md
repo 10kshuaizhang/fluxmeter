@@ -182,10 +182,10 @@ maxmemory-policy noeviction
 
 ```
 Per customer:
-  ~10 keys (input_tokens, output_tokens, total_tokens, cost_usd, event_count, ...)
+  ~17 keys (lifetime counters + buf:* rollup buffer + model keys)
   ~50 bytes per key value
   × models used (~5 average)
-  = ~2.5 KB per customer
+  = ~4 KB per customer (lifetime + buf; buf cleared each rollup)
 
 Per span (24h TTL):
   ~5 keys × ~50 bytes = 250 bytes per active span

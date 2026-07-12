@@ -284,6 +284,13 @@ class TestBillingQueries:
         assert day_data["bucket"] == day
         assert day_data["input_tokens"] == 2000
 
+        lifetime_resp = httpx.get(f"{API}/usage/customer/{cid}", timeout=TIMEOUT)
+        assert lifetime_resp.status_code == 200
+        lifetime_data = lifetime_resp.json()
+        assert lifetime_data["input_tokens"] == 2000
+        assert lifetime_data["output_tokens"] == 800
+        assert lifetime_data["event_count"] == 1
+
     def test_period_invalid_format_400(self):
         resp = httpx.get(f"{API}/usage/customer/cust_x/period/2026-7", timeout=TIMEOUT)
         assert resp.status_code == 400

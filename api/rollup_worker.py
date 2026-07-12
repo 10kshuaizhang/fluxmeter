@@ -1,11 +1,9 @@
-"""Background rollup worker — compacts live counters into time-bucketed summaries.
+"""Background rollup worker — compacts buffer counters into time-bucketed summaries.
 
 Runs as asyncio background task inside the API process.
-- Every 60s: snapshot live counters into per-minute hash, reset live counters
+- Every 60s: snapshot customer:{id}:buf:* into minute/month/day hashes, reset buf only
+- customer:{id}:* lifetime counters are never reset (matches Full mode + GET /usage/customer)
 - Minute hashes have 24h TTL (auto-expire)
-- /usage/* endpoints read from live counters (current minute) + rolled-up history
-
-This prevents unbounded Redis key growth while preserving time-series granularity.
 """
 
 from __future__ import annotations
@@ -17,27 +15,27 @@ import time
 import redis
 
 from pricing_loader import billing_period_day, billing_period_month
-from usage_buckets import DAY_BUCKET_TTL
+from usage_buckets import BUCKET_FIELDS, DAY_BUCKET_TTL
 
 logger = logging.getLogger(__name__)
 
 ROLLUP_INTERVAL_SEC = 60
 MINUTE_BUCKET_TTL = 86400  # 24 hours
 
-# Lua script: atomically read counters, store in minute hash, reset to zero
+# Lua script: read buf counters, store in minute/month/day hashes, reset buf only
 ROLLUP_LUA = """
 local ckey = KEYS[1]
 local minute_key = KEYS[2]
 local ttl = tonumber(ARGV[1])
 
--- Read current values
-local input_t = redis.call('GET', ckey .. ':input_tokens') or '0'
-local output_t = redis.call('GET', ckey .. ':output_tokens') or '0'
-local total_t = redis.call('GET', ckey .. ':total_tokens') or '0'
-local events = redis.call('GET', ckey .. ':event_count') or '0'
-local cost = redis.call('GET', ckey .. ':cost_usd') or '0'
-local cache_read = redis.call('GET', ckey .. ':cache_read_tokens') or '0'
-local reasoning = redis.call('GET', ckey .. ':reasoning_tokens') or '0'
+-- Read pending buffer values (not lifetime counters)
+local input_t = redis.call('GET', ckey .. ':buf:input_tokens') or '0'
+local output_t = redis.call('GET', ckey .. ':buf:output_tokens') or '0'
+local total_t = redis.call('GET', ckey .. ':buf:total_tokens') or '0'
+local events = redis.call('GET', ckey .. ':buf:event_count') or '0'
+local cost = redis.call('GET', ckey .. ':buf:cost_usd') or '0'
+local cache_read = redis.call('GET', ckey .. ':buf:cache_read_tokens') or '0'
+local reasoning = redis.call('GET', ckey .. ':buf:reasoning_tokens') or '0'
 
 -- Skip if nothing to roll up
 if tonumber(events) == 0 then
@@ -89,43 +87,58 @@ if tonumber(reasoning) > 0 then
 end
 redis.call('EXPIRE', day_key, day_ttl)
 
--- Reset live counters (GETDEL pattern via SET 0)
-redis.call('SET', ckey .. ':input_tokens', '0')
-redis.call('SET', ckey .. ':output_tokens', '0')
-redis.call('SET', ckey .. ':total_tokens', '0')
-redis.call('SET', ckey .. ':event_count', '0')
-redis.call('SET', ckey .. ':cost_usd', '0')
-redis.call('SET', ckey .. ':cache_read_tokens', '0')
-redis.call('SET', ckey .. ':reasoning_tokens', '0')
+-- Reset buffer only (lifetime customer:{id}:* counters preserved)
+redis.call('SET', ckey .. ':buf:input_tokens', '0')
+redis.call('SET', ckey .. ':buf:output_tokens', '0')
+redis.call('SET', ckey .. ':buf:total_tokens', '0')
+redis.call('SET', ckey .. ':buf:event_count', '0')
+redis.call('SET', ckey .. ':buf:cost_usd', '0')
+redis.call('SET', ckey .. ':buf:cache_read_tokens', '0')
+redis.call('SET', ckey .. ':buf:reasoning_tokens', '0')
 
 return 1
 """
 
 
+def _drain_legacy_pending_buffer(r: redis.Redis, customer_key: str) -> None:
+    """ponytail: one-time bridge for pre-buffer deploys; lost lifetime is not recoverable."""
+    buf_events = int(r.get(f"{customer_key}:buf:event_count") or 0)
+    if buf_events > 0:
+        return
+    legacy_events = int(r.get(f"{customer_key}:event_count") or 0)
+    if legacy_events <= 0:
+        return
+    for field in BUCKET_FIELDS:
+        val = r.get(f"{customer_key}:{field}")
+        if val is not None and val not in ("0", "0.0"):
+            r.set(f"{customer_key}:buf:{field}", val)
+
+
 def rollup_customer_minute(r: redis.Redis, customer_id: str, epoch_sec: int) -> str:
-    """Roll up live counters for one customer into minute + month + day buckets."""
+    """Roll up buffer counters for one customer into minute + month + day buckets."""
     minute_ts = (epoch_sec // 60) * 60
     customer_key = f"customer:{customer_id}"
     minute_key = f"rollup:{customer_id}:m:{minute_ts}"
     month_key = f"rollup:{customer_id}:period:{billing_period_month(epoch_sec * 1000)}"
     day_key = f"rollup:{customer_id}:d:{billing_period_day(epoch_sec * 1000)}"
 
+    _drain_legacy_pending_buffer(r, customer_key)
     r.eval(ROLLUP_LUA, 4, customer_key, minute_key, month_key, day_key, MINUTE_BUCKET_TTL, DAY_BUCKET_TTL)
     return minute_key
 
 
 def discover_active_customers(r: redis.Redis) -> list[str]:
-    """Find customers with non-zero event_count (active in current interval)."""
+    """Find customers with non-zero buf event_count (pending rollup)."""
     customers = []
     cursor = 0
     while True:
-        cursor, keys = r.scan(cursor, match="customer:*:event_count", count=200)
+        cursor, keys = r.scan(cursor, match="customer:*:buf:event_count", count=200)
         for key in keys:
             val = r.get(key)
             if val and int(val) > 0:
-                # Extract customer_id from "customer:{id}:event_count"
+                # Extract customer_id from "customer:{id}:buf:event_count"
                 parts = key.split(":")
-                if len(parts) >= 3:
+                if len(parts) >= 4 and parts[2] == "buf":
                     customers.append(parts[1])
         if cursor == 0:
             break
