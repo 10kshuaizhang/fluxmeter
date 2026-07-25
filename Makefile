@@ -27,10 +27,10 @@ demo-lite: demo
 
 # Gateway mock self-check (no live OpenAI)
 demo-gateway:
-	PYTHONPATH=api python demos/gateway_demo.py
+	PYTHONPATH=api python3 demos/gateway_demo.py
 
 demo-reseller:
-	PYTHONPATH=api python demos/reseller_usage_demo.py
+	PYTHONPATH=api python3 demos/reseller_usage_demo.py
 
 # Start lite infrastructure (default)
 start:
