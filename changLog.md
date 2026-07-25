@@ -14,8 +14,12 @@ Format: `[version] — date — summary`
 ### Changed
 - **README positioning**: lead with real-time token-native metering for AI API / reseller / multi-tenant gateways; budget kill and Intelligence framed as optional add-ons
 
+### Fixed
+- **Gradle 8 `./gradlew build`**: disable application/shadow dist + startScripts tasks that conflict with `shadowJar` empty classifier (CI `build` job)
+- **CI dependency-submission**: `dependency-graph-continue-on-failure: true` when repo Dependency graph is disabled
+
 ### Notes
-- Packaging only — period/lifetime query APIs already shipped in 2.6.x; no new runtime endpoints
+- Packaging only for reseller demo — period/lifetime query APIs already shipped in 2.6.x; no new runtime endpoints
 
 ## [3.2.1] — 2026-07-12
 
