@@ -40,7 +40,7 @@ from billing_dims import increment_dims, read_dim_usage, validate_metadata
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="3.2.0",
+    version="3.2.2",
 )
 
 from intelligence.routes import router as intelligence_router
