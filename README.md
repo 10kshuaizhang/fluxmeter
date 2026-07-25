@@ -1,14 +1,17 @@
 # FluxMeter
 
-**Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Docs:** [fluxmeter.dev/docs](https://fluxmeter.dev/docs) · **Blog:** [Agent cost control](https://fluxmeter.dev/blog/stop-runaway-agent-costs)
+**Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Docs:** [fluxmeter.dev/docs](https://fluxmeter.dev/docs)
 
-Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request — sub-10ms latency, 1M+ events/sec in Full mode. Built for agent loops and prepaid token products where batch billing is too slow. **v3.1** adds Monetization Intelligence v1.0 — pricing optimizer, profitability dashboard, forecasts, alerts, and Finance-ready reports on top of the same metered data.
+Open-source **real-time, token-native metering** for AI APIs, token resellers, and multi-tenant gateways. Ingest usage, price by model, and query per-downstream-customer tokens/cost by period — so you can settle clear bills without bolting on a full invoice platform first.
 
-**When to use FluxMeter:** prepaid token wallets, agent loop cost control, self-hosted LLM metering, export to Stripe/Lago/Orb/Metronome.
+Optional: sub-10ms budget check / mid-stream kill when prepaid wallets must not go negative. Full mode (Kafka + Flink) scales to 1M+ events/sec when you outgrow Lite.
+
+**Primary wedge:** AI API / 中转 / multi-tenant gateways that need **accurate per-customer usage lines**.  
+**Not (yet) the pitch:** a full monetization OS — Intelligence and invoice export are add-ons on the same meters.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v3.1.0** · **Open spec + SDKs** · **1M+ events/sec** · **<10ms budget check** · **Multi-provider**
+**[fluxmeter.dev](https://fluxmeter.dev)** — **v3.2.2** · **Open spec + SDKs** · **Lite in ~1 min** · **1M+ eps (Full)** · **<10ms budget check**
 
 **Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [Docs](https://github.com/10kshuaizhang/fluxmeter/tree/main/docs) · [API reference](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
 
@@ -16,11 +19,30 @@ Open-source, self-hostable **real-time AI token metering and budget enforcement*
 
 ## Who is this for
 
-- **AI app builders** shipping LLM wrappers, agent platforms, or code assistants that bill per token
-- **Platform teams** that need real-time cost visibility across OpenAI, Anthropic, and Google models
-- **Anyone who's been burned** by a runaway agent loop spending $500 in 30 seconds before the billing system noticed
+- **Token resellers / LLM gateways** billing downstream customers per token (clear period usage lines)
+- **AI app builders** shipping multi-tenant LLM products who need self-hosted metering before Stripe/Metronome
+- **Platform teams** that already run (or will run) Kafka/Flink and want a token-native aggregation job
 
-If your customers prepay for tokens and you need to cut them off the instant they run out — not 30 seconds later — FluxMeter does that.
+If you need each downstream account's tokens and cost for the month — via API, in real time — start here.
+
+## 5-minute reseller check
+
+Prove per-customer period usage without Docker:
+
+```bash
+PYTHONPATH=api python demos/reseller_usage_demo.py
+# or: make demo-reseller
+```
+
+Against a live Lite stack (`make demo`):
+
+```bash
+curl -X POST localhost:8000/ingest -H 'Content-Type: application/json' \
+  -d '{"customerId":"downstream_alice","modelId":"gpt-4o-mini","inputTokens":1200,"outputTokens":400}'
+
+curl localhost:8000/usage/customer/downstream_alice
+curl localhost:8000/usage/customer/downstream_alice/period/2026-07
+```
 
 ## Repository layout (OpenCore)
 
@@ -30,9 +52,9 @@ If your customers prepay for tokens and you need to cut them off the instant the
 | **SDKs** | [`sdk/python/`](sdk/python/), [`sdk/js/`](sdk/js/) | Python + JS clients |
 | **Community** | [`contrib/`](contrib/) | Provider mappings, pricing, connectors |
 | **Engine** | [`src/`](src/) | Flink reference implementation (aggregation, budget enforcement) |
-| **Demo** | `make demo` or `make demo-full` | Lite (API→Redis, default) or Full (Kafka→Flink→Redis) |
+| **Demo** | `make demo` / `make demo-reseller` | Lite stack or reseller usage self-check |
 
-## Budget Enforcement (the core feature)
+## Budget Enforcement (optional hard gate)
 
 Set a prepaid balance. FluxMeter enforces it in <10ms per request:
 

@@ -2,8 +2,8 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 3.2.1 · Python SDK **1.5.0**  
-**Current phase:** Pillar B Intelligence (**complete** · 3.0–3.1) · Phase G Gateway (**done**) · Metering (**maintained**) · Phase 7+ (**demand-gated**)  
+**Current version:** 3.2.2 · Python SDK **1.5.0**  
+**Current phase:** Pillar B Intelligence (**complete** · 3.0–3.1) · Phase G Gateway (**done**) · Metering (**maintained**) · Path-3 wedge packaging (**in progress**) · Phase 7+ (**demand-gated**)  
 **Design status:** APPROVED (2026-06-16) · Intelligence pivot APPROVED (2026-07-11)  
 **Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md) · pivot: [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md)
 
@@ -37,6 +37,15 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Mid-response stream kill | Done — `stream_guard.py`, <1s in unit tests |
 | Docker / compose gateway service | Done — `docker-compose.yml` + full `api/` Dockerfile |
 | Docs + demo | Done — `docs/gateway.md`, `demos/gateway_demo.py`, `make demo-gateway` |
+
+## Path-3 wedge (reseller / gateway metering narrative) — **started**
+
+| Item | Status |
+|------|--------|
+| Positioning: real-time token-native metering for AI API / 中转 / multi-tenant gateways | Done — README lead (3.2.2) |
+| MVP demo B: curl/API per-customer tokens/cost/period | Done — `demos/reseller_usage_demo.py` + `make demo-reseller` |
+| Design-partner inbound via demo (code-first GTM) | Not started |
+| Hard-gate / Gateway as secondary pitch | Deferred — keep as optional add-on |
 
 ## Metering maintenance (Pillar A — ongoing)
 
@@ -213,6 +222,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-07-25** — **v3.2.2 path-3 wedge packaging**: README lead reframed to real-time token-native metering for AI API/reseller/gateways; `demos/reseller_usage_demo.py` + `make demo-reseller` (per-customer period usage MVP). Office Hours: metering vision, Lite-first vertical wedge, code-first GTM.
 - **2026-07-12** — **v3.2.1 Lite lifetime usage fix**: rollup archives `customer:{id}:buf:*` only; `GET /usage/customer/{id}` lifetime totals match Full mode post-rollup.
 - **2026-07-11** — **Intelligence scope closed (MVP)**: Pillar B complete at 3.0–3.1; no 4.0.0 Intelligence track — Phase 7+ demand-gated only.
 - **2026-07-11** — **v3.2.0 Phase G Gateway P1**: OpenAI-compatible proxy (`gateway_app.py` :8080), pre-check + stream kill + proxy-only ingest; `budget_gate.py`; `docs/gateway.md`; Dockerfile full `api/` copy.

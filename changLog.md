@@ -6,6 +6,17 @@ Format: `[version] — date — summary`
 
 ---
 
+## [3.2.2] — 2026-07-25
+
+### Added
+- **Reseller usage demo**: [`demos/reseller_usage_demo.py`](demos/reseller_usage_demo.py) + `make demo-reseller` — three downstream customers → lifetime + `GET /usage/customer/{id}/period/{YYYY-MM}` invoice-style lines (path-3 wedge MVP)
+
+### Changed
+- **README positioning**: lead with real-time token-native metering for AI API / reseller / multi-tenant gateways; budget kill and Intelligence framed as optional add-ons
+
+### Notes
+- Packaging only — period/lifetime query APIs already shipped in 2.6.x; no new runtime endpoints
+
 ## [3.2.1] — 2026-07-12
 
 ### Fixed

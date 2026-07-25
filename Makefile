@@ -1,4 +1,4 @@
-.PHONY: build demo demo-full demo-lite demo-gateway start start-full start-lite start-saas stop-saas stop clean generate submit-job benchmark correctness-bench validate-spec load-test load-test-quick test-e2e test-lite test-unit test-unit-redis test-java
+.PHONY: build demo demo-full demo-lite demo-gateway demo-reseller start start-full start-lite start-saas stop-saas stop clean generate submit-job benchmark correctness-bench validate-spec load-test load-test-quick test-e2e test-lite test-unit test-unit-redis test-java
 
 JAR = $(shell ls -t build/libs/fluxmeter-*.jar 2>/dev/null | head -1)
 
@@ -28,6 +28,9 @@ demo-lite: demo
 # Gateway mock self-check (no live OpenAI)
 demo-gateway:
 	PYTHONPATH=api python demos/gateway_demo.py
+
+demo-reseller:
+	PYTHONPATH=api python demos/reseller_usage_demo.py
 
 # Start lite infrastructure (default)
 start:
