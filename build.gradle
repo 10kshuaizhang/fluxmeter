@@ -65,10 +65,28 @@ shadowJar {
     mergeServiceFiles()
 }
 
+// Gradle 8 validates task dependencies strictly. With shadowJar classifier '',
+// application/shadow dist + startScripts tasks see build/libs/fluxmeter-*.jar as
+// an undeclared input of shadowJar/jar. FluxMeter ships via `./gradlew shadowJar`
+// (Makefile), not application distributions — disable those packaging tasks.
 tasks.named('jar') {
+    archiveClassifier = 'plain'
     manifest {
         attributes 'Main-Class': 'io.fluxmeter.job.TokenUsageAggregator'
     }
+}
+
+[
+    'distZip',
+    'distTar',
+    'startScripts',
+    'installDist',
+    'startShadowScripts',
+    'shadowDistZip',
+    'shadowDistTar',
+    'installShadowDist',
+].each { taskName ->
+    tasks.named(taskName).configure { enabled = false }
 }
 
 tasks.named('test') {
