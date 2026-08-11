@@ -105,5 +105,16 @@ wait_until "A6 parse_error → DLQ" \
   "SELECT count() > ${DLQ_PARSE_BEFORE:-0} FROM fluxmeter.raw_events_dlq WHERE error_reason='parse_error'" \
   "1" || true
 
+# A3 precondition: cold store uses independent group name (isolation from Flink)
+ENGINE_FULL="$(ch_query "SELECT engine_full FROM system.tables WHERE database='fluxmeter' AND name='token_events_queue' FORMAT TSV" 2>/dev/null || true)"
+if echo "$ENGINE_FULL" | grep -q "fluxmeter-cold-store"; then
+  echo "  OK  A3 group fluxmeter-cold-store configured"
+  PASS=$((PASS + 1))
+else
+  echo "  FAIL A3 expected kafka_group_name fluxmeter-cold-store in engine_full"
+  FAIL=$((FAIL + 1))
+fi
+echo "  NOTE A3 runtime demo: stop Flink TMs, keep producing to Kafka, watch raw_events FINAL count increase."
+
 echo "== results: PASS=$PASS FAIL=$FAIL =="
 [ "$FAIL" -eq 0 ]
