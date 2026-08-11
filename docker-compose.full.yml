@@ -160,7 +160,10 @@ services:
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: ""
     volumes:
-      - ./baseline/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./baseline/init.sql:/docker-entrypoint-initdb.d/01_cold_store.sql
+      # Named volume: image ships a non-empty data dir that breaks initdb heuristics.
+      # scripts/apply-cold-store-init.sh also applies DDL after start for reliability.
+      - clickhouse-data:/var/lib/clickhouse
     depends_on:
       - kafka
     mem_limit: 4g
@@ -231,3 +234,4 @@ services:
 
 volumes:
   redis-data:
+  clickhouse-data:

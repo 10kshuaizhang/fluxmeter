@@ -1,4 +1,4 @@
-.PHONY: build demo demo-full demo-lite demo-gateway demo-reseller start start-full start-lite start-saas stop-saas stop clean generate submit-job benchmark correctness-bench validate-spec load-test load-test-quick test-e2e test-lite test-unit test-unit-redis test-java test-cold-store
+.PHONY: build demo demo-full demo-lite demo-gateway demo-reseller start start-full start-lite start-saas stop-saas stop clean generate submit-job benchmark correctness-bench validate-spec load-test load-test-quick test-e2e test-lite test-unit test-unit-redis test-java test-cold-store apply-cold-store-init
 
 JAR = $(shell ls -t build/libs/fluxmeter-*.jar 2>/dev/null | head -1)
 
@@ -128,9 +128,15 @@ load-test:
 load-test-quick:
 	QUICK=1 ./scripts/load-test.sh
 
+# Apply ADR-1 ClickHouse DDL (idempotent DROP/CREATE in baseline/init.sql)
+apply-cold-store-init:
+	chmod +x scripts/apply-cold-store-init.sh
+	./scripts/apply-cold-store-init.sh
+
 # ADR-1 auditable cold store acceptance (needs kafka + clickhouse)
 test-cold-store:
-	chmod +x scripts/test-cold-store.sh
+	chmod +x scripts/test-cold-store.sh scripts/apply-cold-store-init.sh
+	./scripts/apply-cold-store-init.sh
 	./scripts/test-cold-store.sh
 
 # Run the baseline comparison (Flink vs ClickHouse)
