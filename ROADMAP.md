@@ -2,7 +2,7 @@
 
 Forward-looking plan for the FluxMeter project. **Website:** [fluxmeter.dev](https://fluxmeter.dev). For **what shipped**, see [changLog.md](changLog.md). For **milestone checklists**, see [progress.md](progress.md). For **architecture intent**, see [docs/DESIGN.md](docs/DESIGN.md). For **industry calibration**, see [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md). For **pivot rationale**, see [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md).
 
-**Current version:** 3.2.0 (engine) · 1.5.0 (Python SDK) · 1.3.0 (JS SDK pack-ready)  
+**Current version:** 3.2.3 (engine) · 1.5.0 (Python SDK) · 1.3.0 (JS SDK pack-ready)  
 **Active phase:** Phase 7+ (demand-gated) · **Pillar B Intelligence complete** (3.0–3.1) · Pillar A metering (**maintained** · Gateway P1 ✓)  
 **Last updated:** 2026-07-11
 
@@ -255,7 +255,7 @@ Parallel to version phases — **required**, not backlog.
 | **Spec** | Keep v1 stable; `feature` / `workflow` dims for Intelligence attribution |
 | **Overlay connectors** | Langfuse, Helicone, OpenMeter ingest → Intelligence layer |
 | **Partner docs** | "FluxMeter Intelligence + OpenMeter/Langfuse" cookbooks |
-| **ClickHouse baseline** | Honest store-then-query comparison |
+| **ClickHouse cold store (ADR-1)** | Upgrade baseline → auditable `raw_events` (spec: [2026-08-11-cold-store-audit-design.md](docs/superpowers/specs/2026-08-11-cold-store-audit-design.md)); aggregate MV stays benchmark-only |
 | **Community** | SHOW HN as *monetization intelligence*; metering demo as proof of data quality |
 
 ---

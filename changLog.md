@@ -6,6 +6,14 @@ Format: `[version] — date — summary`
 
 ---
 
+## [3.2.3] — 2026-08-11
+
+### Added
+- **ADR-1 cold-store design spec**: [`docs/superpowers/specs/2026-08-11-cold-store-audit-design.md`](docs/superpowers/specs/2026-08-11-cold-store-audit-design.md) — upgrade ClickHouse Kafka→`raw_events` (ReplacingMergeTree by `event_id`, customer-time projection, DLQ table); Lite deferred; no external `cold_sink/`
+
+### Notes
+- Design-only release; runtime DDL/compose/tests land in a follow-up implementation PR after spec review
+
 ## [3.2.2] — 2026-07-25
 
 ### Added

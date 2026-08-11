@@ -2,10 +2,10 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 3.2.2 · Python SDK **1.5.0**  
-**Current phase:** Pillar B Intelligence (**complete** · 3.0–3.1) · Phase G Gateway (**done**) · Metering (**maintained**) · Path-3 wedge packaging (**in progress**) · Phase 7+ (**demand-gated**)  
-**Design status:** APPROVED (2026-06-16) · Intelligence pivot APPROVED (2026-07-11)  
-**Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md) · pivot: [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md)
+**Current version:** 3.2.3 · Python SDK **1.5.0**  
+**Current phase:** Pillar B Intelligence (**complete** · 3.0–3.1) · Phase G Gateway (**done**) · Metering (**maintained**) · Path-3 wedge packaging (**in progress**) · ADR-1 cold store (**spec draft**) · Phase 7+ (**demand-gated**)  
+**Design status:** APPROVED (2026-06-16) · Intelligence pivot APPROVED (2026-07-11) · Cold store ADR-1 DRAFT (2026-08-11)  
+**Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md) · pivot: [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md) · cold store: [docs/superpowers/specs/2026-08-11-cold-store-audit-design.md](docs/superpowers/specs/2026-08-11-cold-store-audit-design.md)
 
 ## Phase 5 Checklist (Intelligence MVP — Pillar B) — **done**
 
@@ -55,6 +55,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Pricing catalog + exporter maintenance | Ongoing |
 | Python SDK + JS npm publish | Partial — PyPI 1.5.0; npm pack-ready |
 | Phase G Gateway proxy (side track, non-blocking) | Done — `gateway_app.py` + `:8080` + docs/gateway.md |
+| ADR-1 auditable ClickHouse cold store | Partial — design spec drafted (`2026-08-11-cold-store-audit-design.md`); impl not started |
 
 ## Foundation F4 Checklist (v2.8 complementary export) — **done**
 
@@ -222,6 +223,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-08-11** — **v3.2.3 ADR-1 cold-store spec**: grill-me locked decisions written to [`docs/superpowers/specs/2026-08-11-cold-store-audit-design.md`](docs/superpowers/specs/2026-08-11-cold-store-audit-design.md) — CH Kafka engine → `raw_events` (dedupe by `eventId`), DLQ table, Lite deferred, benchmark aggregates optional only.
 - **2026-07-25** — **v3.2.2 path-3 wedge packaging**: README lead reframed to real-time token-native metering for AI API/reseller/gateways; `demos/reseller_usage_demo.py` + `make demo-reseller` (per-customer period usage MVP). Office Hours: metering vision, Lite-first vertical wedge, code-first GTM.
 - **2026-07-12** — **v3.2.1 Lite lifetime usage fix**: rollup archives `customer:{id}:buf:*` only; `GET /usage/customer/{id}` lifetime totals match Full mode post-rollup.
 - **2026-07-11** — **Intelligence scope closed (MVP)**: Pillar B complete at 3.0–3.1; no 4.0.0 Intelligence track — Phase 7+ demand-gated only.
