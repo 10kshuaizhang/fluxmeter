@@ -223,6 +223,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-08-11** — **ADR-1 cold-store implementation plan**: [`docs/superpowers/plans/2026-08-11-cold-store-audit.md`](docs/superpowers/plans/2026-08-11-cold-store-audit.md) (DDL fanout, DLQ, `make test-cold-store`, benchmark-only aggregates) — awaiting execution.
 - **2026-08-11** — **v3.2.3 ADR-1 cold-store spec**: grill-me locked decisions written to [`docs/superpowers/specs/2026-08-11-cold-store-audit-design.md`](docs/superpowers/specs/2026-08-11-cold-store-audit-design.md) — CH Kafka engine → `raw_events` (dedupe by `eventId`), DLQ table, Lite deferred, benchmark aggregates optional only.
 - **2026-07-25** — **v3.2.2 path-3 wedge packaging**: README lead reframed to real-time token-native metering for AI API/reseller/gateways; `demos/reseller_usage_demo.py` + `make demo-reseller` (per-customer period usage MVP). Office Hours: metering vision, Lite-first vertical wedge, code-first GTM.
 - **2026-07-12** — **v3.2.1 Lite lifetime usage fix**: rollup archives `customer:{id}:buf:*` only; `GET /usage/customer/{id}` lifetime totals match Full mode post-rollup.
