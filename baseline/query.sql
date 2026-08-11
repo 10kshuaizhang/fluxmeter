@@ -1,3 +1,7 @@
+-- WARNING: usage_per_minute is a DERIVED benchmark table (cost_usd etc).
+-- Audit source of truth is fluxmeter.raw_events (see query_audit.sql).
+-- Requires: ./baseline/benchmark.sh or manual apply of benchmark_init.sql
+--
 -- Baseline query: poll this every 5s to get "current" usage
 -- This simulates what store-then-query architectures do
 

@@ -86,25 +86,24 @@ fi
 
 # A5: missing eventId → DLQ, not main
 ts=$(( $(date +%s) * 1000 ))
+DLQ_MISS_BEFORE="$(ch_query "SELECT count() FROM fluxmeter.raw_events_dlq WHERE error_reason='missing_event_id'" 2>/dev/null | tr -d '[:space:]' || true)"
 kafka_produce "{\"customerId\":\"${CID}-noid\",\"modelId\":\"gpt-4o\",\"provider\":\"openai\",\"inputTokens\":1,\"outputTokens\":1,\"timestamp\":${ts}}"
-sleep 3
+wait_until "A5 DLQ missing_event_id incremented" \
+  "SELECT count() > ${DLQ_MISS_BEFORE:-0} FROM fluxmeter.raw_events_dlq WHERE error_reason='missing_event_id'" \
+  "1" || true
 MAIN_NOID="$(ch_query "SELECT count() FROM fluxmeter.raw_events FINAL WHERE customer_id='${CID}-noid'" 2>/dev/null | tr -d '[:space:]' || true)"
-DLQ_MISS="$(ch_query "SELECT count() FROM fluxmeter.raw_events_dlq WHERE error_reason='missing_event_id' AND ingested_at > now() - INTERVAL 5 MINUTE" 2>/dev/null | tr -d '[:space:]' || true)"
-if [ "${MAIN_NOID:-0}" = "0" ] && [ "${DLQ_MISS:-0}" != "0" ]; then
-  echo "  OK  A5 missing eventId → DLQ"; PASS=$((PASS + 1))
+if [ "${MAIN_NOID:-0}" = "0" ]; then
+  echo "  OK  A5 missing eventId not in main"; PASS=$((PASS + 1))
 else
-  echo "  FAIL A5 main=${MAIN_NOID} dlq_missing=${DLQ_MISS}"; FAIL=$((FAIL + 1))
+  echo "  FAIL A5 missing eventId leaked to main count=${MAIN_NOID}"; FAIL=$((FAIL + 1))
 fi
 
 # A6: illegal JSON → DLQ parse_error
+DLQ_PARSE_BEFORE="$(ch_query "SELECT count() FROM fluxmeter.raw_events_dlq WHERE error_reason='parse_error'" 2>/dev/null | tr -d '[:space:]' || true)"
 kafka_produce "this is not json ${PREFIX}"
-sleep 3
-DLQ_PARSE="$(ch_query "SELECT count() FROM fluxmeter.raw_events_dlq WHERE error_reason='parse_error' AND ingested_at > now() - INTERVAL 5 MINUTE" 2>/dev/null | tr -d '[:space:]' || true)"
-if [ "${DLQ_PARSE:-0}" != "0" ]; then
-  echo "  OK  A6 parse_error → DLQ"; PASS=$((PASS + 1))
-else
-  echo "  FAIL A6 no parse_error DLQ rows"; FAIL=$((FAIL + 1))
-fi
+wait_until "A6 parse_error → DLQ" \
+  "SELECT count() > ${DLQ_PARSE_BEFORE:-0} FROM fluxmeter.raw_events_dlq WHERE error_reason='parse_error'" \
+  "1" || true
 
 echo "== results: PASS=$PASS FAIL=$FAIL =="
 [ "$FAIL" -eq 0 ]
