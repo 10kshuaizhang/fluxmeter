@@ -87,6 +87,13 @@ Late events land in `token-events-dlq`. Replay with:
 ./scripts/replay-dlq.sh   # if available, or manual produce to token-events
 ```
 
+### ClickHouse cold store (Full)
+
+- Audit copy: `fluxmeter.raw_events` (dedupe with `FINAL` by `event_id`).
+- Consumer group: `fluxmeter-cold-store` (independent from Flink).
+- Bad messages: `fluxmeter.raw_events_dlq` — see [runbooks/cold-store-dlq.md](runbooks/cold-store-dlq.md).
+- Recreating the ClickHouse volume requires `make apply-cold-store-init` (or `FORCE_COLD_STORE_INIT=1`); offsets for `fluxmeter-cold-store` start fresh (replay from topic retention).
+
 ## 3. Kafka Outage (Producers have SDK WAL)
 
 **Symptoms:** Ingest errors; SDK queues events locally.
@@ -102,7 +109,7 @@ Late events land in `token-events-dlq`. Replay with:
 Lite mode writes directly to Redis. Recovery options:
 
 1. **Redis AOF replay:** restart Redis with existing volume — AOF rebuilds state.
-2. **Full loss:** re-ingest from application logs or cold storage (no Kafka buffer).
+2. **Full loss:** re-ingest from application logs (Lite has **no** ClickHouse cold-store copy in ADR-1; Full uses `fluxmeter.raw_events`).
 3. **Rollup history:** per-minute buckets (`rollup:{customer}:m:{ts}`) survive 24h even if live counters were lost.
 
 ## 5. Multi-Tenant (SaaS) Considerations

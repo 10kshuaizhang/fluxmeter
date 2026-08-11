@@ -11,7 +11,7 @@ Optional: sub-10ms budget check / mid-stream kill when prepaid wallets must not 
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**[fluxmeter.dev](https://fluxmeter.dev)** — **v3.2.2** · **Open spec + SDKs** · **Lite in ~1 min** · **1M+ eps (Full)** · **<10ms budget check**
+**[fluxmeter.dev](https://fluxmeter.dev)** — **v3.3.0** · **Open spec + SDKs** · **Lite in ~1 min** · **1M+ eps (Full)** · **<10ms budget check**
 
 **Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [Docs](https://github.com/10kshuaizhang/fluxmeter/tree/main/docs) · [API reference](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
 
@@ -96,11 +96,25 @@ make demo
 make demo-full
 ```
 
-Starts Kafka, Flink, Redis, and the API. Open:
+Starts Kafka, Flink, Redis, ClickHouse, and the API. Open:
 
 - **API docs:** http://localhost:8000/docs
 - **Flink UI:** http://localhost:8081
 - **Grafana:** http://localhost:3000
+- **ClickHouse:** http://localhost:8123 (`fluxmeter.raw_events` audit cold store)
+
+### Auditable cold store (Full / ClickHouse)
+
+Kafka `token-events` → ClickHouse `fluxmeter.raw_events` (immutable, dedupe by `eventId`).
+Bad / missing-`eventId` messages → `fluxmeter.raw_events_dlq`.
+
+```bash
+make apply-cold-store-init   # apply DDL if needed
+make test-cold-store         # ADR-1 acceptance (needs kafka + clickhouse)
+make benchmark               # Applies derived usage_per_minute (not audit SoR)
+```
+
+Lite mode does not populate cold store until ADR-4.
 
 ## Integration (3 ways)
 
@@ -296,7 +310,9 @@ make test-lite   # Lite production pytest suite
 make test-unit        # Python + Java unit tests (no Docker)
 make test-unit-redis  # Lite Lua + rollup tests (needs Redis)
 make test-java        # Java unit tests only
-make benchmark        # Streaming vs batch comparison
+make test-cold-store  # ADR-1 ClickHouse raw_events acceptance
+make apply-cold-store-init  # Apply / refresh cold-store DDL
+make benchmark        # Streaming vs batch comparison (derived CH aggregates)
 make validate-spec    # Validate schema + OpenAPI artifacts
 make stop        # Stop containers
 make clean       # Stop + remove volumes + clean
