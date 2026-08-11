@@ -6,13 +6,29 @@ Format: `[version] — date — summary`
 
 ---
 
+## [3.3.0] — 2026-08-11
+
+### Added
+- **ADR-1 auditable cold store**: ClickHouse `raw_events` (ReplacingMergeTree by `event_id`, customer-time projection) + `raw_events_dlq`
+- `make test-cold-store` / `make apply-cold-store-init`; [`docs/runbooks/cold-store-dlq.md`](docs/runbooks/cold-store-dlq.md); [`baseline/query_audit.sql`](baseline/query_audit.sql)
+- Design + plan: [`docs/superpowers/specs/2026-08-11-cold-store-audit-design.md`](docs/superpowers/specs/2026-08-11-cold-store-audit-design.md), [`docs/superpowers/plans/2026-08-11-cold-store-audit.md`](docs/superpowers/plans/2026-08-11-cold-store-audit.md)
+
+### Changed
+- Default `baseline/init.sql` replaces legacy `token_events` MergeTree path; Kafka group `fluxmeter-cold-store`
+- Benchmark aggregates moved to `baseline/benchmark_init.sql` (applied by `make benchmark`)
+
+### Notes
+- Lite mode still has no cold-store copy (ADR-4)
+- Dedup is read-time (`FINAL`); no external `cold_sink/` process
+- ClickHouse 24.1 image initdb is unreliable — DDL is applied via `scripts/apply-cold-store-init.sh`
+
 ## [3.2.3] — 2026-08-11
 
 ### Added
 - **ADR-1 cold-store design spec**: [`docs/superpowers/specs/2026-08-11-cold-store-audit-design.md`](docs/superpowers/specs/2026-08-11-cold-store-audit-design.md) — upgrade ClickHouse Kafka→`raw_events` (ReplacingMergeTree by `event_id`, customer-time projection, DLQ table); Lite deferred; no external `cold_sink/`
 
 ### Notes
-- Design-only release; runtime DDL/compose/tests land in a follow-up implementation PR after spec review
+- Design-only release; runtime DDL/compose/tests land in 3.3.0
 
 ## [3.2.2] — 2026-07-25
 

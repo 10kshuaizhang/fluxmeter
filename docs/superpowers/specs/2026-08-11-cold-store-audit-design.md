@@ -1,7 +1,7 @@
 # Design: FluxMeter 可审计冷存储 (ClickHouse Append-Only Event Log)
 
 **Date:** 2026-08-11  
-**Status:** APPROVED — implementation plan at [`../plans/2026-08-11-cold-store-audit.md`](../plans/2026-08-11-cold-store-audit.md)  
+**Status:** APPROVED — implemented in **3.3.0** (plan: [`../plans/2026-08-11-cold-store-audit.md`](../plans/2026-08-11-cold-store-audit.md))  
 **Scope:** ADR-1 only — 将 Full/Kafka 路径上的原始事件不可变地落入 ClickHouse，作为可审计事实之源  
 **Supersedes draft:** uploaded `SPEC_cold_store`（窄表 / 外部 `cold_sink/` / Lite 补投 Kafka 等路线已否决）
 
