@@ -452,7 +452,6 @@ git commit -m "feat: ClickHouse raw_events cold store with DLQ fanout"
 
 **Files:**
 - Create: `baseline/benchmark_init.sql`
-- Modify: `docker-compose.full.yml` (compose profile `benchmark`)
 - Modify: `baseline/benchmark.sh` (apply init if tables missing; document dependency)
 - Modify: `baseline/query.sql` (header warning)
 - Test: default CH has no `usage_per_minute`; profile creates it
@@ -563,7 +562,7 @@ curl -s http://localhost:8123 --data-binary "EXISTS TABLE fluxmeter.usage_per_mi
 - [ ] **Step 5: Commit**
 
 ```bash
-git add baseline/benchmark_init.sql baseline/benchmark.sh baseline/query.sql docker-compose.full.yml
+git add baseline/benchmark_init.sql baseline/benchmark.sh baseline/query.sql
 git commit -m "feat: move ClickHouse aggregates to benchmark-only init"
 ```
 
