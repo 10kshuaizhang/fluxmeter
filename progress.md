@@ -213,6 +213,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-08-16** — Live v4 verification: all 16 integration and 11 v2 E2E cases passed after contract updates; fixed Compose Flink submission/checkpoint initialization. HTTP ingress measured 205.81 eps single and 185.91 eps at batch-size 100/concurrency 10; the 10K/100K release gates remain unmet.
 - **2026-08-15** — **v4.0.0 single path**: public HTTP custody with trusted envelopes and 30-day event identity; Kafka/Flink-only billing; HTTP-only SDKs; Gateway durable outbox/reservation expiry; one base compose architecture and mode-free health/readiness.
 
 - **2026-07-12** — **v3.2.1 Lite lifetime usage fix**: rollup archives `customer:{id}:buf:*` only; `GET /usage/customer/{id}` lifetime totals match Full mode post-rollup.

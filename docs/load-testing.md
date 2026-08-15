@@ -61,6 +61,17 @@ Environment variables:
 
 `scripts/http-load-test.py` measures events acknowledged into Kafka through `/ingest` or `/ingest/batch`. The default `make http-load-test` thresholds are 10K events/s for single requests and 100K events/s for batches. Run it against the intended release topology and retain its JSON output; no HTTP result is inferred from the internal benchmark below.
 
+### Live local result (2026-08-16)
+
+Mac Docker benchmark overlay, one API process and the canonical Flink TaskManager:
+
+- Single event, concurrency 100: **205.81 events/s**, 4,180 accepted, 0 failed.
+- Batch size 100, concurrency 10: **185.91 events/s**, 4,000 accepted, 0 failed.
+- Batch size 1,000, concurrency 1: **109.15 events/s**, 3,000 accepted, 0 failed.
+- Batch size 1,000, concurrency 100: requests exceeded the 15-second client timeout and saturated the API; the 100K batch release gate failed.
+
+The batch endpoint currently waits for an individual broker acknowledgement for every event, serially within each request. These measurements are the public HTTP boundary only and do not invalidate the separate internal Kafka/Flink engine results.
+
 ## Internal engine reference results (2026-06-22)
 
 MacBook docker-compose, **3 TaskManagers × 4 slots**, parallelism 12, `fluxmeter-2.6.1`:

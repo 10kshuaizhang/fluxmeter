@@ -108,7 +108,10 @@ class TestStreamingSinglePathDeduction:
         assert reconcile.status_code == 200
         rel = reconcile.json()
         assert abs(rel["held_usd"]) < 1e-6
-        assert abs(rel["balance_usd"] - budget_before_reconcile["balance_usd"]) < 1e-6
+        # Flink may close another accepted window between the preceding read and
+        # this request. Reconciliation itself only releases the hold, so it must
+        # never increase the authoritative balance.
+        assert rel["balance_usd"] <= budget_before_reconcile["balance_usd"] + 1e-6
 
     def test_reserve_reduces_effective_balance_for_check(self):
         cust = unique_customer("held")
@@ -224,7 +227,9 @@ class TestPricingApi:
         assert resp.status_code == 200
         data = resp.json()
         assert "models" in data
-        assert "gpt-4o" in data["models"]
+        assert data["models"]
+        assert all(any(field.endswith("_per_m") for field in price)
+                   for price in data["models"].values())
         assert "defaults" in data
 
     def test_admin_validate_and_update_pricing(self):

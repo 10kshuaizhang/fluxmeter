@@ -192,7 +192,9 @@ class TestIdempotency:
             "eventId": event_id,
             "timestamp": ts,
         }
-        ingest_batch([dup, {**dup, "timestamp": ts + 100}])
+        result = ingest_batch([dup, dict(dup)])
+        assert [item["status"] for item in result["results"]] == ["accepted", "accepted"]
+        assert result["results"][1]["idempotent"] is True
         push_watermarks_and_wait(cust, models=["gpt-4o"])
 
         usage = wait_for_customer_usage(
@@ -573,8 +575,9 @@ class TestHTTPIngestConsistency:
         events = [{"customerId": cust, "modelId": "gpt-4o",
                    "inputTokens": 100, "outputTokens": 50} for _ in range(50)]
         result = ingest_batch(events)
-        assert result["count"] == 50
-        assert len(result["event_ids"]) == 50
+        assert len(result["results"]) == 50
+        assert all(item["status"] == "accepted" for item in result["results"])
+        assert len({item["eventId"] for item in result["results"]}) == 50
 
     def test_batch_over_1000_rejected(self):
         """Batch > 1000 events returns 400."""
@@ -633,7 +636,8 @@ class TestZeroTokenEvents:
             "timestamp": int(time.time() * 1000),
         } for _ in range(50)]
         result = ingest_batch(events)
-        assert result["count"] == 50
+        assert len(result["results"]) == 50
+        assert all(item["status"] == "accepted" for item in result["results"])
 
         # Push watermarks
         time.sleep(2)

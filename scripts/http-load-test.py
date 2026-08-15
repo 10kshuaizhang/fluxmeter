@@ -39,8 +39,12 @@ async def run(args: argparse.Namespace) -> dict:
             while time.monotonic() < stop_at:
                 payload = event() if args.mode == "single" else [event() for _ in range(args.batch_size)]
                 path = "/ingest" if args.mode == "single" else "/ingest/batch"
-                async with semaphore:
-                    response = await client.post(path, json=payload)
+                try:
+                    async with semaphore:
+                        response = await client.post(path, json=payload)
+                except httpx.HTTPError:
+                    failed += 1 if args.mode == "single" else args.batch_size
+                    continue
                 if response.status_code in (200, 202, 207):
                     accepted += 1 if args.mode == "single" else sum(
                         1 for item in response.json().get("results", []) if item.get("status") in ("accepted", "quarantined")

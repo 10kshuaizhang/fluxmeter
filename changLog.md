@@ -9,6 +9,8 @@ Format: `[version] — date — summary`
 ## [4.0.0] — 2026-08-15
 
 ### Changed
+- Fixed automatic Flink submission in Compose by targeting the JobManager REST endpoint explicitly and initializing shared checkpoint-volume ownership.
+- Hardened the HTTP benchmark against request timeouts and aligned live E2E assertions with the v4 batch/idempotency contract.
 - Consolidated public event ingestion on HTTP with Kafka acknowledgement before `202 Accepted`; Flink is now the only billing and aggregation engine.
 - Added versioned trusted envelopes, authentication-derived tenant context, 30-day event identity, batch per-event outcomes, timestamp quarantine, and dependency readiness.
 - Made Python and JavaScript SDKs HTTP-only with bounded retries, stable event IDs, and typed delivery failures.

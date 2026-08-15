@@ -39,12 +39,23 @@ services:
     volumes: [redis-data:/data]
     mem_limit: 512m
 
+  checkpoint-init:
+    image: flink:1.18.1-java17
+    user: root
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["chown -R 9999:9999 /opt/flink/checkpoints"]
+    volumes: [flink-checkpoints:/opt/flink/checkpoints]
+    restart: "no"
+
   jobmanager:
     build:
       context: .
       dockerfile: flink/Dockerfile
     container_name: fluxmeter-jobmanager
     restart: unless-stopped
+    depends_on:
+      checkpoint-init:
+        condition: service_completed_successfully
     ports: ["8081:8081"]
     command: jobmanager
     environment:
@@ -55,6 +66,7 @@ services:
       PRICING_FILE: /opt/flink/usrlib/pricing.json
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: jobmanager
+        rest.address: jobmanager
         taskmanager.numberOfTaskSlots: 2
         parallelism.default: 2
         state.backend: hashmap
@@ -94,12 +106,15 @@ services:
     command:
       - |
         until curl -sf http://jobmanager:8081/overview >/dev/null; do sleep 2; done
-        flink run -d -p 2 -c io.fluxmeter.job.TokenUsageAggregator /opt/flink/usrlib/fluxmeter.jar
+        flink run -m jobmanager:8081 -d -p 2 -c io.fluxmeter.job.TokenUsageAggregator /opt/flink/usrlib/fluxmeter.jar
     environment:
       KAFKA_BROKERS: kafka:9092
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       CHECKPOINT_DIR: file:///opt/flink/checkpoints
+      FLINK_PROPERTIES: |
+        rest.address: jobmanager
+        jobmanager.rpc.address: jobmanager
     restart: "no"
 
   api:
