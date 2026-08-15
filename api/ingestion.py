@@ -17,6 +17,75 @@ class KafkaUnavailableError(RuntimeError):
 EVENT_ID_TTL_SECONDS = int(os.getenv("EVENT_ID_TTL_SECONDS", str(30 * 24 * 60 * 60)))
 EVENT_ID_PENDING_TTL_SECONDS = int(os.getenv("EVENT_ID_PENDING_TTL_SECONDS", "60"))
 
+CLAIM_EVENT_ID_SCRIPT = """
+local current = redis.call('GET', KEYS[1])
+if not current then
+  redis.call('SET', KEYS[1], 'pending:' .. ARGV[1], 'EX', ARGV[2])
+  return 'owner'
+end
+if current == 'accepted:' .. ARGV[1] then return 'same' end
+if current == 'pending:' .. ARGV[1] then return 'pending' end
+return 'conflict'
+"""
+
+ACCEPT_EVENT_ID_SCRIPT = """
+if redis.call('GET', KEYS[1]) == 'pending:' .. ARGV[1] then
+  redis.call('SET', KEYS[1], 'accepted:' .. ARGV[1], 'EX', ARGV[2])
+  return 1
+end
+return 0
+"""
+
+RELEASE_EVENT_ID_SCRIPT = """
+if redis.call('GET', KEYS[1]) == 'pending:' .. ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
+
+BATCH_CLAIM_EVENT_IDS_SCRIPT = """
+local count = #KEYS
+local ttl = ARGV[count + 1]
+local results = {}
+for index = 1, count do
+  local payload_hash = ARGV[index]
+  local current = redis.call('GET', KEYS[index])
+  if not current then
+    redis.call('SET', KEYS[index], 'pending:' .. payload_hash, 'EX', ttl)
+    results[index] = 'owner'
+  elseif current == 'accepted:' .. payload_hash then
+    results[index] = 'same'
+  elseif current == 'pending:' .. payload_hash then
+    results[index] = 'pending'
+  else
+    results[index] = 'conflict'
+  end
+end
+return results
+"""
+
+BATCH_ACCEPT_EVENT_IDS_SCRIPT = """
+local count = #KEYS
+local ttl = ARGV[count + 1]
+for index = 1, count do
+  local payload_hash = ARGV[index]
+  if redis.call('GET', KEYS[index]) == 'pending:' .. payload_hash then
+    redis.call('SET', KEYS[index], 'accepted:' .. payload_hash, 'EX', ttl)
+  end
+end
+return count
+"""
+
+BATCH_RELEASE_EVENT_IDS_SCRIPT = """
+for index = 1, #KEYS do
+  local payload_hash = ARGV[index]
+  if redis.call('GET', KEYS[index]) == 'pending:' .. payload_hash then
+    redis.call('DEL', KEYS[index])
+  end
+end
+return #KEYS
+"""
+
 
 def canonical_payload_hash(payload: dict) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -26,16 +95,7 @@ def canonical_payload_hash(payload: dict) -> str:
 def event_identity_status(redis_client, event_id: str, payload_hash: str) -> str:
     """Atomically claim an ID and return owner, pending, same, or conflict."""
     result = redis_client.eval(
-        """
-        local current = redis.call('GET', KEYS[1])
-        if not current then
-          redis.call('SET', KEYS[1], 'pending:' .. ARGV[1], 'EX', ARGV[2])
-          return 'owner'
-        end
-        if current == 'accepted:' .. ARGV[1] then return 'same' end
-        if current == 'pending:' .. ARGV[1] then return 'pending' end
-        return 'conflict'
-        """,
+        CLAIM_EVENT_ID_SCRIPT,
         1,
         f"ingest:event:{event_id}",
         payload_hash,
@@ -44,15 +104,25 @@ def event_identity_status(redis_client, event_id: str, payload_hash: str) -> str
     return str(result)
 
 
+def event_identity_status_batch(redis_client, identities: list[tuple[str, str]]) -> list[str]:
+    """Claim unique event IDs in one Redis command, preserving input order."""
+    if not identities:
+        return []
+    keys = [f"ingest:event:{event_id}" for event_id, _ in identities]
+    hashes = [payload_hash for _, payload_hash in identities]
+    results = redis_client.eval(
+        BATCH_CLAIM_EVENT_IDS_SCRIPT,
+        len(keys),
+        *keys,
+        *hashes,
+        str(EVENT_ID_PENDING_TTL_SECONDS),
+    )
+    return [str(result) for result in results]
+
+
 def remember_event_identity(redis_client, event_id: str, payload_hash: str) -> None:
     redis_client.eval(
-        """
-        if redis.call('GET', KEYS[1]) == 'pending:' .. ARGV[1] then
-          redis.call('SET', KEYS[1], 'accepted:' .. ARGV[1], 'EX', ARGV[2])
-          return 1
-        end
-        return 0
-        """,
+        ACCEPT_EVENT_ID_SCRIPT,
         1,
         f"ingest:event:{event_id}",
         payload_hash,
@@ -60,18 +130,35 @@ def remember_event_identity(redis_client, event_id: str, payload_hash: str) -> N
     )
 
 
+def remember_event_identities(redis_client, identities: list[tuple[str, str]]) -> None:
+    if not identities:
+        return
+    keys = [f"ingest:event:{event_id}" for event_id, _ in identities]
+    hashes = [payload_hash for _, payload_hash in identities]
+    redis_client.eval(
+        BATCH_ACCEPT_EVENT_IDS_SCRIPT,
+        len(keys),
+        *keys,
+        *hashes,
+        str(EVENT_ID_TTL_SECONDS),
+    )
+
+
 def release_event_identity(redis_client, event_id: str, payload_hash: str) -> None:
     redis_client.eval(
-        """
-        if redis.call('GET', KEYS[1]) == 'pending:' .. ARGV[1] then
-          return redis.call('DEL', KEYS[1])
-        end
-        return 0
-        """,
+        RELEASE_EVENT_ID_SCRIPT,
         1,
         f"ingest:event:{event_id}",
         payload_hash,
     )
+
+
+def release_event_identities(redis_client, identities: list[tuple[str, str]]) -> None:
+    if not identities:
+        return
+    keys = [f"ingest:event:{event_id}" for event_id, _ in identities]
+    hashes = [payload_hash for _, payload_hash in identities]
+    redis_client.eval(BATCH_RELEASE_EVENT_IDS_SCRIPT, len(keys), *keys, *hashes)
 
 
 def trusted_envelope(
@@ -138,3 +225,64 @@ def publish_with_ack(
 
     if delivery_error:
         raise KafkaUnavailableError(str(delivery_error[0]))
+
+
+def publish_batch_with_ack(
+    producer,
+    messages: list[tuple[str, bytes, bytes]],
+    *,
+    timeout_seconds: float,
+) -> list[KafkaUnavailableError | None]:
+    """Enqueue a whole batch, then await each broker acknowledgement concurrently."""
+    if not messages:
+        return []
+
+    pending = object()
+    outcomes: list[object] = [pending] * len(messages)
+    remaining = len(messages)
+    deadline = time.monotonic() + timeout_seconds
+
+    def callback_for(index: int):
+        def on_delivery(error, _message) -> None:
+            nonlocal remaining
+            if outcomes[index] is not pending:
+                return
+            outcomes[index] = None if error is None else KafkaUnavailableError(str(error))
+            remaining -= 1
+
+        return on_delivery
+
+    for index, (topic, key, value) in enumerate(messages):
+        while True:
+            try:
+                producer.produce(
+                    topic,
+                    key=key,
+                    value=value,
+                    on_delivery=callback_for(index),
+                )
+                break
+            except BufferError:
+                remaining_time = deadline - time.monotonic()
+                if remaining_time <= 0:
+                    outcomes[index] = KafkaUnavailableError("Kafka producer queue remained full")
+                    remaining -= 1
+                    break
+                producer.poll(min(remaining_time, 0.01))
+            except Exception as exc:
+                outcomes[index] = KafkaUnavailableError(str(exc))
+                remaining -= 1
+                break
+
+    while remaining > 0:
+        remaining_time = deadline - time.monotonic()
+        if remaining_time <= 0:
+            break
+        producer.poll(min(remaining_time, 0.05))
+
+    if remaining > 0:
+        for index, outcome in enumerate(outcomes):
+            if outcome is pending:
+                outcomes[index] = KafkaUnavailableError("Kafka acknowledgement timed out")
+
+    return [outcome if isinstance(outcome, KafkaUnavailableError) else None for outcome in outcomes]

@@ -61,16 +61,15 @@ Environment variables:
 
 `scripts/http-load-test.py` measures events acknowledged into Kafka through `/ingest` or `/ingest/batch`. The default `make http-load-test` thresholds are 10K events/s for single requests and 100K events/s for batches. Run it against the intended release topology and retain its JSON output; no HTTP result is inferred from the internal benchmark below.
 
-### Live local result (2026-08-16)
+### Live local result (2026-08-16, v4.0.1)
 
-Mac Docker benchmark overlay, one API process and the canonical Flink TaskManager:
+Mac Docker benchmark overlay, four API workers and the canonical Flink TaskManager:
 
-- Single event, concurrency 100: **205.81 events/s**, 4,180 accepted, 0 failed.
-- Batch size 100, concurrency 10: **185.91 events/s**, 4,000 accepted, 0 failed.
-- Batch size 1,000, concurrency 1: **109.15 events/s**, 3,000 accepted, 0 failed.
-- Batch size 1,000, concurrency 100: requests exceeded the 15-second client timeout and saturated the API; the 100K batch release gate failed.
+- Single event, concurrency 100: **291.20 events/s**, 5,886 accepted, 0 failed; p95 462.78 ms.
+- Batch size 1,000, concurrency 10: **14,006.89 events/s**, 285,000 accepted, 0 failed; p95 1,855.52 ms.
+- Batch size 1,000, concurrency 100: the single Redis idempotency store saturated and returned timeouts; this is not a passing throughput result.
 
-The batch endpoint currently waits for an individual broker acknowledgement for every event, serially within each request. These measurements are the public HTTP boundary only and do not invalidate the separate internal Kafka/Flink engine results.
+Batch ingestion now enqueues the complete request and collects broker acknowledgements concurrently. It also claims and finalizes event identities once per batch in Redis. The 10K single and 100K batch release gates remain unmet; these measurements are the public HTTP boundary only and do not invalidate the separate internal Kafka/Flink engine results.
 
 ## Internal engine reference results (2026-06-22)
 

@@ -106,6 +106,10 @@ services:
     command:
       - |
         until curl -sf http://jobmanager:8081/overview >/dev/null; do sleep 2; done
+        if curl -sf http://jobmanager:8081/jobs/overview | grep -q '"name":"FluxMeter - Token Usage Aggregator".*"state":"RUNNING"'; then
+          echo "FluxMeter job is already running; skipping duplicate submission."
+          exit 0
+        fi
         flink run -m jobmanager:8081 -d -p 2 -c io.fluxmeter.job.TokenUsageAggregator /opt/flink/usrlib/fluxmeter.jar
     environment:
       KAFKA_BROKERS: kafka:9092

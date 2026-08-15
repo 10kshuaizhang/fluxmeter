@@ -36,8 +36,12 @@ from ingestion import (
     KafkaUnavailableError,
     canonical_payload_hash,
     event_identity_status,
+    event_identity_status_batch,
+    publish_batch_with_ack,
     publish_with_ack,
+    release_event_identities,
     release_event_identity,
+    remember_event_identities,
     remember_event_identity,
     trusted_envelope,
 )
@@ -45,7 +49,7 @@ from ingestion import (
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="4.0.0",
+    version="4.0.1",
 )
 
 from intelligence.routes import router as intelligence_router
@@ -100,9 +104,14 @@ def get_kafka_producer():
         from confluent_kafka import Producer
         _kafka_producer = Producer({
             "bootstrap.servers": KAFKA_BROKERS,
-            "linger.ms": 5,
-            "compression.type": "lz4",
+            "linger.ms": int(os.getenv("KAFKA_PRODUCER_LINGER_MS", "5")),
+            "batch.num.messages": int(os.getenv("KAFKA_PRODUCER_BATCH_MESSAGES", "10000")),
+            "queue.buffering.max.messages": int(os.getenv("KAFKA_PRODUCER_QUEUE_MESSAGES", "1000000")),
+            "queue.buffering.max.kbytes": int(os.getenv("KAFKA_PRODUCER_QUEUE_KBYTES", "131072")),
+            "compression.type": os.getenv("KAFKA_PRODUCER_COMPRESSION", "lz4"),
             "acks": "all",
+            "enable.idempotence": True,
+            "socket.keepalive.enable": True,
         })
     return _kafka_producer
 
@@ -431,27 +440,63 @@ def ingest_batch(
             event_dict["timestamp"] = int(time.time() * 1000)
         prepared.append((event_dict, payload_hash))
 
-    producer = get_kafka_producer()
     redis_client = get_redis()
-    results = []
+    results: list[dict | None] = [None] * len(prepared)
     accepted = 0
     failed = 0
     conflicts = 0
-    for event_dict, payload_hash in prepared:
+
+    # Collapse exact duplicate IDs inside the request before touching Redis or Kafka.
+    unique: list[tuple[int, dict, str]] = []
+    aliases: dict[int, list[int]] = {}
+    seen_in_batch: dict[str, tuple[str, int]] = {}
+    for index, (event_dict, payload_hash) in enumerate(prepared):
         event_id = event_dict["eventId"]
-        identity = event_identity_status(redis_client, event_id, payload_hash)
-        if identity == "same":
-            accepted += 1
-            results.append({"eventId": event_id, "status": "accepted", "idempotent": True})
-            continue
-        if identity == "pending":
-            failed += 1
-            results.append({"eventId": event_id, "status": "pending", "retryable": True})
-            continue
-        if identity == "conflict":
+        previous = seen_in_batch.get(event_id)
+        if previous is None:
+            seen_in_batch[event_id] = (payload_hash, index)
+            unique.append((index, event_dict, payload_hash))
+            aliases[index] = []
+        elif previous[0] == payload_hash:
+            aliases[previous[1]].append(index)
+        else:
+            results[index] = {"eventId": event_id, "status": "conflict", "retryable": False}
             failed += 1
             conflicts += 1
-            results.append({"eventId": event_id, "status": "conflict", "retryable": False})
+
+    identities = [(item[1]["eventId"], item[2]) for item in unique]
+    identity_states = event_identity_status_batch(redis_client, identities)
+    owned: list[tuple[int, dict, str, bool, dict]] = []
+
+    def set_result(index: int, result: dict, *, count_accepted: bool) -> None:
+        nonlocal accepted, failed
+        results[index] = result
+        if count_accepted:
+            accepted += 1
+        else:
+            failed += 1
+
+    for (index, event_dict, payload_hash), identity in zip(unique, identity_states):
+        event_id = event_dict["eventId"]
+        if identity == "same":
+            duplicate_result = {"eventId": event_id, "status": "accepted", "idempotent": True}
+            set_result(index, duplicate_result, count_accepted=True)
+            for alias_index in aliases[index]:
+                set_result(alias_index, dict(duplicate_result), count_accepted=True)
+            continue
+        if identity == "pending":
+            pending_result = {"eventId": event_id, "status": "pending", "retryable": True}
+            set_result(index, pending_result, count_accepted=False)
+            for alias_index in aliases[index]:
+                set_result(alias_index, dict(pending_result), count_accepted=False)
+            continue
+        if identity == "conflict":
+            conflicts += 1
+            conflict_result = {"eventId": event_id, "status": "conflict", "retryable": False}
+            set_result(index, conflict_result, count_accepted=False)
+            for alias_index in aliases[index]:
+                conflicts += 1
+                set_result(alias_index, dict(conflict_result), count_accepted=False)
             continue
 
         received_at = int(time.time() * 1000)
@@ -467,42 +512,65 @@ def ingest_batch(
         )
         if suspicious_time:
             envelope["quarantine"] = {"reason": "event_time_out_of_range"}
-        try:
-            publish_with_ack(
-                producer,
-                topic=KAFKA_QUARANTINE_TOPIC if suspicious_time else KAFKA_TOPIC,
-                key=event_dict["customerId"].encode("utf-8"),
-                value=json.dumps(envelope).encode("utf-8"),
-                timeout_seconds=KAFKA_ACK_TIMEOUT_SECONDS,
-            )
-        except KafkaUnavailableError:
-            release_event_identity(redis_client, event_id, payload_hash)
-            failed += 1
-            results.append({"eventId": event_id, "status": "failed", "retryable": True})
-            continue
+        owned.append((index, event_dict, payload_hash, suspicious_time, envelope))
 
-        remember_event_identity(redis_client, event_id, payload_hash)
-        accepted += 1
-        results.append({
-            "eventId": event_id,
-            "status": "quarantined" if suspicious_time else "accepted",
-            "idempotent": False,
-        })
+    messages = [
+        (
+            KAFKA_QUARANTINE_TOPIC if suspicious_time else KAFKA_TOPIC,
+            event_dict["customerId"].encode("utf-8"),
+            json.dumps(envelope).encode("utf-8"),
+        )
+        for _, event_dict, _, suspicious_time, envelope in owned
+    ]
+    outcomes = publish_batch_with_ack(
+        get_kafka_producer(),
+        messages,
+        timeout_seconds=KAFKA_ACK_TIMEOUT_SECONDS,
+    )
+
+    accepted_identities: list[tuple[str, str]] = []
+    failed_identities: list[tuple[str, str]] = []
+    for (index, event_dict, payload_hash, suspicious_time, _), outcome in zip(owned, outcomes):
+        event_id = event_dict["eventId"]
+        if outcome is None:
+            accepted_identities.append((event_id, payload_hash))
+            result = {
+                "eventId": event_id,
+                "status": "quarantined" if suspicious_time else "accepted",
+                "idempotent": False,
+            }
+            set_result(index, result, count_accepted=True)
+            for alias_index in aliases[index]:
+                alias_result = {"eventId": event_id, "status": result["status"], "idempotent": True}
+                set_result(alias_index, alias_result, count_accepted=True)
+        else:
+            failed_identities.append((event_id, payload_hash))
+            result = {"eventId": event_id, "status": "failed", "retryable": True}
+            set_result(index, result, count_accepted=False)
+            for alias_index in aliases[index]:
+                set_result(alias_index, dict(result), count_accepted=False)
+
+    remember_event_identities(redis_client, accepted_identities)
+    release_event_identities(redis_client, failed_identities)
+
+    if any(result is None for result in results):
+        raise RuntimeError("batch result bookkeeping left an event unresolved")
+    final_results = [result for result in results if result is not None]
 
     if failed == 0:
-        return JSONResponse(status_code=202, content={"status": "accepted", "results": results})
+        return JSONResponse(status_code=202, content={"status": "accepted", "results": final_results})
     if accepted == 0:
         if conflicts == failed:
             return JSONResponse(
                 status_code=409,
-                content={"status": "conflict", "results": results},
+                content={"status": "conflict", "results": final_results},
             )
         return JSONResponse(
             status_code=503,
-            content={"status": "failed", "results": results},
+            content={"status": "failed", "results": final_results},
             headers={"Retry-After": "1"},
         )
-    return JSONResponse(status_code=207, content={"status": "partial", "results": results})
+    return JSONResponse(status_code=207, content={"status": "partial", "results": final_results})
 
 
 @app.get("/usage/global", response_model=GlobalUsage, dependencies=[Depends(require_api_key)])

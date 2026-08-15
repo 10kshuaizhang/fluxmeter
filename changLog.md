@@ -6,6 +6,19 @@ Format: `[version] — date — summary`
 
 ---
 
+## [4.0.1] — 2026-08-16
+
+### Changed
+- Batch HTTP ingestion now claims event identities in one Redis command, enqueues the full batch before polling, and awaits Kafka broker acknowledgements concurrently.
+- The benchmark overlay runs four API workers with larger bounded Kafka producer queues; the HTTP load tool now records request latency, status counts, and JSON artifacts.
+
+### Fixed
+- Prevented the Compose one-shot submitter from creating duplicate Flink jobs when the API service is rebuilt or restarted.
+
+### Notes
+- Clean Docker E2E passed 16 integration and 11 v2 scenarios.
+- Stable local HTTP measurements: 291.20 events/s single (c100) and 14,006.89 events/s batch (size 1,000, c10), both with zero failures. The 10K/100K release gates remain unmet; batch c100 saturated the single Redis idempotency store.
+
 ## [4.0.0] — 2026-08-15
 
 ### Changed

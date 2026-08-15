@@ -1,5 +1,12 @@
 # Scale/observability overlay; ingestion semantics remain unchanged.
 services:
+  api:
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+    environment:
+      KAFKA_PRODUCER_BATCH_MESSAGES: "50000"
+      KAFKA_PRODUCER_QUEUE_MESSAGES: "2000000"
+      KAFKA_PRODUCER_QUEUE_KBYTES: "262144"
+    mem_limit: 2g
   kafka:
     ports: ["9094:9094"]
     environment:

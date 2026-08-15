@@ -1,0 +1,22 @@
+{
+  "accepted": 182600,
+  "batch_size": 1000,
+  "completed_requests": 238,
+  "concurrency": 100,
+  "duration_seconds": 56.603,
+  "events_per_second": 3225.99,
+  "failed": 54000,
+  "latency_ms": {
+    "mean": 17144.73,
+    "p50": 12543.41,
+    "p95": 39979.18,
+    "p99": 41202.38
+  },
+  "mode": "batch",
+  "requests_per_second": 4.2,
+  "status_counts": {
+    "202": 182,
+    "207": 2,
+    "500": 54
+  }
+}

@@ -18,14 +18,25 @@ class BoundaryKafkaProducer:
         self.delivery_errors: list[Exception | None] = []
         self.metadata_error: Exception | None = None
         self.messages: list[dict] = []
+        self.defer_delivery = False
+        self.pending_callbacks: list[tuple[object, object]] = []
+        self.produced_before_first_poll: int | None = None
 
     def produce(self, topic, *, key, value, on_delivery=None):
         self.messages.append({"topic": topic, "key": key, "value": value})
         error = self.delivery_errors.pop(0) if self.delivery_errors else self.error
         if on_delivery:
-            on_delivery(error, None)
+            if self.defer_delivery:
+                self.pending_callbacks.append((on_delivery, error))
+            else:
+                on_delivery(error, None)
 
     def poll(self, timeout):
+        if self.produced_before_first_poll is None:
+            self.produced_before_first_poll = len(self.messages)
+        pending, self.pending_callbacks = self.pending_callbacks, []
+        for callback, error in pending:
+            callback(error, None)
         return 0
 
     def flush(self, timeout):
@@ -189,6 +200,51 @@ def test_batch_reports_mixed_kafka_custody(ingestion_api):
             {"eventId": "evt-2", "status": "failed", "retryable": True},
         ],
     }
+
+
+def test_batch_enqueues_every_owned_event_before_waiting_for_acks(ingestion_api):
+    client, _, producer = ingestion_api
+    producer.defer_delivery = True
+
+    response = client.post(
+        "/ingest/batch",
+        json=[
+            {"customerId": "cust_batch", "modelId": "m", "eventId": f"evt-{index}"}
+            for index in range(5)
+        ],
+    )
+
+    assert response.status_code == 202
+    assert producer.produced_before_first_poll == 5
+    assert len(response.json()["results"]) == 5
+
+
+def test_batch_collapses_identical_event_ids_without_republishing(ingestion_api):
+    client, _, producer = ingestion_api
+    event = {"customerId": "cust_batch", "modelId": "m", "eventId": "evt-same-batch"}
+
+    response = client.post("/ingest/batch", json=[event, event])
+
+    assert response.status_code == 202
+    assert len(producer.messages) == 1
+    assert response.json()["results"] == [
+        {"eventId": "evt-same-batch", "status": "accepted", "idempotent": False},
+        {"eventId": "evt-same-batch", "status": "accepted", "idempotent": True},
+    ]
+
+
+def test_batch_reports_in_request_event_id_conflict_in_input_order(ingestion_api):
+    client, _, producer = ingestion_api
+    first = {"customerId": "cust_batch", "modelId": "m", "eventId": "evt-conflict-batch"}
+
+    response = client.post("/ingest/batch", json=[first, {**first, "inputTokens": 1}])
+
+    assert response.status_code == 207
+    assert len(producer.messages) == 1
+    assert response.json()["results"] == [
+        {"eventId": "evt-conflict-batch", "status": "accepted", "idempotent": False},
+        {"eventId": "evt-conflict-batch", "status": "conflict", "retryable": False},
+    ]
 
 
 def test_ready_requires_flink_to_consume_causal_probe(ingestion_api, monkeypatch):

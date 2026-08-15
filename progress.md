@@ -2,7 +2,7 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 4.0.0 · Python SDK **2.0.0**
+**Current version:** 4.0.1 · Python SDK **2.0.0**
 **Current phase:** Pillar B Intelligence (**complete** · 3.0–3.1) · Phase G Gateway (**done**) · Metering (**maintained**) · Phase 7+ (**demand-gated**)  
 **Design status:** APPROVED (2026-06-16) · Intelligence pivot APPROVED (2026-07-11)  
 **Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md) · pivot: [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md)
@@ -42,7 +42,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 | Item | Status |
 |------|--------|
-| Single HTTP→Kafka→Flink correctness regression | Ongoing — contract, SDK, Gateway, and Java tests added in 4.0.0 |
+| Single HTTP→Kafka→Flink correctness regression | Ongoing — clean Docker E2E 27/27 passed in 4.0.1; HTTP throughput gates remain open |
 | Pricing catalog + exporter maintenance | Ongoing |
 | Python SDK + JS npm publish | Partial — HTTP-only 2.0.0 packages ready for release |
 | Phase G Gateway proxy (side track, non-blocking) | Done — `gateway_app.py` + `:8080` + docs/gateway.md |
@@ -212,6 +212,8 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 ---
 
 ## Recent Activity
+
+- **2026-08-16** — **v4.0.1 HTTP batch performance**: concurrent Kafka ACK collection plus one-command Redis batch identity operations; clean Docker E2E passed 27/27. Measured 291.20 single events/s and 14,006.89 batch events/s without failures at stable concurrency; 10K/100K release gates remain open because the single Redis idempotency store saturates at batch c100.
 
 - **2026-08-16** — Live v4 verification: all 16 integration and 11 v2 E2E cases passed after contract updates; fixed Compose Flink submission/checkpoint initialization. HTTP ingress measured 205.81 eps single and 185.91 eps at batch-size 100/concurrency 10; the 10K/100K release gates remain unmet.
 - **2026-08-15** — **v4.0.0 single path**: public HTTP custody with trusted envelopes and 30-day event identity; Kafka/Flink-only billing; HTTP-only SDKs; Gateway durable outbox/reservation expiry; one base compose architecture and mode-free health/readiness.
