@@ -4,6 +4,7 @@ import io.fluxmeter.job.UsageAggregateFunction;
 import io.fluxmeter.model.TokenEvent;
 import io.fluxmeter.model.UsageAggregate;
 import io.fluxmeter.util.BillingPeriod;
+import io.fluxmeter.util.TenantKeys;
 
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction;
@@ -103,9 +104,8 @@ public class EventProjectionSink extends RichSinkFunction<TokenEvent> {
         long windowMillis = Long.parseLong(
                 System.getenv().getOrDefault("WINDOW_SECONDS", "10")) * 1000;
         long windowStart = Math.floorDiv(event.getTimestamp(), windowMillis) * windowMillis;
-        String windowId = (event.getTenantId() == null || event.getTenantId().isBlank() ? ""
-                : event.getTenantId() + "|")
-                + event.getCustomerId() + "|" + event.getModelId() + "|" + windowStart;
+        String windowId = TenantKeys.windowId(
+                event.getTenantId(), event.getCustomerId(), event.getModelId(), windowStart);
 
         List<String> keys = new ArrayList<>();
         keys.add("projection:" + sha256(event.getEventId()));
@@ -116,7 +116,7 @@ public class EventProjectionSink extends RichSinkFunction<TokenEvent> {
         keys.add("package:" + event.getCustomerId() + ":tokens_remaining");
         keys.add(event.getApiKeyId() == null ? "noop" : "apikey:" + event.getApiKeyId() + ":spent:d:" + day);
         keys.add(event.getApiKeyId() == null ? "noop" : "apikey:" + event.getApiKeyId() + ":spent:m:" + period);
-        keys.add(event.getReservationId() == null ? "noop" : "window:reservations:" + windowId);
+        keys.add(event.getReservationId() == null ? "noop" : TenantKeys.windowReservationsKey(windowId));
         keys.add("noop");
         keys.add("noop");
         keys.add("noop");

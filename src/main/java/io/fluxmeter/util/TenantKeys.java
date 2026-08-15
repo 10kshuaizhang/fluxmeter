@@ -41,4 +41,9 @@ public final class TenantKeys {
         }
         return customerId + "|" + modelId + "|" + windowStart;
     }
+
+    /** Reservation attach set for a tumbling window (shared with BudgetEnforcerSink). */
+    public static String windowReservationsKey(String windowId) {
+        return "window:reservations:" + windowId;
+    }
 }

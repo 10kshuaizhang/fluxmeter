@@ -8,6 +8,7 @@ import time
 import redis
 
 from usage_buckets import SPAN_TTL_SEC
+from tenant_keys import budget_prefix_for_read, budget_prefix_for_write
 
 RESERVE_SCRIPT = """
 local balance = tonumber(redis.call('GET', KEYS[1]) or '0')
@@ -91,7 +92,7 @@ local customer = redis.call('HGET', KEYS[1], 'customer_id')
 if not customer then redis.call('ZREM', KEYS[2], ARGV[1]); return {} end
 local reserved = tonumber(redis.call('HGET', KEYS[1], 'reserved_usd') or '0')
 local parent = redis.call('HGET', KEYS[1], 'parent_span_id') or ''
-local held_key = 'budget:' .. customer .. ':held_usd'
+local held_key = KEYS[3]
 local held = tonumber(redis.call('GET', held_key) or '0')
 local release = math.min(held, reserved)
 if release > 0 then redis.call('INCRBYFLOAT', held_key, -release) end
@@ -106,6 +107,14 @@ return {customer, tostring(release)}
 """
 
 
+def _reservation_held_key(r: redis.Redis, reservation_id: str) -> str:
+    key = f"reservation:{reservation_id}"
+    customer_id = r.hget(key, "customer_id") or ""
+    tenant_raw = r.hget(key, "tenant_id") or ""
+    tenant_id = tenant_raw.strip() or None
+    return f"{budget_prefix_for_write(tenant_id, customer_id)}:held_usd"
+
+
 def register_gateway_reservation(
     r: redis.Redis,
     reservation_id: str,
@@ -114,8 +123,9 @@ def register_gateway_reservation(
     reserved_usd: float,
     parent_span_id: str | None,
     expires_at: float | None = None,
+    tenant_id: str | None = None,
 ) -> None:
-    """Persist a Gateway hold until Flink reconciles it or the timeout reaper releases it."""
+    """Persist a Gateway hold until Flink reconciles it or expire() releases it."""
     deadline = expires_at if expires_at is not None else time.time() + 900
     key = f"reservation:{reservation_id}"
     pipe = r.pipeline()
@@ -123,6 +133,7 @@ def register_gateway_reservation(
         key,
         mapping={
             "customer_id": customer_id,
+            "tenant_id": tenant_id or "",
             "reserved_usd": str(max(0.0, reserved_usd)),
             "parent_span_id": parent_span_id or "",
         },
@@ -148,17 +159,19 @@ def refresh_gateway_reservation(
     pipe.execute()
 
 
-def reap_expired_reservations(r: redis.Redis, *, now: float | None = None) -> int:
-    """Release timed-out Gateway holds and append an operational alert."""
+def expire_reservations(r: redis.Redis, *, now: float | None = None) -> int:
+    """Sole Reservation expire entry — workers must call this, not invent a second path."""
     cutoff = time.time() if now is None else now
     expired = r.zrangebyscore("gateway:reservations:pending", 0, cutoff)
     released = 0
     for reservation_id in expired:
+        held_key = _reservation_held_key(r, reservation_id)
         result = r.eval(
             EXPIRE_RESERVATION_SCRIPT,
-            2,
+            3,
             f"reservation:{reservation_id}",
             "gateway:reservations:pending",
+            held_key,
             reservation_id,
         )
         if not result:
@@ -181,13 +194,19 @@ def reap_expired_reservations(r: redis.Redis, *, now: float | None = None) -> in
     return released
 
 
+# ponytail: alias kept for older call sites / tests
+reap_expired_reservations = expire_reservations
+
+
 def settle_gateway_reservation(r: redis.Redis, reservation_id: str) -> float:
     """Atomically release and remove a reservation when no billable usage exists."""
+    held_key = _reservation_held_key(r, reservation_id)
     result = r.eval(
         EXPIRE_RESERVATION_SCRIPT,
-        2,
+        3,
         f"reservation:{reservation_id}",
         "gateway:reservations:pending",
+        held_key,
         reservation_id,
     )
     return float(result[1]) if result else 0.0
@@ -199,9 +218,11 @@ def reserve_hold(
     estimated_cost_usd: float,
     *,
     parent_span_id: str | None = None,
+    tenant_id: str | None = None,
 ) -> dict:
     """Increase held_usd without changing balance_usd (Sink is sole balance deductor)."""
-    budget_key = f"budget:{customer_id}"
+    # Operate on the key that currently holds balance (may be legacy during cutover).
+    budget_key = budget_prefix_for_read(r, tenant_id, customer_id)
 
     if parent_span_id:
         span_id = parent_span_id
@@ -288,9 +309,10 @@ def reconcile_hold(
     reserved_usd: float,
     *,
     parent_span_id: str | None = None,
+    tenant_id: str | None = None,
 ) -> dict:
     """Release hold after streaming completes. Balance unchanged (Sink deducted actual)."""
-    budget_key = f"budget:{customer_id}"
+    budget_key = budget_prefix_for_read(r, tenant_id, customer_id)
     span_held_key = f"span:{parent_span_id}:held_usd" if parent_span_id else ""
 
     if parent_span_id:
@@ -325,9 +347,14 @@ def reconcile_hold(
     return out
 
 
-def get_effective_balance(r: redis.Redis, customer_id: str) -> tuple[float, float, float]:
+def get_effective_balance(
+    r: redis.Redis,
+    customer_id: str,
+    *,
+    tenant_id: str | None = None,
+) -> tuple[float, float, float]:
     """Return (balance, held, effective)."""
-    budget_key = f"budget:{customer_id}"
+    budget_key = budget_prefix_for_read(r, tenant_id, customer_id)
     balance = float(r.get(f"{budget_key}:balance_usd") or 0)
     held = float(r.get(f"{budget_key}:held_usd") or 0)
     return balance, held, balance - held

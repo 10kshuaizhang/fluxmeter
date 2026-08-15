@@ -66,6 +66,7 @@ async def handle_chat_completion(
         parent_span_id=parent_span_id,
         session_id=session_id,
         key_id=key_id,
+        tenant_id=tenant_id,
     )
     if not gate.get("allowed", False):
         return budget_denied_response(gate)
@@ -85,7 +86,9 @@ async def handle_chat_completion(
         )
     headers["Authorization"] = auth
 
-    hold = reserve_hold(r, customer_id, estimated, parent_span_id=parent_span_id)
+    hold = reserve_hold(
+        r, customer_id, estimated, parent_span_id=parent_span_id, tenant_id=tenant_id
+    )
     if not hold.get("allowed"):
         return budget_denied_response(hold)
     reserved_usd = float(hold.get("reserved_usd") or estimated)
@@ -96,6 +99,7 @@ async def handle_chat_completion(
         customer_id=customer_id,
         reserved_usd=reserved_usd,
         parent_span_id=parent_span_id,
+        tenant_id=tenant_id,
     )
 
     url = f"{UPSTREAM_BASE}/chat/completions"

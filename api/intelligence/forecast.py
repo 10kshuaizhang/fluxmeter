@@ -7,6 +7,7 @@ import redis
 
 from intelligence.models import SpendForecast
 from intelligence.native_reader import list_customer_daily_costs, list_global_daily_costs
+from tenant_keys import budget_prefix_for_read
 
 
 def _days_in_period(period: str) -> int:
@@ -22,12 +23,13 @@ def _current_day_of_month(period: str) -> int:
     return _days_in_period(period)
 
 
-def _budget_for_scope(r: redis.Redis, scope: str) -> float | None:
+def _budget_for_scope(r: redis.Redis, scope: str, tenant_id: str | None = None) -> float | None:
     if scope == "global":
         return None
     if scope.startswith("customer:"):
         cid = scope.split(":", 1)[1]
-        initial = r.get(f"budget:{cid}:initial_balance_usd")
+        key = budget_prefix_for_read(r, tenant_id, cid)
+        initial = r.get(f"{key}:initial_balance_usd")
         return float(initial) if initial is not None else None
     return None
 

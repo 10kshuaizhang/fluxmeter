@@ -6,6 +6,20 @@ Format: `[version] — date — summary`
 
 ---
 
+## [4.1.0] — 2026-08-16
+
+### Added
+- Deep Token Event Custody module (`accept` / `accept_many`) shared by HTTP ingest and Gateway.
+- Reservation lifecycle contract (`docs/contracts/reservation.md`) with shared test vectors; sole `expire_reservations` entry.
+- Tenant-aligned Budget Redis keys (`budget_prefix`) with legacy read fallback; Gateway holds store `tenant_id`.
+
+### Changed
+- Gateway metering goes through Custody (stable `res:{reservationId}` event identity, outbox buffer on Kafka down).
+- EventProjectionSink / BudgetEnforcerSink share `TenantKeys.windowReservationsKey`.
+
+### Notes
+- Architecture deepening from the 2026-08-16 review (Custody → Reservation → tenant Budget keys).
+
 ## [4.0.1] — 2026-08-16
 
 ### Changed
@@ -45,6 +59,7 @@ Format: `[version] — date — summary`
 
 ### Notes
 - Upgrade from pre-3.2.1 Lite: lifetime history lost by old rollup resets is not recoverable; one-time legacy pending drain rolls the last open buffer window into period buckets
+- **Demo refresh**: `demos/full_demo.py`, updated `demo.tape` (v3.2.1), `make demo-run` / `make demo-run-live` / `make demo-record`
 
 ## [3.2.0] — 2026-07-11
 

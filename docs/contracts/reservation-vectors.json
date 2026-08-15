@@ -1,0 +1,30 @@
+[
+  {
+    "name": "open_then_expire",
+    "steps": [
+      {"op": "set_held", "customer_id": "c1", "held_usd": 1.0},
+      {"op": "open", "reservation_id": "r1", "customer_id": "c1", "reserved_usd": 0.4, "expires_at": 1},
+      {"op": "expire", "now": 2, "expect_released": 1},
+      {"op": "assert_held", "customer_id": "c1", "held_usd": 0.6}
+    ]
+  },
+  {
+    "name": "settle_is_idempotent",
+    "steps": [
+      {"op": "set_held", "customer_id": "c2", "held_usd": 0.5},
+      {"op": "open", "reservation_id": "r2", "customer_id": "c2", "reserved_usd": 0.2},
+      {"op": "settle", "reservation_id": "r2", "expect_released": 0.2},
+      {"op": "settle", "reservation_id": "r2", "expect_released": 0.0},
+      {"op": "assert_held", "customer_id": "c2", "held_usd": 0.3}
+    ]
+  },
+  {
+    "name": "tenant_budget_key_on_expire",
+    "steps": [
+      {"op": "set_held", "customer_id": "c3", "tenant_id": "t9", "held_usd": 0.8},
+      {"op": "open", "reservation_id": "r3", "customer_id": "c3", "tenant_id": "t9", "reserved_usd": 0.3, "expires_at": 1},
+      {"op": "expire", "now": 2, "expect_released": 1},
+      {"op": "assert_held", "customer_id": "c3", "tenant_id": "t9", "held_usd": 0.5}
+    ]
+  }
+]

@@ -43,4 +43,9 @@ class TenantKeysTest {
         assertFalse(TenantKeys.hasTenant("  "));
         assertTrue(TenantKeys.hasTenant("tenant_1"));
     }
+
+    @Test
+    void windowReservationsKey() {
+        assertEquals("window:reservations:c|m|1", TenantKeys.windowReservationsKey("c|m|1"));
+    }
 }

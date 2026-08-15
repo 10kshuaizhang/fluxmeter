@@ -136,7 +136,7 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
             String periodKey = BillingPeriod.periodVolumeKey(
                     agg.getTenantId(), customerId, agg.getModelId(), agg.getWindowEnd());
             String rollupBase = "rollup:" + customerId;
-            String reservationSetKey = "window:reservations:" + windowId;
+            String reservationSetKey = TenantKeys.windowReservationsKey(windowId);
 
             @SuppressWarnings("unchecked")
             java.util.List<String> result = (java.util.List<String>) jedis.eval(

@@ -27,6 +27,7 @@ from auth import (
 )
 from budget_gate import check_hierarchy_cap, run_budget_check
 from budget_ops import get_effective_balance, reconcile_hold, reserve_hold
+from tenant_keys import budget_prefix_for_read, budget_prefix_for_write
 from billing_export import billing_export_loop, link_customer_platform, link_customer_stripe
 from pricing_loader import billing_period_month, get_catalog, reload_catalog
 from intelligence.intel_alert_worker import intel_alert_loop
@@ -34,22 +35,16 @@ from usage_buckets import read_session, read_usage_bucket, rollup_day_key, rollu
 from billing_dims import read_dim_usage, validate_metadata
 from ingestion import (
     KafkaUnavailableError,
-    canonical_payload_hash,
-    event_identity_status,
-    event_identity_status_batch,
-    publish_batch_with_ack,
+    accept,
+    accept_many,
     publish_with_ack,
-    release_event_identities,
-    release_event_identity,
-    remember_event_identities,
-    remember_event_identity,
     trusted_envelope,
 )
 
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="4.0.1",
+    version="4.1.0",
 )
 
 from intelligence.routes import router as intelligence_router
@@ -338,24 +333,32 @@ def ingest_event(
     event_dict = event.model_dump(exclude_none=True)
     if validated_meta:
         event_dict["metadata"] = validated_meta
-    payload_hash = canonical_payload_hash(event_dict)
-    if "timestamp" not in event_dict:
-        event_dict["timestamp"] = int(time.time() * 1000)
-
     if "eventId" not in event_dict:
         event_dict["eventId"] = str(uuid.uuid4())
 
-    redis_client = get_redis()
-    identity = event_identity_status(redis_client, event_dict["eventId"], payload_hash)
-    if identity == "same":
-        return {"status": "accepted", "eventId": event_dict["eventId"], "idempotent": True}
-    if identity == "pending":
+    _, key_id = resolve_key_context(x_api_key)
+    result = accept(
+        get_redis(),
+        get_kafka_producer(),
+        event_dict,
+        tenant_id=resolve_tenant_from_key(x_api_key),
+        api_key_id=key_id,
+        topic=KAFKA_TOPIC,
+        quarantine_topic=KAFKA_QUARANTINE_TOPIC,
+        timeout_seconds=KAFKA_ACK_TIMEOUT_SECONDS,
+        on_kafka_down="fail",
+        source="http",
+        max_age_seconds=EVENT_MAX_AGE_SECONDS,
+        max_future_seconds=EVENT_MAX_FUTURE_SECONDS,
+    )
+    status = result["status"]
+    if status == "pending":
         raise HTTPException(
             status_code=503,
             detail={"code": "event_pending", "message": "event custody is still pending"},
             headers={"Retry-After": "1"},
         )
-    if identity == "conflict":
+    if status == "conflict":
         raise HTTPException(
             status_code=409,
             detail={
@@ -363,46 +366,16 @@ def ingest_event(
                 "message": "eventId is already associated with a different payload",
             },
         )
-
-    _, key_id = resolve_key_context(x_api_key)
-    received_at = int(time.time() * 1000)
-    suspicious_time = (
-        event_dict["timestamp"] < received_at - EVENT_MAX_AGE_SECONDS * 1000
-        or event_dict["timestamp"] > received_at + EVENT_MAX_FUTURE_SECONDS * 1000
-    )
-    envelope = trusted_envelope(
-        event_dict,
-        tenant_id=resolve_tenant_from_key(x_api_key),
-        api_key_id=key_id,
-        received_at=received_at,
-    )
-    if suspicious_time:
-        envelope["quarantine"] = {"reason": "event_time_out_of_range"}
-
-    producer = get_kafka_producer()
-    value = json.dumps(envelope).encode("utf-8")
-    try:
-        publish_with_ack(
-            producer,
-            topic=KAFKA_QUARANTINE_TOPIC if suspicious_time else KAFKA_TOPIC,
-            key=event.customerId.encode("utf-8"),
-            value=value,
-            timeout_seconds=KAFKA_ACK_TIMEOUT_SECONDS,
-        )
-    except KafkaUnavailableError as exc:
-        release_event_identity(redis_client, event_dict["eventId"], payload_hash)
+    if status == "unavailable":
         raise HTTPException(
             status_code=503,
-            detail={"code": "kafka_unavailable", "message": str(exc)},
+            detail={"code": "kafka_unavailable", "message": "Kafka acknowledgement failed"},
             headers={"Retry-After": "1"},
-        ) from exc
-
-    remember_event_identity(redis_client, event_dict["eventId"], payload_hash)
-
-    return {
-        "status": "quarantined" if suspicious_time else "accepted",
-        "eventId": event_dict["eventId"],
-    }
+        )
+    body = {"status": "accepted" if status == "accepted" else status, "eventId": result["eventId"]}
+    if result.get("idempotent"):
+        body["idempotent"] = True
+    return body
 
 
 @app.post("/ingest/batch", status_code=202)
@@ -433,129 +406,39 @@ def ingest_batch(
         event_dict = event.model_dump(exclude_none=True)
         if validated_meta:
             event_dict["metadata"] = validated_meta
-        payload_hash = canonical_payload_hash(event_dict)
         if "eventId" not in event_dict:
             event_dict["eventId"] = str(uuid.uuid4())
-        if "timestamp" not in event_dict:
-            event_dict["timestamp"] = int(time.time() * 1000)
-        prepared.append((event_dict, payload_hash))
+        prepared.append(event_dict)
 
-    redis_client = get_redis()
-    results: list[dict | None] = [None] * len(prepared)
+    final_results = accept_many(
+        get_redis(),
+        get_kafka_producer(),
+        prepared,
+        tenant_id=tenant_id,
+        api_key_id=key_id,
+        topic=KAFKA_TOPIC,
+        quarantine_topic=KAFKA_QUARANTINE_TOPIC,
+        timeout_seconds=KAFKA_ACK_TIMEOUT_SECONDS,
+        source="http",
+        max_age_seconds=EVENT_MAX_AGE_SECONDS,
+        max_future_seconds=EVENT_MAX_FUTURE_SECONDS,
+    )
+    # HTTP batch wire format historically used status=failed for Kafka down.
+    for item in final_results:
+        if item.get("status") == "unavailable":
+            item["status"] = "failed"
+
     accepted = 0
     failed = 0
     conflicts = 0
-
-    # Collapse exact duplicate IDs inside the request before touching Redis or Kafka.
-    unique: list[tuple[int, dict, str]] = []
-    aliases: dict[int, list[int]] = {}
-    seen_in_batch: dict[str, tuple[str, int]] = {}
-    for index, (event_dict, payload_hash) in enumerate(prepared):
-        event_id = event_dict["eventId"]
-        previous = seen_in_batch.get(event_id)
-        if previous is None:
-            seen_in_batch[event_id] = (payload_hash, index)
-            unique.append((index, event_dict, payload_hash))
-            aliases[index] = []
-        elif previous[0] == payload_hash:
-            aliases[previous[1]].append(index)
-        else:
-            results[index] = {"eventId": event_id, "status": "conflict", "retryable": False}
-            failed += 1
-            conflicts += 1
-
-    identities = [(item[1]["eventId"], item[2]) for item in unique]
-    identity_states = event_identity_status_batch(redis_client, identities)
-    owned: list[tuple[int, dict, str, bool, dict]] = []
-
-    def set_result(index: int, result: dict, *, count_accepted: bool) -> None:
-        nonlocal accepted, failed
-        results[index] = result
-        if count_accepted:
+    for item in final_results:
+        status = item["status"]
+        if status in ("accepted", "quarantined") or item.get("idempotent"):
             accepted += 1
         else:
             failed += 1
-
-    for (index, event_dict, payload_hash), identity in zip(unique, identity_states):
-        event_id = event_dict["eventId"]
-        if identity == "same":
-            duplicate_result = {"eventId": event_id, "status": "accepted", "idempotent": True}
-            set_result(index, duplicate_result, count_accepted=True)
-            for alias_index in aliases[index]:
-                set_result(alias_index, dict(duplicate_result), count_accepted=True)
-            continue
-        if identity == "pending":
-            pending_result = {"eventId": event_id, "status": "pending", "retryable": True}
-            set_result(index, pending_result, count_accepted=False)
-            for alias_index in aliases[index]:
-                set_result(alias_index, dict(pending_result), count_accepted=False)
-            continue
-        if identity == "conflict":
-            conflicts += 1
-            conflict_result = {"eventId": event_id, "status": "conflict", "retryable": False}
-            set_result(index, conflict_result, count_accepted=False)
-            for alias_index in aliases[index]:
+            if status == "conflict":
                 conflicts += 1
-                set_result(alias_index, dict(conflict_result), count_accepted=False)
-            continue
-
-        received_at = int(time.time() * 1000)
-        suspicious_time = (
-            event_dict["timestamp"] < received_at - EVENT_MAX_AGE_SECONDS * 1000
-            or event_dict["timestamp"] > received_at + EVENT_MAX_FUTURE_SECONDS * 1000
-        )
-        envelope = trusted_envelope(
-            event_dict,
-            tenant_id=tenant_id,
-            api_key_id=key_id,
-            received_at=received_at,
-        )
-        if suspicious_time:
-            envelope["quarantine"] = {"reason": "event_time_out_of_range"}
-        owned.append((index, event_dict, payload_hash, suspicious_time, envelope))
-
-    messages = [
-        (
-            KAFKA_QUARANTINE_TOPIC if suspicious_time else KAFKA_TOPIC,
-            event_dict["customerId"].encode("utf-8"),
-            json.dumps(envelope).encode("utf-8"),
-        )
-        for _, event_dict, _, suspicious_time, envelope in owned
-    ]
-    outcomes = publish_batch_with_ack(
-        get_kafka_producer(),
-        messages,
-        timeout_seconds=KAFKA_ACK_TIMEOUT_SECONDS,
-    )
-
-    accepted_identities: list[tuple[str, str]] = []
-    failed_identities: list[tuple[str, str]] = []
-    for (index, event_dict, payload_hash, suspicious_time, _), outcome in zip(owned, outcomes):
-        event_id = event_dict["eventId"]
-        if outcome is None:
-            accepted_identities.append((event_id, payload_hash))
-            result = {
-                "eventId": event_id,
-                "status": "quarantined" if suspicious_time else "accepted",
-                "idempotent": False,
-            }
-            set_result(index, result, count_accepted=True)
-            for alias_index in aliases[index]:
-                alias_result = {"eventId": event_id, "status": result["status"], "idempotent": True}
-                set_result(alias_index, alias_result, count_accepted=True)
-        else:
-            failed_identities.append((event_id, payload_hash))
-            result = {"eventId": event_id, "status": "failed", "retryable": True}
-            set_result(index, result, count_accepted=False)
-            for alias_index in aliases[index]:
-                set_result(alias_index, dict(result), count_accepted=False)
-
-    remember_event_identities(redis_client, accepted_identities)
-    release_event_identities(redis_client, failed_identities)
-
-    if any(result is None for result in results):
-        raise RuntimeError("batch result bookkeeping left an event unresolved")
-    final_results = [result for result in results if result is not None]
 
     if failed == 0:
         return JSONResponse(status_code=202, content={"status": "accepted", "results": final_results})
@@ -716,10 +599,10 @@ def get_dim_usage(
     return data
 
 
-def _fetch_customer_budget(customer_id: str) -> CustomerBudget:
+def _fetch_customer_budget(customer_id: str, tenant_id: str | None = None) -> CustomerBudget:
     """Load budget from Redis. Callers must enforce auth before invoking."""
     r = get_redis()
-    budget_key = f"budget:{customer_id}"
+    budget_key = budget_prefix_for_read(r, tenant_id, customer_id)
     balance = r.get(f"{budget_key}:balance_usd")
     if balance is None:
         raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
@@ -746,14 +629,19 @@ def get_customer_budget(
 ):
     """Get customer's current budget status."""
     require_customer_access(customer_id, x_api_key)
-    return _fetch_customer_budget(customer_id)
+    return _fetch_customer_budget(customer_id, resolve_tenant_from_key(x_api_key))
 
 
 @app.post("/budget/{customer_id}", response_model=CustomerBudget, dependencies=[Depends(require_admin_key)])
-def set_customer_budget(customer_id: str, req: BudgetSetRequest):
+def set_customer_budget(
+    customer_id: str,
+    req: BudgetSetRequest,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Set or reset a customer's prepaid budget."""
     r = get_redis()
-    budget_key = f"budget:{customer_id}"
+    tenant_id = resolve_tenant_from_key(x_api_key)
+    budget_key = budget_prefix_for_write(tenant_id, customer_id)
     r.set(f"{budget_key}:balance_usd", str(req.balance_usd))
     r.set(f"{budget_key}:initial_balance_usd", str(req.balance_usd))
     r.set(f"{budget_key}:held_usd", "0")
@@ -768,7 +656,7 @@ def set_customer_budget(customer_id: str, req: BudgetSetRequest):
         r.set(f"{budget_key}:alert_threshold_usd", str(req.alert_threshold_usd))
     if req.max_rpm is not None:
         r.set(f"{budget_key}:max_rpm", str(req.max_rpm))
-    return _fetch_customer_budget(customer_id)
+    return _fetch_customer_budget(customer_id, tenant_id)
 
 
 @app.get("/budget/{customer_id}/check")
@@ -805,21 +693,35 @@ def check_budget(
         parent_span_id=parent_span_id,
         session_id=session_id,
         key_id=key_id,
+        tenant_id=resolve_tenant_from_key(x_api_key),
     )
 
 
 @app.post("/budget/{customer_id}/topup", dependencies=[Depends(require_admin_key)])
-def topup_customer_budget(customer_id: str, amount_usd: float):
+def topup_customer_budget(
+    customer_id: str,
+    amount_usd: float,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Add credits to a customer's balance."""
     if amount_usd <= 0:
         raise HTTPException(status_code=400, detail="amount_usd must be positive")
     r = get_redis()
-    budget_key = f"budget:{customer_id}"
+    tenant_id = resolve_tenant_from_key(x_api_key)
+    budget_key = budget_prefix_for_read(r, tenant_id, customer_id)
+    write_key = budget_prefix_for_write(tenant_id, customer_id)
     balance = r.get(f"{budget_key}:balance_usd")
     if balance is None:
         raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
-    new_balance = r.incrbyfloat(f"{budget_key}:balance_usd", amount_usd)
-    r.incrbyfloat(f"{budget_key}:total_topup_usd", amount_usd)
+    # ponytail: copy legacy → tenant key on first topup; ceiling = dual keys until migrate job.
+    if budget_key != write_key and not r.exists(f"{write_key}:balance_usd"):
+        r.set(f"{write_key}:balance_usd", balance)
+        for field in ("held_usd", "debt_usd", "initial_balance_usd", "total_topup_usd"):
+            legacy = r.get(f"{budget_key}:{field}")
+            if legacy is not None:
+                r.set(f"{write_key}:{field}", legacy)
+    new_balance = r.incrbyfloat(f"{write_key}:balance_usd", amount_usd)
+    r.incrbyfloat(f"{write_key}:total_topup_usd", amount_usd)
     return {"customer_id": customer_id, "new_balance_usd": new_balance, "added_usd": amount_usd}
 
 
@@ -988,10 +890,9 @@ def apply_rerate(req: ReRateRequest):
         # Adjust global cost
         pipe.incrbyfloat("global:total_cost_usd", adjustment)
         # If customer has budget, credit back (price decrease = positive balance adjustment)
-        budget_key = f"budget:{customer_id}:balance_usd"
-        if r.exists(budget_key):
-            # Price decrease (negative adjustment) → credit back (add to balance)
-            pipe.incrbyfloat(budget_key, -adjustment)
+        budget_bal = f"{budget_prefix_for_read(r, None, customer_id)}:balance_usd"
+        if r.exists(budget_bal):
+            pipe.incrbyfloat(budget_bal, -adjustment)
         pipe.execute()
 
         applied += 1
@@ -1010,6 +911,7 @@ def reserve_budget(
     customer_id: str,
     estimated_cost_usd: float,
     parent_span_id: Optional[str] = None,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
     """Reserve budget hold for streaming (does not deduct balance — Sink deducts actual).
 
@@ -1019,9 +921,13 @@ def reserve_budget(
     if estimated_cost_usd <= 0:
         raise HTTPException(status_code=400, detail="estimated_cost_usd must be positive")
     r = get_redis()
-    if not r.exists(f"budget:{customer_id}:balance_usd"):
+    tenant_id = resolve_tenant_from_key(x_api_key)
+    budget_key = budget_prefix_for_read(r, tenant_id, customer_id)
+    if not r.exists(f"{budget_key}:balance_usd"):
         raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
-    return reserve_hold(r, customer_id, estimated_cost_usd, parent_span_id=parent_span_id)
+    return reserve_hold(
+        r, customer_id, estimated_cost_usd, parent_span_id=parent_span_id, tenant_id=tenant_id
+    )
 
 
 @app.post("/budget/{customer_id}/reconcile", dependencies=[Depends(require_admin_key)])
@@ -1030,12 +936,17 @@ def reconcile_budget(
     reserved_usd: float,
     actual_usd: float = 0.0,
     parent_span_id: Optional[str] = None,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
     """Release hold after streaming. Balance unchanged (Flink Sink deducted actual)."""
     r = get_redis()
-    if not r.exists(f"budget:{customer_id}:balance_usd"):
+    tenant_id = resolve_tenant_from_key(x_api_key)
+    budget_key = budget_prefix_for_read(r, tenant_id, customer_id)
+    if not r.exists(f"{budget_key}:balance_usd"):
         raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
-    result = reconcile_hold(r, customer_id, reserved_usd, parent_span_id=parent_span_id)
+    result = reconcile_hold(
+        r, customer_id, reserved_usd, parent_span_id=parent_span_id, tenant_id=tenant_id
+    )
     result["actual_usd"] = actual_usd
     return result
 
@@ -1060,22 +971,36 @@ def set_hierarchy_cap(customer_id: str, config: HierarchyCapConfig):
 
 
 @app.post("/budget/{customer_id}/webhook", dependencies=[Depends(require_admin_key)])
-def set_budget_webhook(customer_id: str, config: WebhookConfig):
+def set_budget_webhook(
+    customer_id: str,
+    config: WebhookConfig,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Configure HTTPS webhook for BUDGET_LOW / BUDGET_EXHAUSTED alerts."""
     r = get_redis()
-    budget_key = f"budget:{customer_id}"
+    tenant_id = resolve_tenant_from_key(x_api_key)
+    budget_key = budget_prefix_for_read(r, tenant_id, customer_id)
+    write_key = budget_prefix_for_write(tenant_id, customer_id)
     if not r.exists(f"{budget_key}:balance_usd"):
         raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
-    r.set(f"{budget_key}:webhook_url", config.webhook_url)
+    r.set(f"{write_key}:webhook_url", config.webhook_url)
     if config.webhook_secret:
-        r.set(f"{budget_key}:webhook_secret", config.webhook_secret)
+        r.set(f"{write_key}:webhook_secret", config.webhook_secret)
     return {"customer_id": customer_id, "webhook_url": config.webhook_url}
 
 
 @app.get("/budget/{customer_id}/webhook", dependencies=[Depends(require_admin_key)])
-def get_budget_webhook(customer_id: str):
+def get_budget_webhook(
+    customer_id: str,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     r = get_redis()
-    url = r.get(f"budget:{customer_id}:webhook_url")
+    tenant_id = resolve_tenant_from_key(x_api_key)
+    budget_key = budget_prefix_for_read(r, tenant_id, customer_id)
+    url = r.get(f"{budget_key}:webhook_url")
+    if not url:
+        write_key = budget_prefix_for_write(tenant_id, customer_id)
+        url = r.get(f"{write_key}:webhook_url")
     if not url:
         raise HTTPException(status_code=404, detail="Webhook not configured")
     return {"customer_id": customer_id, "webhook_url": url}

@@ -1,16 +1,15 @@
-"""Proxy-only usage ingest (Lite or Full)."""
+"""Proxy-only usage ingest via shared Token Event Custody."""
 
 from __future__ import annotations
 
 import time
-import uuid
 from typing import Any, Optional
 
 import redis
 
 from gateway.deps import KAFKA_ACK_TIMEOUT_SECONDS, KAFKA_TOPIC, get_kafka_producer
 from gateway.outbox import publish_envelope
-from ingestion import trusted_envelope
+from ingestion import accept
 
 
 def ingest_usage(
@@ -27,8 +26,9 @@ def ingest_usage(
     api_key_id: Optional[str] = None,
     reservation_id: Optional[str] = None,
     reserved_usd: float = 0.0,
+    event_id: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Record token usage from Gateway (same path as POST /ingest)."""
+    """Record token usage from Gateway through the same Custody module as POST /ingest."""
     now_ms = int(time.time() * 1000)
     event_dict: dict[str, Any] = {
         "customerId": customer_id,
@@ -43,25 +43,33 @@ def ingest_usage(
         event_dict["sessionId"] = session_id
     if metadata:
         event_dict["metadata"] = metadata
+    if event_id:
+        event_dict["eventId"] = event_id
 
-    event_dict["eventId"] = str(uuid.uuid4())
-    envelope = trusted_envelope(
+    result = accept(
+        r,
+        get_kafka_producer(),
         event_dict,
         tenant_id=tenant_id,
         api_key_id=api_key_id,
-        received_at=now_ms,
+        topic=KAFKA_TOPIC,
+        quarantine_topic=KAFKA_TOPIC,
+        timeout_seconds=KAFKA_ACK_TIMEOUT_SECONDS,
+        on_kafka_down="buffer",
         source="gateway",
         reservation_id=reservation_id,
         reserved_usd=reserved_usd,
+        buffer_publish=lambda redis_client, producer, topic, envelope, timeout: publish_envelope(
+            redis_client, producer, topic, envelope, timeout
+        ),
     )
-    published = publish_envelope(
-        r,
-        get_kafka_producer(),
-        KAFKA_TOPIC,
-        envelope,
-        KAFKA_ACK_TIMEOUT_SECONDS,
-    )
-    return {
-        "status": "accepted" if published else "buffered",
-        "eventId": event_dict["eventId"],
-    }
+    status = result["status"]
+    if status in ("accepted", "quarantined") or result.get("idempotent"):
+        return {"status": "accepted", "eventId": result["eventId"]}
+    if status == "buffered":
+        return {"status": "buffered", "eventId": result["eventId"]}
+    if status == "conflict":
+        return {"status": "conflict", "eventId": result["eventId"]}
+    if status == "pending":
+        return {"status": "pending", "eventId": result["eventId"]}
+    return {"status": status, "eventId": result["eventId"]}

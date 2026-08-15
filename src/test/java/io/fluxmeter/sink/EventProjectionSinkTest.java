@@ -16,6 +16,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EventProjectionSinkTest {
 
@@ -74,7 +75,7 @@ class EventProjectionSinkTest {
                     jedis.get("budget:" + event.getCustomerId() + ":held_usd")), 0.000001);
             assertNotNull(jedis.get("dim:feature:chat:event_count"));
             assertNotNull(jedis.get("flink:heartbeat:last_processed_at"));
-            assertEquals(1, jedis.exists("reservation:" + event.getReservationId()));
+            assertTrue(jedis.exists("reservation:" + event.getReservationId()));
             assertNotNull(jedis.zscore("gateway:reservations:pending", event.getReservationId()));
         } finally {
             pool.close();

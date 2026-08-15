@@ -10,6 +10,7 @@ import redis
 
 from auth import check_api_key_budget
 from budget_ops import get_effective_balance
+from tenant_keys import budget_prefix_for_read, budget_prefix_for_write
 
 CACHE_TTL_SEC = 30
 _budget_cache: dict[str, dict] = {}
@@ -73,14 +74,18 @@ def run_budget_check(
     parent_span_id: Optional[str] = None,
     session_id: Optional[str] = None,
     key_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
     increment_rate_limit: bool = True,
 ) -> dict:
     """Pre-request guardrail gate (Redis-first, cache fallback, fail policy)."""
     try:
-        budget_key = f"budget:{customer_id}"
+        budget_key = budget_prefix_for_read(r, tenant_id, customer_id)
+        write_key = budget_prefix_for_write(tenant_id, customer_id)
         rate_limit_key = f"ratelimit:{customer_id}:{int(time.time()) // 60}"
         requests_this_minute = int(r.get(rate_limit_key) or 0)
-        max_rpm = r.get(f"budget:{customer_id}:max_rpm")
+        max_rpm = r.get(f"{write_key}:max_rpm")
+        if max_rpm is None and budget_key != write_key:
+            max_rpm = r.get(f"{budget_key}:max_rpm")
         max_rpm_val = int(max_rpm) if max_rpm else 0
 
         if max_rpm_val > 0 and requests_this_minute >= max_rpm_val:
@@ -108,7 +113,9 @@ def run_budget_check(
                 "source": "redis",
             }
 
-        balance_val, held_val, effective = get_effective_balance(r, customer_id)
+        balance_val, held_val, effective = get_effective_balance(
+            r, customer_id, tenant_id=tenant_id
+        )
         cache_set(customer_id, balance_val, max_rpm_val, held_val)
 
         if effective <= 0:

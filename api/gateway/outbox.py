@@ -8,7 +8,7 @@ import threading
 import time
 
 from ingestion import KafkaUnavailableError, publish_with_ack
-from budget_ops import reap_expired_reservations
+from budget_ops import expire_reservations
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def start_worker(get_redis, get_producer, topic: str, timeout_seconds: float) ->
                 r = get_redis()
                 while flush_once(r, get_producer(), topic, timeout_seconds):
                     pass
-                reap_expired_reservations(r)
+                expire_reservations(r)
             except Exception as exc:
                 logger.debug("Gateway outbox worker error: %s", exc)
             time.sleep(1)
