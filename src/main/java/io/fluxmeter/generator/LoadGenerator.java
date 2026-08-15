@@ -110,7 +110,7 @@ public class LoadGenerator {
         props.put(ProducerConfig.LINGER_MS_CONFIG, 5);
         props.put(ProducerConfig.BUFFER_MEMORY_CONFIG, 128 * 1024 * 1024);
         props.put(ProducerConfig.COMPRESSION_TYPE_CONFIG, "lz4");
-        props.put(ProducerConfig.ACKS_CONFIG, "1");
+        props.put(ProducerConfig.ACKS_CONFIG, "all");
 
         Random random = new Random(threadId);
         KafkaProducer<String, byte[]> producer = new KafkaProducer<>(props);
@@ -128,7 +128,7 @@ public class LoadGenerator {
 
         while (true) {
             TokenEvent event = generateEvent(random, numCustomers, cumWeights, totalWeight);
-            byte[] value = MAPPER.writeValueAsBytes(event);
+            byte[] value = MAPPER.writeValueAsBytes(operatorEnvelope(event));
 
             producer.send(new ProducerRecord<>(topic, event.getCustomerId(), value));
             eventCounter.incrementAndGet();
@@ -140,6 +140,23 @@ public class LoadGenerator {
                 Thread.sleep(sleepNanos / 1_000_000, (int) (sleepNanos % 1_000_000));
             }
         }
+    }
+
+    private static Map<String, Object> operatorEnvelope(TokenEvent event) {
+        Map<String, Object> auth = new HashMap<>();
+        auth.put("tenantId", event.getTenantId());
+        auth.put("customerId", event.getCustomerId());
+        auth.put("apiKeyId", null);
+        Map<String, Object> receipt = new HashMap<>();
+        receipt.put("receivedAt", System.currentTimeMillis());
+        receipt.put("traceId", UUID.randomUUID().toString());
+        Map<String, Object> envelope = new HashMap<>();
+        envelope.put("envelopeVersion", 1);
+        envelope.put("source", "operator");
+        envelope.put("payload", event);
+        envelope.put("auth", auth);
+        envelope.put("receipt", receipt);
+        return envelope;
     }
 
     private static TokenEvent generateEvent(Random random, int numCustomers,

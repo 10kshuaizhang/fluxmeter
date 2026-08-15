@@ -31,16 +31,15 @@ if ! docker pull redis:7-alpine >/dev/null 2>&1; then
 fi
 
 echo "==> Starting stack with prod overlay..."
-docker compose -f docker-compose.full.yml -f docker-compose.prod.yml down -v 2>/dev/null || true
-docker compose --env-file "$ENV_FILE" -f docker-compose.full.yml -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml down -v 2>/dev/null || true
+docker compose --env-file "$ENV_FILE" -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
 echo "==> Waiting for services (50s)..."
 sleep 50
 
 curl -sf http://localhost:8000/health | grep -q ok && echo "  API health: OK"
 
-echo "==> Submitting Flink job..."
-make submit-job
+curl -sf http://localhost:8000/ready | grep -q ready && echo "  Pipeline readiness: OK"
 
 echo "==> Running prod auth tests..."
 export FLUXMETER_API_KEY FLUXMETER_ADMIN_KEY

@@ -1,0 +1,29 @@
+# Scale/observability overlay; ingestion semantics remain unchanged.
+services:
+  kafka:
+    ports: ["9094:9094"]
+    environment:
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9094,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_NUM_PARTITIONS: 24
+    mem_limit: 4g
+  taskmanager:
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 12
+        taskmanager.memory.process.size: 5g
+        state.backend: hashmap
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+    mem_limit: 6g
+  prometheus:
+    image: prom/prometheus:v2.51.2
+    ports: ["9090:9090"]
+    volumes: [./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro]
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.1
+    ports: ["8123:8123", "9000:9000"]
+    volumes: [./baseline/init.sql:/docker-entrypoint-initdb.d/init.sql]
+    depends_on: [kafka]
+    mem_limit: 4g

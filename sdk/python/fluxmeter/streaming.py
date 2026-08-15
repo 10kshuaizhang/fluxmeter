@@ -7,7 +7,7 @@ Provides near-real-time visibility into long-running LLM calls.
 Usage:
     from fluxmeter import FluxMeter
 
-    meter = FluxMeter(kafka_brokers="localhost:9094")
+    meter = FluxMeter(api_url="http://localhost:8000")
 
     # OpenAI streaming
     stream = client.chat.completions.create(model="gpt-4o", messages=[...], stream=True)

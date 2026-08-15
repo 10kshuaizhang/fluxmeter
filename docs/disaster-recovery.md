@@ -8,12 +8,12 @@ Operational procedures for recovering billing state after infrastructure failure
 |---------|--------------|-----------------|
 | Redis crash / data loss | Budget balances, aggregated counters | Kafka replay + budget re-seed |
 | Flink job failure | In-flight window (≤ `WINDOW_SECONDS`) | Kafka offset rewind + checkpoint |
-| Kafka broker loss | Uncommitted events (SDK WAL replays) | SDK WAL on producer side |
-| Full cluster loss | All hot state | Kafka retention (30d) + checkpoints + AOF |
+| Kafka broker loss | Requests not yet acknowledged | Application HTTP retry / Gateway outbox |
+| Cluster loss | All hot state | Kafka retention (30d) + checkpoints + AOF |
 
 ## Prerequisites
 
-- Kafka topic `token-events` retention ≥ 7 days (default 30 days in `docker-compose.full.yml`)
+- Kafka topic `token-events` retention ≥ 7 days
 - Flink checkpoints enabled (`CHECKPOINT_DIR` set, 30s interval)
 - Redis AOF enabled (`appendonly yes`)
 - Documented budget seed values per customer (Postgres/control-plane or ops vault)
@@ -32,9 +32,9 @@ Operational procedures for recovering billing state after infrastructure failure
 
 2. Flush corrupted Redis (if volume is unrecoverable):
    ```bash
-   docker compose -f docker-compose.full.yml stop redis
+   docker compose stop redis
    docker volume rm fluxmeter_redis-data  # destructive
-   docker compose -f docker-compose.full.yml up -d redis
+   docker compose up -d redis
    ```
 
 3. Re-seed customer budgets (required before replay deducts correctly):
@@ -51,7 +51,7 @@ Operational procedures for recovering billing state after infrastructure failure
      --bootstrap-server localhost:9092 \
      --group fluxmeter-aggregator \
      --reset-offsets --to-earliest --topic token-events --execute
-   make submit-job
+   docker compose up -d --force-recreate job-submitter
    ```
 
 5. Verify counters match expected order-of-magnitude:
@@ -73,7 +73,7 @@ Operational procedures for recovering billing state after infrastructure failure
 1. Check Flink UI: http://localhost:8081 — look for failed checkpoints.
 2. Restart from last checkpoint (automatic on resubmit if `CHECKPOINT_DIR` is mounted):
    ```bash
-   make submit-job
+   docker compose up -d --force-recreate job-submitter
    ```
 3. Monitor lag:
    ```bash
@@ -87,23 +87,15 @@ Late events land in `token-events-dlq`. Replay with:
 ./scripts/replay-dlq.sh   # if available, or manual produce to token-events
 ```
 
-## 3. Kafka Outage (Producers have SDK WAL)
+## 3. Kafka Outage
 
-**Symptoms:** Ingest errors; SDK queues events locally.
+**Symptoms:** `/ingest` returns retryable `503`; Gateway outbox entries remain pending.
 
 **Steps:**
 
-1. Restore Kafka: `docker compose -f docker-compose.full.yml up -d kafka`
-2. SDK WAL replays automatically on reconnect (see `fluxmeter-client` WAL docs).
-3. HTTP `/ingest` callers must retry — use `eventId` for idempotency.
-
-## 4. Lite Mode Recovery (no Flink/Kafka)
-
-Lite mode writes directly to Redis. Recovery options:
-
-1. **Redis AOF replay:** restart Redis with existing volume — AOF rebuilds state.
-2. **Full loss:** re-ingest from application logs or cold storage (no Kafka buffer).
-3. **Rollup history:** per-minute buckets (`rollup:{customer}:m:{ts}`) survive 24h even if live counters were lost.
+1. Restore Kafka: `docker compose up -d kafka`
+2. Gateway outbox delivery resumes automatically.
+3. Application callers retry with the same `eventId`; identical payloads are idempotent for 30 days.
 
 ## 5. Multi-Tenant (SaaS) Considerations
 
@@ -113,7 +105,7 @@ Lite mode writes directly to Redis. Recovery options:
 
 ## 6. Verification Checklist
 
-- [ ] `global:last_window_end` advancing (full mode)
+- [ ] `global:last_window_end` advancing
 - [ ] Sample customer `event_count` > 0
 - [ ] Budget `balance_usd` decreases after test ingest
 - [ ] No sustained consumer lag (> 5 min at steady state)

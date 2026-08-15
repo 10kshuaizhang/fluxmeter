@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
 from typing import Any, Optional
 
 import redis
 
-from gateway.deps import KAFKA_TOPIC, LITE_MODE, get_kafka_producer, get_lite_aggregator, get_redis
-from webhook_deliver import deliver_lite_alerts
-from billing_dims import increment_dims, validate_metadata
+from gateway.deps import KAFKA_ACK_TIMEOUT_SECONDS, KAFKA_TOPIC, get_kafka_producer
+from gateway.outbox import publish_envelope
+from ingestion import trusted_envelope
 
 
 def ingest_usage(
@@ -24,6 +23,10 @@ def ingest_usage(
     parent_span_id: Optional[str] = None,
     session_id: Optional[str] = None,
     metadata: Optional[dict[str, str]] = None,
+    tenant_id: Optional[str] = None,
+    api_key_id: Optional[str] = None,
+    reservation_id: Optional[str] = None,
+    reserved_usd: float = 0.0,
 ) -> dict[str, Any]:
     """Record token usage from Gateway (same path as POST /ingest)."""
     now_ms = int(time.time() * 1000)
@@ -39,26 +42,26 @@ def ingest_usage(
     if session_id:
         event_dict["sessionId"] = session_id
     if metadata:
-        try:
-            event_dict["metadata"] = validate_metadata(metadata)
-        except ValueError:
-            event_dict["metadata"] = None
+        event_dict["metadata"] = metadata
 
-    if LITE_MODE:
-        agg = get_lite_aggregator()
-        result = agg.aggregate(event_dict)
-        if result.get("status") == "ok":
-            cost = float(result.get("cost_usd") or 0)
-            meta = event_dict.get("metadata")
-            if meta and cost > 0:
-                increment_dims(r, meta, cost_usd=cost, event_ts_ms=now_ms)
-        deliver_lite_alerts(r, customer_id, result, model_id)
-        return result
-
-    if "eventId" not in event_dict:
-        event_dict["eventId"] = str(uuid.uuid4())
-    producer = get_kafka_producer()
-    value = json.dumps(event_dict).encode("utf-8")
-    producer.produce(KAFKA_TOPIC, key=customer_id.encode("utf-8"), value=value)
-    producer.poll(0)
-    return {"status": "accepted", "eventId": event_dict["eventId"]}
+    event_dict["eventId"] = str(uuid.uuid4())
+    envelope = trusted_envelope(
+        event_dict,
+        tenant_id=tenant_id,
+        api_key_id=api_key_id,
+        received_at=now_ms,
+        source="gateway",
+        reservation_id=reservation_id,
+        reserved_usd=reserved_usd,
+    )
+    published = publish_envelope(
+        r,
+        get_kafka_producer(),
+        KAFKA_TOPIC,
+        envelope,
+        KAFKA_ACK_TIMEOUT_SECONDS,
+    )
+    return {
+        "status": "accepted" if published else "buffered",
+        "eventId": event_dict["eventId"],
+    }

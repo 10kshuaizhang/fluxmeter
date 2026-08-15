@@ -2,6 +2,7 @@ package io.fluxmeter.sink;
 
 import io.fluxmeter.model.UsageAggregate;
 import io.fluxmeter.util.TenantKeys;
+import io.fluxmeter.util.BillingPeriod;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.configuration.Configuration;
@@ -17,6 +18,7 @@ import redis.clients.jedis.JedisPool;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Combined sink: writes aggregated usage to Redis AND enforces budget limits.
@@ -37,9 +39,10 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
 
     private static final double DEFAULT_ALERT_THRESHOLD_PERCENT = 0.10;
 
-    // KEYS[1]=idempotency ... [19]=global:last_window, [20]=cache_read, [21]=reasoning
+    // KEYS[1..23]=atomic counters/budget, [24]=period volume,
+    // [25]=month rollup hash, [26]=day rollup hash.
     private static final String SINK_LUA_SCRIPT =
-            "if redis.call('SET', KEYS[1], '1', 'NX', 'EX', '3600') == false then\n" +
+            "if redis.call('SET', KEYS[1], '1', 'NX', 'EX', '2592000') == false then\n" +
             "  return {'SKIP', '0', '0'}\n" +
             "end\n" +
             "redis.call('INCRBY', KEYS[2], ARGV[1])\n" +
@@ -60,6 +63,19 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
             "redis.call('INCRBYFLOAT', KEYS[15], ARGV[5])\n" +
             "redis.call('SET', KEYS[19], ARGV[9])\n" +
             "redis.call('INCRBYFLOAT', KEYS[22], ARGV[5])\n" +
+            "redis.call('INCRBY', KEYS[24], ARGV[3])\n" +
+            "local function rollup(hk)\n" +
+            " redis.call('HINCRBY', hk, 'input_tokens', ARGV[1]); redis.call('HINCRBY', hk, 'output_tokens', ARGV[2]); redis.call('HINCRBY', hk, 'total_tokens', ARGV[3]); redis.call('HINCRBY', hk, 'event_count', ARGV[4]); redis.call('HINCRBYFLOAT', hk, 'cost_usd', ARGV[5]); redis.call('EXPIRE', hk, 34560000)\n" +
+            " if tonumber(ARGV[6]) > 0 then redis.call('HINCRBY', hk, 'cache_read_tokens', ARGV[6]) end; if tonumber(ARGV[7]) > 0 then redis.call('HINCRBY', hk, 'reasoning_tokens', ARGV[7]) end\n" +
+            "end\n" +
+            "rollup(KEYS[25]); rollup(KEYS[26])\n" +
+            "for _,rid in ipairs(redis.call('SMEMBERS', KEYS[27])) do\n" +
+            " local rk='reservation:'..rid; local reserved=tonumber(redis.call('HGET', rk, 'reserved_usd') or '0'); local held=tonumber(redis.call('GET', KEYS[28]) or '0'); local release=math.min(held, reserved)\n" +
+            " if release > 0 then redis.call('INCRBYFLOAT', KEYS[28], -release) end\n" +
+            " local parent=redis.call('HGET', rk, 'parent_span_id') or ''; if parent ~= '' then local sk='span:'..parent..':held_usd'; local sh=tonumber(redis.call('GET', sk) or '0'); if sh > 0 then redis.call('INCRBYFLOAT', sk, -math.min(sh, release)) end end\n" +
+            " redis.call('DEL', rk); redis.call('ZREM', KEYS[29], rid)\n" +
+            "end\n" +
+            "redis.call('DEL', KEYS[27])\n" +
             "local balance = tonumber(redis.call('GET', KEYS[16]))\n" +
             "if balance == nil then return {'NONE', '0', '0'} end\n" +
             "local cost = tonumber(ARGV[5])\n" +
@@ -100,7 +116,7 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBrokers);
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        props.put(ProducerConfig.ACKS_CONFIG, "1");
+        props.put(ProducerConfig.ACKS_CONFIG, "all");
         props.put(ProducerConfig.LINGER_MS_CONFIG, 0);
         alertProducer = new KafkaProducer<>(props);
 
@@ -117,11 +133,15 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
 
             String windowId = TenantKeys.windowId(agg.getTenantId(), customerId, agg.getModelId(), agg.getWindowStart());
             String idempotencyKey = "applied:" + windowId;
+            String periodKey = BillingPeriod.periodVolumeKey(
+                    agg.getTenantId(), customerId, agg.getModelId(), agg.getWindowEnd());
+            String rollupBase = "rollup:" + customerId;
+            String reservationSetKey = "window:reservations:" + windowId;
 
             @SuppressWarnings("unchecked")
             java.util.List<String> result = (java.util.List<String>) jedis.eval(
                     SINK_LUA_SCRIPT,
-                    23,
+                    29,
                     idempotencyKey,
                     customerKey + ":input_tokens",
                     customerKey + ":output_tokens",
@@ -145,6 +165,12 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
                     customerKey + ":reasoning_tokens",
                     budgetKey + ":total_deducted_usd",
                     budgetKey + ":debt_usd",
+                    periodKey,
+                    rollupBase + ":period:" + BillingPeriod.monthUtc(agg.getWindowEnd()),
+                    rollupBase + ":d:" + BillingPeriod.dayUtc(agg.getWindowEnd()),
+                    reservationSetKey,
+                    budgetKey + ":held_usd",
+                    "gateway:reservations:pending",
                     String.valueOf(agg.getInputTokens()),
                     String.valueOf(agg.getOutputTokens()),
                     String.valueOf(agg.getTotalTokens()),
@@ -162,6 +188,17 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
             }
 
             double newBalance = Double.parseDouble(result.get(1));
+            double previousBalance = Double.parseDouble(result.get(2));
+            String initialRaw = jedis.get(budgetKey + ":initial_balance_usd");
+            if (initialRaw != null) {
+                double initial = Double.parseDouble(initialRaw);
+                for (int warnPct : new int[] {70, 90}) {
+                    double threshold = initial * (1.0 - warnPct / 100.0);
+                    if (previousBalance > threshold && newBalance <= threshold) {
+                        emitAlert(customerId, "BUDGET_WARN", newBalance, agg, warnPct, initial);
+                    }
+                }
+            }
             if ("EXHAUSTED".equals(status)) {
                 emitAlert(customerId, "BUDGET_EXHAUSTED", newBalance, agg);
             } else if ("LOW".equals(status)) {
@@ -172,6 +209,12 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
 
     private void emitAlert(String customerId, String alertType, double remainingBalance,
                            UsageAggregate agg) {
+        emitAlert(customerId, alertType, remainingBalance, agg, null, null);
+    }
+
+    private void emitAlert(String customerId, String alertType, double remainingBalance,
+                           UsageAggregate agg, Integer warnPct, Double initialBalance) {
+        String value = null;
         try {
             Map<String, Object> alert = new HashMap<>();
             alert.put("type", alertType);
@@ -182,11 +225,31 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
             alert.put("windowStart", agg.getWindowStart());
             alert.put("windowEnd", agg.getWindowEnd());
             alert.put("timestamp", System.currentTimeMillis());
+            if (warnPct != null) {
+                alert.put("warnPct", warnPct);
+                if (initialBalance != null) {
+                    alert.put("initialBalanceUsd", initialBalance);
+                    alert.put("spentPct", initialBalance <= 0 ? 100.0
+                            : Math.min(100.0, Math.max(0.0,
+                                    ((initialBalance - remainingBalance) / initialBalance) * 100.0)));
+                }
+            }
 
-            String value = mapper.writeValueAsString(alert);
-            alertProducer.send(new ProducerRecord<>(alertTopic, customerId, value));
+            value = mapper.writeValueAsString(alert);
+            alertProducer.send(new ProducerRecord<>(alertTopic, customerId, value))
+                    .get(5, TimeUnit.SECONDS);
         } catch (Exception e) {
-            // Don't fail the pipeline on alert delivery failure
+            // Accounting is authoritative; record a durable retry payload instead of
+            // losing the transition when Kafka is temporarily unavailable.
+            try (Jedis jedis = pool.getResource()) {
+                Map<String, Object> pending = new HashMap<>();
+                pending.put("topic", alertTopic);
+                pending.put("key", customerId);
+                pending.put("payload", value == null ? "{}" : value);
+                jedis.rpush("budget-alerts:pending", mapper.writeValueAsString(pending));
+            } catch (Exception ignored) {
+                // Redis failure will fail the next accounting invocation/readiness probe.
+            }
         }
     }
 

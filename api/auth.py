@@ -79,6 +79,15 @@ def resolve_customer_from_key(provided: str | None) -> str | None:
     return customer_id
 
 
+def resolve_tenant_from_key(provided: str | None) -> str | None:
+    """Resolve a SaaS tenant from the control-plane API-key index."""
+    if not provided:
+        return None
+    digest = hashlib.sha256(provided.encode()).hexdigest()[:16]
+    value = _redis().get(f"cp:apikey:{digest}")
+    return str(value) if value else None
+
+
 def is_admin_key(provided: str | None) -> bool:
     if not provided:
         return False
@@ -194,26 +203,13 @@ def check_api_key_budget(
     return None
 
 
-def record_api_key_spend(r: redis.Redis, key_id: str, cost_usd: float) -> None:
-    """Increment per-key spend counters after ingest."""
-    if cost_usd <= 0:
-        return
-    now_ms = int(time.time() * 1000)
-    day = billing_period_day(now_ms)
-    month = billing_period_month(now_ms)
-    pipe = r.pipeline()
-    pipe.incrbyfloat(f"apikey:{key_id}:spent:d:{day}", cost_usd)
-    pipe.expire(f"apikey:{key_id}:spent:d:{day}", 86400 * 2)
-    pipe.incrbyfloat(f"apikey:{key_id}:spent:m:{month}", cost_usd)
-    pipe.expire(f"apikey:{key_id}:spent:m:{month}", 86400 * 62)
-    pipe.execute()
-
-
 def require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
-    """Read/query/ingest — global or customer key."""
+    """Read/query/ingest — global, customer, or control-plane tenant key."""
     if is_global_api_key(x_api_key):
         return
     if resolve_customer_from_key(x_api_key):
+        return
+    if resolve_tenant_from_key(x_api_key):
         return
     if AUTH_OPTIONAL and not API_KEY and not ADMIN_API_KEY:
         return
@@ -244,6 +240,8 @@ def require_customer_access(
         if resolved == customer_id:
             return
         raise HTTPException(status_code=403, detail="API key not authorized for this customer")
+    if resolve_tenant_from_key(x_api_key):
+        return
     if AUTH_OPTIONAL and not API_KEY and not ADMIN_API_KEY:
         return
     raise HTTPException(status_code=403, detail="API key not authorized for this customer")

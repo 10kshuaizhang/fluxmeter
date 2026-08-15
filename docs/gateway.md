@@ -2,9 +2,9 @@
 
 OpenAI-compatible HTTP proxy that **meters, limits, and kills** LLM traffic without app-side `track_*` calls.
 
-**Stack:** Lite mode (Redis ingest) or Full mode (Kafka → Flink). Gateway shares the API Docker image; runs on port **8080**.
+**Stack:** Gateway → durable Redis outbox → Kafka → Flink. Gateway shares the API Docker image and runs on port **8080**.
 
-## Quick start (Lite demo)
+## Quick start
 
 ```bash
 make demo
@@ -69,11 +69,11 @@ resp = client.chat.completions.create(
 ## Request flow
 
 1. **Pre-check** — budget / RPM / hierarchy caps (`budget_gate.run_budget_check`)
-2. **Reserve** (streaming only) — hold estimated cost in Redis
+2. **Reserve** — hold estimated cost in Redis and register its expiry
 3. **Forward** — passthrough to provider (`GATEWAY_UPSTREAM_BASE`)
 4. **Stream guard** — kill SSE when estimated spend exceeds hold (<1s)
-5. **Ingest** — write usage to Redis (Lite) or Kafka (Full)
-6. **Reconcile** — release hold after stream completes
+5. **Outbox** — persist the trusted usage envelope before Kafka publication
+6. **Reconcile** — Flink releases the hold after processing; expiry releases abandoned holds
 
 ## Headers
 
@@ -94,9 +94,10 @@ resp = client.chat.completions.create(
 | `GATEWAY_UPSTREAM_BASE` | `https://api.openai.com/v1` | Provider base URL |
 | `GATEWAY_UPSTREAM_API_KEY` | — | Fallback provider key |
 | `GATEWAY_DEFAULT_ESTIMATE_USD` | `0.05` | Pre-check / reserve estimate when `max_tokens` absent |
-| `FLUXMETER_LITE_MODE` | `false` | `true` = Redis ingest (no Kafka) |
+| `KAFKA_BROKERS` | `kafka:9092` | Internal Kafka bootstrap servers |
+| `GATEWAY_OUTBOX_WORKER` | `true` | Retry pending outbox entries and expire reservations |
 | `BUDGET_FAIL_POLICY` | `closed` | `open` / `closed` when Redis unavailable |
-| `REDIS_HOST` | `localhost` | Redis for budget + ingest |
+| `REDIS_HOST` | `localhost` | Redis for budgets, reservations, and durable outbox |
 
 ## Errors
 

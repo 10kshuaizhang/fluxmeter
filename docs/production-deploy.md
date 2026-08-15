@@ -296,7 +296,7 @@ Built-in auth via `X-API-Key` header (see `api/auth.py`):
 Production deploy:
 
 ```bash
-docker compose -f docker-compose.full.yml -f docker-compose.prod.yml up
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up
 # Requires .env: REDIS_PASSWORD (used by API + Flink sinks), FLUXMETER_API_KEY,
 # FLUXMETER_ADMIN_KEY, GRAFANA_ADMIN_PASSWORD, CLICKHOUSE_PASSWORD
 ```
@@ -311,25 +311,13 @@ For Kubernetes, inject the same env vars via secrets. Optional upgrades: OAuth2/
 from fluxmeter import FluxMeter
 
 meter = FluxMeter(
-    kafka_brokers="kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092",
-    topic="token-events",
+    api_url="https://metering.example.com",
+    api_key="${FLUXMETER_API_KEY}",
     environment="production",
-    wal_path="/var/lib/fluxmeter/wal",  # Persistent volume, not /tmp
-    producer_config={
-        "security.protocol": "SASL_SSL",
-        "sasl.mechanisms": "PLAIN",
-        "sasl.username": "fluxmeter-producer",
-        "sasl.password": "${KAFKA_PASSWORD}",
-    },
 )
 ```
 
-### WAL directory
-
-In production, the WAL path must be on persistent storage (not ephemeral container filesystem):
-- Kubernetes: mount a PersistentVolumeClaim
-- EC2: use EBS-backed directory
-- Serverless: use `/tmp` (accept limited durability) or disable WAL and rely on HTTP ingest
+Applications need access only to the HTTP API. Keep Kafka private and configure broker credentials on the API, Flink cluster, webhook worker, and trusted operator tools.
 
 ---
 

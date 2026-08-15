@@ -15,7 +15,7 @@ public class UsageAggregateFunction
         implements AggregateFunction<TokenEvent, UsageAggregate, UsageAggregate> {
 
     private static final long serialVersionUID = 1L;
-    static final String MONTHLY_VOLUME_BEFORE_KEY = "_monthlyVolumeBefore";
+    public static final String MONTHLY_VOLUME_BEFORE_KEY = "_monthlyVolumeBefore";
 
     @Override
     public UsageAggregate createAccumulator() {

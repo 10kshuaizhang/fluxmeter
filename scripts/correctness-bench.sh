@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Correctness benchmark: known events → expected Redis counters + checkpoint health.
-# Requires: full stack (make start-full && make submit-job), API on :8000.
+# Requires: the base stack (`make start`), API on :8000.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

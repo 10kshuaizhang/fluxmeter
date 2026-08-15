@@ -6,6 +6,7 @@ import io.fluxmeter.model.SpanAggregate;
 import io.fluxmeter.sink.BudgetEnforcerSink;
 import io.fluxmeter.sink.RedisSink;
 import io.fluxmeter.sink.SpanSink;
+import io.fluxmeter.sink.EventProjectionSink;
 
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.AggregateFunction;
@@ -19,6 +20,7 @@ import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindo
 import org.apache.flink.streaming.api.windowing.assigners.EventTimeSessionWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
+import org.apache.flink.streaming.api.functions.ProcessFunction;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.CheckpointingMode;
@@ -26,6 +28,7 @@ import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 
 import org.apache.flink.api.common.restartstrategy.RestartStrategies;
@@ -85,19 +88,41 @@ public class TokenUsageAggregator {
                 .withTimestampAssigner((event, ts) -> event.getTimestamp())
                 .withIdleness(Duration.ofSeconds(30));
 
-        // Null/invalid filter + exclude streaming heartbeats (observability only, not billable).
-        DataStream<TokenEvent> events = env
-                .fromSource(source, watermarkStrategy, "Kafka Token Events")
-                .filter(event -> event != null && event.getCustomerId() != null && event.getModelId() != null)
+        DataStream<TokenEvent> sourceEvents = env
+                .fromSource(source, watermarkStrategy, "Kafka Token Events");
+
+        String dlqTopic = System.getenv().getOrDefault("DLQ_TOPIC", "token-events-dlq");
+        sourceEvents
+                .filter(TokenEvent::isMalformedEnvelope)
+                .addSink(new MalformedEnvelopeSink(kafkaBrokers, dlqTopic));
+
+        // Valid trusted envelopes only. Readiness probes traverse Kafka and this source,
+        // then write a causal acknowledgement without entering billing.
+        DataStream<TokenEvent> trustedEvents = sourceEvents
+                .filter(event -> !event.isMalformedEnvelope()
+                        && event.getCustomerId() != null && event.getModelId() != null);
+        trustedEvents
+                .filter(TokenUsageAggregator::isHeartbeat)
+                .addSink(new ConsumerHeartbeatSink(redisHost, redisPort));
+        DataStream<TokenEvent> validatedEvents = trustedEvents
                 .filter(event -> !isHeartbeat(event));
+
+        DataStream<TokenEvent> events = validatedEvents
+                .keyBy(TokenEvent::getEventId)
+                .process(new EventDeduplicator());
+
+        SingleOutputStreamOperator<TokenEvent> onTimeEvents = events
+                .process(new LateEventRouter(windowSeconds));
 
         // Windowed aggregation. Late events (after watermark passes window end)
         // go to DLQ for reprocessing. No allowedLateness — avoids window re-fire
         // which conflicts with SET NX idempotency (second fire gets blocked,
         // losing the late data contribution).
-        DataStream<TokenEvent> stampedEvents = events
+        DataStream<TokenEvent> stampedEvents = onTimeEvents
                 .keyBy(TokenEvent::getAggregationKey)
                 .process(new MonthlyVolumeStampFunction());
+
+        stampedEvents.addSink(new EventProjectionSink(redisHost, redisPort));
 
         SingleOutputStreamOperator<UsageAggregate> aggregates = stampedEvents
                 .keyBy(TokenEvent::getAggregationKey)
@@ -106,8 +131,8 @@ public class TokenUsageAggregator {
                 .aggregate(new UsageAggregateFunction(), new WindowMetadataFunction());
 
         // Late events routed to DLQ Kafka topic for reprocessing
-        String dlqTopic = System.getenv().getOrDefault("DLQ_TOPIC", "token-events-dlq");
-        DataStream<TokenEvent> lateEvents = aggregates.getSideOutput(LATE_EVENTS);
+        DataStream<TokenEvent> lateEvents = onTimeEvents.getSideOutput(LATE_EVENTS)
+                .union(aggregates.getSideOutput(LATE_EVENTS));
         lateEvents.addSink(new LateEventSink(kafkaBrokers, dlqTopic));
 
         // --- Span attribution: aggregate cost per agent run (parentSpanId) ---
@@ -116,7 +141,7 @@ public class TokenUsageAggregator {
         // SpanSink uses SET (overwrite) so even if the window fires multiple times
         // (via Flink's internal session merge), correctness is maintained.
         // For memory safety, configure Flink state TTL at cluster level.
-        DataStream<SpanAggregate> spanAggregates = events
+        DataStream<SpanAggregate> spanAggregates = onTimeEvents
                 .filter(event -> event.getParentSpanId() != null && !event.getParentSpanId().isEmpty())
                 .keyBy(TokenEvent::getParentSpanId)
                 .window(EventTimeSessionWindows.withGap(Time.seconds(60)))
@@ -157,6 +182,62 @@ public class TokenUsageAggregator {
             return false;
         }
         return "true".equals(event.getMetadata().get("_heartbeat"));
+    }
+
+    /** Acknowledges a readiness probe only after it traverses the Kafka consumer. */
+    public static class ConsumerHeartbeatSink
+            extends org.apache.flink.streaming.api.functions.sink.RichSinkFunction<TokenEvent> {
+        private final String host;
+        private final int port;
+        private transient redis.clients.jedis.JedisPool pool;
+
+        public ConsumerHeartbeatSink(String host, int port) {
+            this.host = host;
+            this.port = port;
+        }
+
+        @Override
+        public void open(org.apache.flink.configuration.Configuration parameters) {
+            pool = io.fluxmeter.sink.RedisConnections.createPool(host, port, 2);
+        }
+
+        @Override
+        public void invoke(TokenEvent event, Context context) {
+            try (redis.clients.jedis.Jedis jedis = pool.getResource()) {
+                jedis.setex("flink:probe:" + event.getEventId(), 60, String.valueOf(System.currentTimeMillis()));
+                jedis.set("flink:heartbeat:last_processed_at", String.valueOf(System.currentTimeMillis()));
+            }
+        }
+
+        @Override
+        public void close() {
+            if (pool != null) pool.close();
+        }
+    }
+
+    /** Routes already-late events before any irreversible Redis projection. */
+    public static class LateEventRouter extends ProcessFunction<TokenEvent, TokenEvent> {
+        private final long windowMillis;
+
+        public LateEventRouter(long windowSeconds) {
+            this.windowMillis = windowSeconds * 1000;
+        }
+
+        static boolean isLate(long eventTimestamp, long watermark, long windowMillis) {
+            if (watermark == Long.MIN_VALUE) return false;
+            long windowEnd = (Math.floorDiv(eventTimestamp, windowMillis) + 1) * windowMillis;
+            return windowEnd <= watermark;
+        }
+
+        @Override
+        public void processElement(TokenEvent event, Context context, Collector<TokenEvent> out) {
+            if (!event.isAuthorizedReplay()
+                    && isLate(event.getTimestamp(), context.timerService().currentWatermark(), windowMillis)) {
+                context.output(LATE_EVENTS, event);
+            } else {
+                out.collect(event);
+            }
+        }
     }
 
     /**
@@ -246,7 +327,7 @@ public class TokenUsageAggregator {
             props.put("bootstrap.servers", brokers);
             props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
             props.put("value.serializer", "org.apache.kafka.common.serialization.ByteArraySerializer");
-            props.put("acks", "1");
+            props.put("acks", "all");
             producer = new org.apache.kafka.clients.producer.KafkaProducer<>(props);
             mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         }
@@ -254,7 +335,21 @@ public class TokenUsageAggregator {
         @Override
         public void invoke(TokenEvent event, Context context) {
             try {
-                byte[] value = mapper.writeValueAsBytes(event);
+                java.util.Map<String, Object> auth = new java.util.HashMap<>();
+                auth.put("tenantId", event.getTenantId());
+                auth.put("customerId", event.getCustomerId());
+                auth.put("apiKeyId", event.getApiKeyId());
+                java.util.Map<String, Object> receipt = new java.util.HashMap<>();
+                receipt.put("receivedAt", System.currentTimeMillis());
+                receipt.put("traceId", event.getIngestTraceId());
+                java.util.Map<String, Object> envelope = new java.util.HashMap<>();
+                envelope.put("envelopeVersion", 1);
+                envelope.put("source", "operator");
+                envelope.put("payload", event);
+                envelope.put("auth", auth);
+                envelope.put("receipt", receipt);
+                envelope.put("replay", java.util.Map.of("authorized", true, "reason", "late-event-dlq"));
+                byte[] value = mapper.writeValueAsBytes(envelope);
                 producer.send(new org.apache.kafka.clients.producer.ProducerRecord<>(
                         dlqTopic, event.getCustomerId(), value));
             } catch (Exception e) {
@@ -278,10 +373,95 @@ public class TokenUsageAggregator {
                 mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
             }
             try {
-                return mapper.readValue(bytes, TokenEvent.class);
+                JsonNode root = mapper.readTree(bytes);
+                if (root.path("envelopeVersion").asInt(-1) != 1
+                        || !root.path("payload").isObject()
+                        || !root.path("auth").isObject()
+                        || !root.path("receipt").isObject()) {
+                    return malformed(bytes);
+                }
+
+                JsonNode auth = root.path("auth");
+                String trustedCustomer = textOrNull(auth, "customerId");
+                if (trustedCustomer == null || trustedCustomer.isBlank()) {
+                    return malformed(bytes);
+                }
+
+                TokenEvent event = mapper.treeToValue(root.path("payload"), TokenEvent.class);
+                if (event.getEventId() == null || event.getEventId().isBlank()
+                        || event.getModelId() == null || event.getModelId().isBlank()) {
+                    return malformed(bytes);
+                }
+                event.setCustomerId(trustedCustomer);
+                event.setTenantId(textOrNull(auth, "tenantId"));
+                event.setApiKeyId(textOrNull(auth, "apiKeyId"));
+                event.setIngestSource(textOrNull(root, "source"));
+                event.setReceivedAt(root.path("receipt").path("receivedAt").asLong(0));
+                event.setIngestTraceId(textOrNull(root.path("receipt"), "traceId"));
+                event.setReservationId(textOrNull(root.path("reservation"), "reservationId"));
+                event.setReservedUsd(root.path("reservation").path("reservedUsd").asDouble(0));
+                boolean authorizedReplay = "operator".equals(event.getIngestSource())
+                        && root.path("replay").path("authorized").asBoolean(false);
+                event.setAuthorizedReplay(authorizedReplay);
+                if (authorizedReplay && event.getReceivedAt() > 0) {
+                    // Replayed historical events enter a fresh processing window. The original
+                    // event timestamp remains present in the raw DLQ envelope for audit.
+                    event.setTimestamp(event.getReceivedAt());
+                }
+                return event;
             } catch (Exception e) {
-                return null;
+                return malformed(bytes);
             }
         }
+
+        private static TokenEvent malformed(byte[] bytes) {
+            TokenEvent event = new TokenEvent();
+            event.setMalformedEnvelope(true);
+            event.setRawEnvelope(new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+            event.setTimestamp(System.currentTimeMillis());
+            return event;
+        }
+
+        private static String textOrNull(JsonNode node, String field) {
+            JsonNode value = node.path(field);
+            return value.isTextual() && !value.asText().isBlank() ? value.asText() : null;
+        }
     }
+
+    /** Persists unsupported or malformed envelopes for operator inspection. */
+    public static class MalformedEnvelopeSink
+            extends org.apache.flink.streaming.api.functions.sink.RichSinkFunction<TokenEvent> {
+        private final String brokers;
+        private final String topic;
+        private transient org.apache.kafka.clients.producer.KafkaProducer<String, byte[]> producer;
+
+        public MalformedEnvelopeSink(String brokers, String topic) {
+            this.brokers = brokers;
+            this.topic = topic;
+        }
+
+        @Override
+        public void open(org.apache.flink.configuration.Configuration parameters) {
+            java.util.Properties props = new java.util.Properties();
+            props.put("bootstrap.servers", brokers);
+            props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+            props.put("value.serializer", "org.apache.kafka.common.serialization.ByteArraySerializer");
+            props.put("acks", "all");
+            producer = new org.apache.kafka.clients.producer.KafkaProducer<>(props);
+        }
+
+        @Override
+        public void invoke(TokenEvent event, Context context) {
+            producer.send(new org.apache.kafka.clients.producer.ProducerRecord<>(
+                    topic,
+                    "malformed",
+                    event.getRawEnvelope().getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        }
+
+        @Override
+        public void close() {
+            if (producer != null) producer.close();
+        }
+    }
+
 }

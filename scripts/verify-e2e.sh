@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full-stack verification: build → deploy → submit Flink job → integration tests
+# Single-stack verification: build → deploy → automatic Flink job → integration tests
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,9 +30,8 @@ echo "==> Health checks..."
 curl -sf http://localhost:8000/health | grep -q ok && echo "  API: OK" || { echo "  API: FAIL"; exit 1; }
 curl -sf http://localhost:8081 >/dev/null && echo "  Flink: OK" || { echo "  Flink: FAIL"; exit 1; }
 
-echo "==> Submitting Flink job..."
-make submit-job
-sleep 10
+echo "==> Checking ingestion readiness..."
+curl -sf http://localhost:8000/ready | grep -q ready || { echo "  Pipeline: NOT READY"; exit 1; }
 
 echo "==> Running integration tests..."
 pip install -q -r tests/requirements.txt
@@ -40,4 +39,4 @@ pytest tests/test_integration.py -v --timeout=180
 pytest tests/test_e2e_v2.py -v --timeout=300 -m v2
 
 echo ""
-echo "==> Full pipeline verification PASSED"
+echo "==> Pipeline verification PASSED"

@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://fluxmeter.dev/schema/token-event-v1.json",
   "title": "FluxMeter Token Event v1",
-  "description": "One LLM API call's token usage. Kafka topic: token-events. Key: customerId.",
+  "description": "One LLM API call's token usage submitted through the FluxMeter HTTP API.",
   "type": "object",
-  "required": ["customerId", "modelId", "timestamp"],
+  "required": ["customerId", "modelId"],
   "additionalProperties": false,
   "properties": {
     "eventId": {
       "type": "string",
-      "description": "Unique event ID (UUID). Used for deduplication."
+      "description": "Unique event ID. Identical retries are deduplicated for 30 days; reuse with a different payload is rejected."
     },
     "customerId": {
       "type": "string",

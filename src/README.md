@@ -20,9 +20,9 @@ Apache Flink streaming aggregation, budget enforcement, and Redis sinks.
 # → build/libs/fluxmeter-1.x.x.jar
 ```
 
-## Not required for adoption
+## Customer boundary
 
-Integrators can consume `token-events` JSON with any stream processor, or use **lite mode** (`make demo`, alias `make demo-lite`) which aggregates in the API layer without Flink.
+Applications integrate through the HTTP API or Gateway. Kafka and this engine are mandatory internal components; only trusted operator replay and benchmark tools publish directly.
 
 ## Performance-critical internals
 

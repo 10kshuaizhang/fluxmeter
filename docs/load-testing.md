@@ -1,6 +1,6 @@
 # Load Testing
 
-FluxMeter includes a Java Kafka load generator and a staged benchmark script.
+FluxMeter has separate benchmarks for the public HTTP entrance and the internal Kafka/Flink engine. Engine results must not be presented as HTTP ingress throughput.
 
 **Performance overview:** [fluxmeter.dev](https://fluxmeter.dev) · methodology in this doc
 
@@ -8,7 +8,7 @@ FluxMeter includes a Java Kafka load generator and a staged benchmark script.
 
 ```bash
 make build
-make start-full && sleep 15 && make submit-job
+make start-benchmark
 
 # Mac docker-compose honest ceiling: ~25K avg sustained at 50K target tier
 # (Redis Lua sink bound — not Flink). See Reference results below.
@@ -22,11 +22,14 @@ make load-test-quick
 # Known-event correctness (cost/counters) + Flink checkpoint health
 make correctness-bench
 
+# Release gate: 10K single-event HTTP eps and 100K batch-event HTTP eps
+make http-load-test
+
 # Manual infinite run at 1M target
 make generate
 ```
 
-## Exactly-once semantics (Full / Flink)
+## Effectively-once semantics
 
 FluxMeter’s financial EO is **application-level effectively-once**:
 
@@ -54,7 +57,11 @@ Environment variables:
 | `DURATION_SEC` | `20` | Seconds per tier |
 | `QUICK` | `0` | Set `1` to skip 1M tier |
 
-## Reference results (2026-06-22)
+## HTTP entrance release gate
+
+`scripts/http-load-test.py` measures events acknowledged into Kafka through `/ingest` or `/ingest/batch`. The default `make http-load-test` thresholds are 10K events/s for single requests and 100K events/s for batches. Run it against the intended release topology and retain its JSON output; no HTTP result is inferred from the internal benchmark below.
+
+## Internal engine reference results (2026-06-22)
 
 MacBook docker-compose, **3 TaskManagers × 4 slots**, parallelism 12, `fluxmeter-2.6.1`:
 
@@ -62,7 +69,7 @@ MacBook docker-compose, **3 TaskManagers × 4 slots**, parallelism 12, `fluxmete
 |------------|---------|----------|-------|
 | 10K | ~98% | ~23K | Stable |
 | 50K | ~96% | ~130K | Stable |
-| 100K | target | varies | Requires scaled compose (see docker-compose.full.yml) |
+| 100K | target | varies | Requires the benchmark overlay |
 | 500K–1M | burst | ~145K+ | Local Redis Lua sink bound; peak bursts OK |
 
 Prior run (2026-06-21, 1 TM): 50K stable; 100K+ Redis-bound.
@@ -71,11 +78,10 @@ For 500K+ sustained throughput, use multiple TaskManagers, more slots, and produ
 
 ### High-throughput local profile
 
-`docker-compose.full.yml` defaults to 3 TaskManagers (12 slots), Redis 4G + io-threads, Kafka 24 partitions:
+The benchmark overlay keeps the same ingestion semantics while scaling resources and exposing Kafka only for trusted operator load generation:
 
 ```bash
-make start-full     # ~12 GB RAM recommended
-make submit-job     # parallelism 12
+make start-benchmark
 NUM_THREADS=8 make load-test
 ```
 

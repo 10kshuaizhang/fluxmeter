@@ -11,43 +11,47 @@ import uuid
 from typing import Optional
 
 import redis
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
-from fastapi.responses import Response
+from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from auth import (
     create_customer_api_key,
-    record_api_key_spend,
     require_admin_key,
     require_api_key,
     require_customer_access,
-    resolve_customer_from_key,
     resolve_key_context,
+    resolve_tenant_from_key,
     revoke_customer_api_key,
     set_api_key_budget,
 )
 from budget_gate import check_hierarchy_cap, run_budget_check
 from budget_ops import get_effective_balance, reconcile_hold, reserve_hold
-from lite_aggregate_lua import LiteAggregator
-from webhook_deliver import deliver_lite_alerts
 from billing_export import billing_export_loop, link_customer_platform, link_customer_stripe
 from pricing_loader import billing_period_month, get_catalog, reload_catalog
-from rollup_worker import rollup_loop
 from intelligence.intel_alert_worker import intel_alert_loop
 from usage_buckets import read_session, read_usage_bucket, rollup_day_key, rollup_month_key
-from billing_dims import increment_dims, read_dim_usage, validate_metadata
+from billing_dims import read_dim_usage, validate_metadata
+from ingestion import (
+    KafkaUnavailableError,
+    canonical_payload_hash,
+    event_identity_status,
+    publish_with_ack,
+    release_event_identity,
+    remember_event_identity,
+    trusted_envelope,
+)
 
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="3.2.0",
+    version="4.0.0",
 )
 
 from intelligence.routes import router as intelligence_router
 
 app.include_router(intelligence_router)
 
-LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"
 SPEC_OPENAPI_PATH = os.getenv(
     "FLUXMETER_OPENAPI_PATH",
     os.path.join(os.path.dirname(__file__), "..", "spec", "openapi", "openapi.yaml"),
@@ -58,6 +62,11 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or None
 KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "kafka:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "token-events")
+KAFKA_QUARANTINE_TOPIC = os.getenv("KAFKA_QUARANTINE_TOPIC", "token-events-quarantine")
+KAFKA_ACK_TIMEOUT_SECONDS = float(os.getenv("KAFKA_ACK_TIMEOUT_SECONDS", "5"))
+EVENT_MAX_AGE_SECONDS = int(os.getenv("EVENT_MAX_AGE_SECONDS", str(24 * 60 * 60)))
+EVENT_MAX_FUTURE_SECONDS = int(os.getenv("EVENT_MAX_FUTURE_SECONDS", str(5 * 60)))
+FLINK_READY_PROBE_TIMEOUT_SECONDS = float(os.getenv("FLINK_READY_PROBE_TIMEOUT_SECONDS", "3"))
 
 pool = redis.ConnectionPool(
     host=REDIS_HOST,
@@ -66,23 +75,12 @@ pool = redis.ConnectionPool(
     decode_responses=True,
 )
 
-_lite_aggregator = None
-
-
-def get_lite_aggregator():
-    global _lite_aggregator
-    if _lite_aggregator is None:
-        r = redis.Redis(connection_pool=pool)
-        _lite_aggregator = LiteAggregator(r)
-    return _lite_aggregator
-
-
 @app.on_event("startup")
 async def start_background_tasks():
+    if "FLUXMETER_LITE_MODE" in os.environ:
+        raise RuntimeError("FLUXMETER_LITE_MODE was removed in FluxMeter 4.0")
     r = redis.Redis(connection_pool=pool)
     reload_catalog(redis_client=r)
-    if LITE_MODE:
-        asyncio.create_task(rollup_loop(r))
     if os.getenv("STRIPE_API_KEY"):
         asyncio.create_task(billing_export_loop(r))
     if os.getenv("FLUXMETER_INTEL_WEBHOOK_URL") or r.get("intel:webhook:url"):
@@ -169,7 +167,7 @@ class BudgetSetRequest(BaseModel):
 
 
 class PackageSetRequest(BaseModel):
-    tokens: int  # Prepaid token allowance (drawn down on lite ingest)
+    tokens: int  # Prepaid token allowance (drawn down by Flink)
 
 
 class ModelUsage(BaseModel):
@@ -210,9 +208,65 @@ class SessionUsage(BaseModel):
 
 @app.get("/health")
 def health():
+    return {"status": "ok"}
+
+
+@app.get("/ready")
+def ready():
     r = get_redis()
-    r.ping()
-    return {"status": "ok", "mode": "lite" if LITE_MODE else "full"}
+    try:
+        r.ping()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "redis_unavailable", "message": str(exc)},
+        ) from exc
+
+    try:
+        get_kafka_producer().list_topics(timeout=1)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "kafka_unavailable", "message": str(exc)},
+        ) from exc
+
+    probe_id = "ready-" + str(uuid.uuid4())
+    now = int(time.time() * 1000)
+    probe = trusted_envelope(
+        {
+            "eventId": probe_id,
+            "customerId": "__system__",
+            "modelId": "__readiness__",
+            "timestamp": now,
+            "metadata": {"_heartbeat": "true"},
+        },
+        tenant_id=None,
+        api_key_id=None,
+        received_at=now,
+        source="readiness",
+    )
+    try:
+        publish_with_ack(
+            get_kafka_producer(),
+            topic=KAFKA_TOPIC,
+            key=b"__system__",
+            value=json.dumps(probe).encode("utf-8"),
+            timeout_seconds=KAFKA_ACK_TIMEOUT_SECONDS,
+        )
+    except KafkaUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "kafka_unavailable", "message": str(exc)},
+        ) from exc
+    deadline = time.monotonic() + FLINK_READY_PROBE_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if r.get(f"flink:probe:{probe_id}"):
+            return {"status": "ready"}
+        time.sleep(0.02)
+    raise HTTPException(
+        status_code=503,
+        detail={"code": "flink_stale", "message": "Flink did not consume the readiness probe"},
+    )
 
 
 @app.get("/openapi.yaml")
@@ -231,7 +285,6 @@ def get_openapi_spec():
 class IngestEvent(BaseModel):
     customerId: str
     modelId: str
-    tenantId: Optional[str] = None
     provider: str = "openai"
     inputTokens: int = 0
     outputTokens: int = 0
@@ -258,17 +311,13 @@ class ApiKeyBudgetRequest(BaseModel):
 @app.post("/ingest", status_code=202)
 def ingest_event(
     event: IngestEvent,
-    background_tasks: BackgroundTasks,
     _: None = Depends(require_api_key),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
     """Ingest a single token usage event via HTTP.
 
-    Alternative to the Python SDK or direct Kafka producer.
-    Use this when you can't run a Kafka client (serverless, edge, simple integrations).
-
-    The event is produced to Kafka and processed by Flink identically
-    to events sent via the SDK.
+    This is the sole public event entrance. A response is returned only after
+    Kafka acknowledges custody; Flink performs all aggregation and billing.
     """
     require_customer_access(event.customerId, x_api_key)
 
@@ -280,42 +329,76 @@ def ingest_event(
     event_dict = event.model_dump(exclude_none=True)
     if validated_meta:
         event_dict["metadata"] = validated_meta
+    payload_hash = canonical_payload_hash(event_dict)
     if "timestamp" not in event_dict:
         event_dict["timestamp"] = int(time.time() * 1000)
-
-    if LITE_MODE:
-        agg = get_lite_aggregator()
-        result = agg.aggregate(event_dict)
-        if result.get("status") == "ok":
-            r = get_redis()
-            cost = float(result.get("cost_usd") or 0)
-            if validated_meta and cost > 0:
-                increment_dims(r, validated_meta, cost_usd=cost, event_ts_ms=event_dict["timestamp"])
-            _, key_id = resolve_key_context(x_api_key)
-            if key_id and cost > 0:
-                record_api_key_spend(r, key_id, cost)
-        # Lite: fire webhook without Kafka (BUDGET_LOW / BUDGET_EXHAUSTED)
-        background_tasks.add_task(
-            deliver_lite_alerts, get_redis(), event.customerId, result, event.modelId
-        )
-        return Response(status_code=202, content=json.dumps(result),
-                        media_type="application/json")
 
     if "eventId" not in event_dict:
         event_dict["eventId"] = str(uuid.uuid4())
 
-    producer = get_kafka_producer()
-    value = json.dumps(event_dict).encode("utf-8")
-    producer.produce(KAFKA_TOPIC, key=event.customerId.encode("utf-8"), value=value)
-    producer.poll(0)
+    redis_client = get_redis()
+    identity = event_identity_status(redis_client, event_dict["eventId"], payload_hash)
+    if identity == "same":
+        return {"status": "accepted", "eventId": event_dict["eventId"], "idempotent": True}
+    if identity == "pending":
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "event_pending", "message": "event custody is still pending"},
+            headers={"Retry-After": "1"},
+        )
+    if identity == "conflict":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "event_id_conflict",
+                "message": "eventId is already associated with a different payload",
+            },
+        )
 
-    return {"status": "accepted", "eventId": event_dict["eventId"]}
+    _, key_id = resolve_key_context(x_api_key)
+    received_at = int(time.time() * 1000)
+    suspicious_time = (
+        event_dict["timestamp"] < received_at - EVENT_MAX_AGE_SECONDS * 1000
+        or event_dict["timestamp"] > received_at + EVENT_MAX_FUTURE_SECONDS * 1000
+    )
+    envelope = trusted_envelope(
+        event_dict,
+        tenant_id=resolve_tenant_from_key(x_api_key),
+        api_key_id=key_id,
+        received_at=received_at,
+    )
+    if suspicious_time:
+        envelope["quarantine"] = {"reason": "event_time_out_of_range"}
+
+    producer = get_kafka_producer()
+    value = json.dumps(envelope).encode("utf-8")
+    try:
+        publish_with_ack(
+            producer,
+            topic=KAFKA_QUARANTINE_TOPIC if suspicious_time else KAFKA_TOPIC,
+            key=event.customerId.encode("utf-8"),
+            value=value,
+            timeout_seconds=KAFKA_ACK_TIMEOUT_SECONDS,
+        )
+    except KafkaUnavailableError as exc:
+        release_event_identity(redis_client, event_dict["eventId"], payload_hash)
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "kafka_unavailable", "message": str(exc)},
+            headers={"Retry-After": "1"},
+        ) from exc
+
+    remember_event_identity(redis_client, event_dict["eventId"], payload_hash)
+
+    return {
+        "status": "quarantined" if suspicious_time else "accepted",
+        "eventId": event_dict["eventId"],
+    }
 
 
 @app.post("/ingest/batch", status_code=202)
 def ingest_batch(
     events: list[IngestEvent],
-    background_tasks: BackgroundTasks,
     _: None = Depends(require_api_key),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
@@ -330,54 +413,96 @@ def ingest_batch(
     for event in events:
         require_customer_access(event.customerId, x_api_key)
 
-    event_ids = []
-
-    if LITE_MODE:
-        agg = get_lite_aggregator()
-        event_dicts = []
-        for event in events:
-            try:
-                validated_meta = validate_metadata(event.metadata)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            event_dict = event.model_dump(exclude_none=True)
-            if validated_meta:
-                event_dict["metadata"] = validated_meta
-            if "timestamp" not in event_dict:
-                event_dict["timestamp"] = int(time.time() * 1000)
-            event_dicts.append(event_dict)
-        results = agg.aggregate_batch(event_dicts)
-        r = get_redis()
-        _, key_id = resolve_key_context(x_api_key)
-        for event_dict, result in zip(event_dicts, results):
-            if result.get("status") == "ok":
-                cost = float(result.get("cost_usd") or 0)
-                meta = event_dict.get("metadata")
-                if meta and cost > 0:
-                    increment_dims(r, meta, cost_usd=cost, event_ts_ms=event_dict["timestamp"])
-                if key_id and cost > 0:
-                    record_api_key_spend(r, key_id, cost)
-        for event, result in zip(events, results):
-            background_tasks.add_task(
-                deliver_lite_alerts, r, event.customerId, result, event.modelId
-            )
-        return Response(status_code=202, content=json.dumps({"results": results}),
-                        media_type="application/json")
-
-    producer = get_kafka_producer()
+    prepared = []
+    tenant_id = resolve_tenant_from_key(x_api_key)
+    _, key_id = resolve_key_context(x_api_key)
     for event in events:
+        try:
+            validated_meta = validate_metadata(event.metadata)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         event_dict = event.model_dump(exclude_none=True)
+        if validated_meta:
+            event_dict["metadata"] = validated_meta
+        payload_hash = canonical_payload_hash(event_dict)
         if "eventId" not in event_dict:
             event_dict["eventId"] = str(uuid.uuid4())
         if "timestamp" not in event_dict:
             event_dict["timestamp"] = int(time.time() * 1000)
+        prepared.append((event_dict, payload_hash))
 
-        value = json.dumps(event_dict).encode("utf-8")
-        producer.produce(KAFKA_TOPIC, key=event.customerId.encode("utf-8"), value=value)
-        event_ids.append(event_dict["eventId"])
+    producer = get_kafka_producer()
+    redis_client = get_redis()
+    results = []
+    accepted = 0
+    failed = 0
+    conflicts = 0
+    for event_dict, payload_hash in prepared:
+        event_id = event_dict["eventId"]
+        identity = event_identity_status(redis_client, event_id, payload_hash)
+        if identity == "same":
+            accepted += 1
+            results.append({"eventId": event_id, "status": "accepted", "idempotent": True})
+            continue
+        if identity == "pending":
+            failed += 1
+            results.append({"eventId": event_id, "status": "pending", "retryable": True})
+            continue
+        if identity == "conflict":
+            failed += 1
+            conflicts += 1
+            results.append({"eventId": event_id, "status": "conflict", "retryable": False})
+            continue
 
-    producer.flush(timeout=5)
-    return {"status": "accepted", "count": len(events), "event_ids": event_ids}
+        received_at = int(time.time() * 1000)
+        suspicious_time = (
+            event_dict["timestamp"] < received_at - EVENT_MAX_AGE_SECONDS * 1000
+            or event_dict["timestamp"] > received_at + EVENT_MAX_FUTURE_SECONDS * 1000
+        )
+        envelope = trusted_envelope(
+            event_dict,
+            tenant_id=tenant_id,
+            api_key_id=key_id,
+            received_at=received_at,
+        )
+        if suspicious_time:
+            envelope["quarantine"] = {"reason": "event_time_out_of_range"}
+        try:
+            publish_with_ack(
+                producer,
+                topic=KAFKA_QUARANTINE_TOPIC if suspicious_time else KAFKA_TOPIC,
+                key=event_dict["customerId"].encode("utf-8"),
+                value=json.dumps(envelope).encode("utf-8"),
+                timeout_seconds=KAFKA_ACK_TIMEOUT_SECONDS,
+            )
+        except KafkaUnavailableError:
+            release_event_identity(redis_client, event_id, payload_hash)
+            failed += 1
+            results.append({"eventId": event_id, "status": "failed", "retryable": True})
+            continue
+
+        remember_event_identity(redis_client, event_id, payload_hash)
+        accepted += 1
+        results.append({
+            "eventId": event_id,
+            "status": "quarantined" if suspicious_time else "accepted",
+            "idempotent": False,
+        })
+
+    if failed == 0:
+        return JSONResponse(status_code=202, content={"status": "accepted", "results": results})
+    if accepted == 0:
+        if conflicts == failed:
+            return JSONResponse(
+                status_code=409,
+                content={"status": "conflict", "results": results},
+            )
+        return JSONResponse(
+            status_code=503,
+            content={"status": "failed", "results": results},
+            headers={"Retry-After": "1"},
+        )
+    return JSONResponse(status_code=207, content={"status": "partial", "results": results})
 
 
 @app.get("/usage/global", response_model=GlobalUsage, dependencies=[Depends(require_api_key)])
@@ -483,7 +608,7 @@ def get_session_usage(
     _: None = Depends(require_api_key),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
-    """Aggregated usage for a conversation/project session (lite ingest with sessionId)."""
+    """Aggregated usage for a conversation/project session."""
     r = get_redis()
     data = read_session(r, session_id)
     if data is None:
@@ -632,7 +757,7 @@ def topup_customer_budget(customer_id: str, amount_usd: float):
 
 @app.post("/budget/{customer_id}/package", dependencies=[Depends(require_admin_key)])
 def set_customer_package(customer_id: str, req: PackageSetRequest):
-    """Set prepaid token package allowance (lite ingest drawdown)."""
+    """Set prepaid token package allowance (Flink projection drawdown)."""
     if req.tokens < 0:
         raise HTTPException(status_code=400, detail="tokens must be >= 0")
     r = get_redis()

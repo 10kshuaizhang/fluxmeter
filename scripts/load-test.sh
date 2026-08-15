@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Staged load test: 10K → 50K → 100K → 500K → 1M eps (short bursts).
-# Requires: docker-compose stack, Java 17, Flink job submitted.
+# Requires: `make start-benchmark`, Java 17. The Flink job submits automatically.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -30,18 +30,13 @@ check_health() {
   curl -sf "$API/health" | grep -q ok || { echo "API not healthy at $API"; exit 1; }
 }
 
-ensure_flink_job() {
+require_flink_job() {
   if docker exec fluxmeter-jobmanager flink list 2>/dev/null | grep -q RUNNING; then
     log "Flink job: RUNNING"
     return
   fi
-  log "Submitting Flink job..."
-  docker cp "$JAR" fluxmeter-jobmanager:/opt/flink/fluxmeter.jar
-  docker exec fluxmeter-jobmanager flink run -d \
-    -c io.fluxmeter.job.TokenUsageAggregator \
-    /opt/flink/fluxmeter.jar
-  sleep 8
-  docker exec fluxmeter-jobmanager flink list 2>/dev/null | tee -a "$SUMMARY"
+  log "ERROR: automatically submitted Flink job is not RUNNING"
+  exit 1
 }
 
 snapshot_metrics() {
@@ -51,7 +46,7 @@ snapshot_metrics() {
   log "--- $label ---"
   log "  global: $global"
   docker stats --no-stream --format '{{.Name}}: CPU {{.CPUPerc}} MEM {{.MemUsage}}' \
-    fluxmeter-taskmanager-1 fluxmeter-kafka fluxmeter-redis 2>/dev/null | tee -a "$SUMMARY" || true
+    fluxmeter-taskmanager fluxmeter-kafka fluxmeter-redis 2>/dev/null | tee -a "$SUMMARY" || true
 }
 
 run_tier() {
@@ -92,7 +87,7 @@ log "Kafka: $KAFKA_BROKERS | customers=$NUM_CUSTOMERS threads=$NUM_THREADS"
 
 check_health
 snapshot_metrics "baseline"
-ensure_flink_job
+require_flink_job
 
 # Staged tiers (skip 1M if QUICK=1)
 TIERS=(10000 50000 100000 500000)

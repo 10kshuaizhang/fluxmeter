@@ -1,7 +1,7 @@
 """E2E tests for v1.2–v2.0 production hardening (TDD spec for big behavioral changes).
 
 Run:
-    make start && sleep 15 && make submit-job
+    make start
     pytest tests/test_e2e_v2.py -v --timeout=300
 
 Maps to tests/TEST_PLAN.md sections 11–16.
@@ -53,7 +53,7 @@ def stack_ready():
     pricing = httpx.get(f"{API}/pricing", timeout=httpx.Timeout(5.0), headers=api_headers())
     if pricing.status_code == 404:
         pytest.skip(
-            "API is pre-v1.2 — rebuild with docker compose up -d --build api && make submit-job"
+            "API is pre-v1.2 — rebuild with make start"
         )
 
 

@@ -26,7 +26,7 @@ After the call:
   }
 ```
 
-In Lite mode, this is just API + Redis Lua for atomic balance deduction and idempotency. No Kafka or Flink required.
+Every public usage event enters through HTTP. FluxMeter waits for Kafka custody, then Flink performs atomic aggregation and budget deduction in Redis.
 
 For streaming workloads, there is also a reserve/reconcile flow:
 
@@ -45,8 +45,6 @@ available = balance - held
 
 So a customer can be stopped before the next LLM call instead of after a delayed batch query catches up.
 
-There is also a Full mode for higher-volume setups:
-
 ```text
 API → Kafka → Flink → Redis → alerts/webhooks
 ```
@@ -57,11 +55,10 @@ I also included a ClickHouse baseline that consumes from the same Kafka topic. O
 
 Some implementation details:
 
-- Lite path: API → Redis Lua, `make demo`
-- Full path: Kafka + Flink + Redis, `make demo-full`
+- One deployment path: HTTP API + Kafka + Flink + Redis, `make demo`
 - SaaS-style control plane scaffold: `make start-saas`
-- Python SDK on PyPI: `pip install fluxmeter`
-- JS SDK in repo
+- HTTP-only Python SDK on PyPI: `pip install fluxmeter`
+- HTTP-only JS SDK in repo
 - External pricing config via JSON + admin API
 - Microdollar precision using integer arithmetic
 - Multi-provider token normalization

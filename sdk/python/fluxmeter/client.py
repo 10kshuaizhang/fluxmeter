@@ -1,11 +1,8 @@
-"""FluxMeter client — sends token usage events via Kafka or HTTP API."""
+"""FluxMeter HTTP client for AI usage metering."""
 
 from __future__ import annotations
 
 import json
-import logging
-import atexit
-import threading
 import time
 import urllib.error
 import urllib.parse
@@ -15,7 +12,19 @@ from typing import Optional
 from fluxmeter.event import TokenEvent
 from fluxmeter.streaming import StreamingWrapper
 
-logger = logging.getLogger(__name__)
+
+class DeliveryError(RuntimeError):
+    """The SDK could not transfer custody of a usage event to FluxMeter."""
+
+    def __init__(self, event_id: str, message: str):
+        super().__init__(message)
+        self.event_id = event_id
+
+
+class _HTTPStatusError(RuntimeError):
+    def __init__(self, status: int, detail: object):
+        super().__init__(f"HTTP {status}: {detail}")
+        self.status = status
 
 
 def _parse_openai_usage(response) -> dict:
@@ -55,11 +64,7 @@ def _parse_openai_usage(response) -> dict:
 
 
 class FluxMeter:
-    """Main FluxMeter client.
-
-    Modes:
-      - HTTP (Lite/default): ``FluxMeter(api_url="http://localhost:8000")``
-      - Kafka (Full): ``FluxMeter(kafka_brokers="localhost:9094")`` with local WAL
+    """Main HTTP-only FluxMeter client.
 
     Usage:
         from fluxmeter import FluxMeter
@@ -70,52 +75,19 @@ class FluxMeter:
 
     def __init__(
         self,
-        kafka_brokers: Optional[str] = None,
-        api_url: Optional[str] = None,
+        api_url: str = "http://localhost:8000",
         api_key: Optional[str] = None,
-        topic: str = "token-events",
         environment: Optional[str] = None,
-        producer_config: Optional[dict] = None,
-        wal_enabled: bool = True,
-        wal_path: str = "~/.fluxmeter/wal",
+        max_retries: int = 2,
+        retry_base_seconds: float = 0.1,
     ):
-        self._api_url = api_url.rstrip("/") if api_url else None
+        self._api_url = api_url.rstrip("/")
         self._api_key = api_key
-        self._topic = topic
         self._environment = environment
+        self._max_retries = max(0, max_retries)
+        self._retry_base_seconds = max(0.0, retry_base_seconds)
         self._delivery_errors = 0
         self._events_sent = 0
-        self._wal_enabled = wal_enabled
-        self._producer = None
-        self._wal = None
-
-        if self._api_url:
-            atexit.register(self.flush)
-            return
-
-        # Kafka path (Full mode)
-        from confluent_kafka import Producer
-        from fluxmeter.wal import WriteAheadLog
-
-        brokers = kafka_brokers or "localhost:9094"
-        config = {
-            "bootstrap.servers": brokers,
-            "linger.ms": 5,
-            "batch.num.messages": 10000,
-            "compression.type": "lz4",
-            "acks": "all",
-        }
-        if producer_config:
-            config.update(producer_config)
-
-        self._producer = Producer(config)
-
-        if wal_enabled:
-            self._wal = WriteAheadLog(path=wal_path)
-            self._flush_thread = threading.Thread(target=self._wal_flush_loop, daemon=True)
-            self._flush_thread.start()
-
-        atexit.register(self.flush)
 
     def _http_json(self, method: str, path: str, body: Optional[dict] = None, query: Optional[dict] = None) -> dict:
         url = f"{self._api_url}{path}"
@@ -135,9 +107,10 @@ class FluxMeter:
         except urllib.error.HTTPError as e:
             raw = e.read().decode("utf-8")
             try:
-                return json.loads(raw)
+                detail = json.loads(raw)
             except json.JSONDecodeError:
-                raise RuntimeError(f"HTTP {e.code}: {raw}") from e
+                detail = raw
+            raise _HTTPStatusError(e.code, detail) from e
 
     def check(
         self,
@@ -147,9 +120,7 @@ class FluxMeter:
         parent_span_id: Optional[str] = None,
         session_id: Optional[str] = None,
     ) -> dict:
-        """Pre-request budget gate. Requires ``api_url``."""
-        if not self._api_url:
-            raise RuntimeError("check() requires api_url (HTTP mode)")
+        """Pre-request budget gate."""
         return self._http_json(
             "GET",
             f"/budget/{urllib.parse.quote(customer_id, safe='')}/check",
@@ -167,9 +138,7 @@ class FluxMeter:
         *,
         parent_span_id: Optional[str] = None,
     ) -> dict:
-        """Hold estimated cost for streaming. Requires admin-capable ``api_key`` in HTTP mode."""
-        if not self._api_url:
-            raise RuntimeError("reserve() requires api_url (HTTP mode)")
+        """Hold estimated cost for streaming. Requires an admin-capable API key."""
         query: dict[str, object] = {"estimated_cost_usd": estimated_cost_usd}
         if parent_span_id:
             query["parent_span_id"] = parent_span_id
@@ -187,8 +156,6 @@ class FluxMeter:
         *,
         parent_span_id: Optional[str] = None,
     ) -> dict:
-        if not self._api_url:
-            raise RuntimeError("reconcile() requires api_url (HTTP mode)")
         query: dict[str, object] = {"reserved_usd": reserved_usd, "actual_usd": actual_usd}
         if parent_span_id:
             query["parent_span_id"] = parent_span_id
@@ -552,108 +519,29 @@ class FluxMeter:
         )
 
     def _send(self, event: TokenEvent) -> None:
-        """Send event via HTTP ingest or Kafka WAL."""
+        """Send an event over HTTP with bounded, identity-safe retries."""
         event_dict = event.to_dict()
-
-        if self._api_url:
+        last_error: Exception | None = None
+        for attempt in range(self._max_retries + 1):
             try:
                 self._http_json("POST", "/ingest", body=event_dict)
                 self._events_sent += 1
-            except Exception as e:
-                self._delivery_errors += 1
-                logger.debug("HTTP ingest failed: %s", e)
-            return
+                return
+            except Exception as exc:
+                last_error = exc
+                if isinstance(exc, _HTTPStatusError) and not (
+                    exc.status == 429 or exc.status == 503 or exc.status >= 500
+                ):
+                    break
+                if attempt < self._max_retries:
+                    time.sleep(self._retry_base_seconds * (2**attempt))
 
-        if self._wal:
-            self._wal.append(event_dict)
-            return  # WAL flush thread is the sole Kafka sender (no duplicate replay)
-
-        try:
-            value = json.dumps(event_dict, separators=(",", ":")).encode("utf-8")
-            self._producer.produce(
-                topic=self._topic,
-                key=event.customer_id.encode("utf-8"),
-                value=value,
-                on_delivery=self._on_delivery,
-            )
-            self._events_sent += 1
-            self._producer.poll(0)
-        except (BufferError, Exception) as e:
-            self._delivery_errors += 1
-            logger.debug("Kafka send failed: %s", e)
-
-    def _produce_event(self, evt: dict) -> bool:
-        """Send one event to Kafka and wait for broker ack. Returns False on failure."""
-        value = json.dumps(evt, separators=(",", ":")).encode("utf-8")
-        customer_id = evt.get("customerId", "unknown")
-        for _ in range(2):
-            try:
-                self._producer.produce(
-                    topic=self._topic,
-                    key=customer_id.encode("utf-8"),
-                    value=value,
-                    on_delivery=self._on_delivery,
-                )
-                self._producer.flush(timeout=10)
-                self._events_sent += 1
-                return True
-            except BufferError:
-                self._producer.flush(timeout=10)
-            except Exception as e:
-                self._delivery_errors += 1
-                logger.debug("Kafka send failed: %s", e)
-                return False
         self._delivery_errors += 1
-        return False
-
-    def _flush_wal_once(self) -> bool:
-        """Send at most one pending WAL event across all files. Returns True if one was sent."""
-        if not self._wal:
-            return False
-        for f in self._wal.pending_files():
-            offset = self._wal.get_send_offset(f)
-            evt, new_offset = self._wal.read_next_event_from_offset(f, offset)
-            if evt is None:
-                if f != self._wal._current_file and self._wal.is_fully_sent(f):
-                    self._wal.mark_flushed(f, 0)
-                continue
-            if not self._produce_event(evt):
-                return False
-            self._wal.advance_send_offset(f, new_offset)
-            if f != self._wal._current_file and self._wal.is_fully_sent(f):
-                self._wal.mark_flushed(f, 1)
-            return True
-        return False
-
-    def _wal_flush_loop(self) -> None:
-        """Background thread: sends pending WAL events to Kafka one at a time."""
-        while True:
-            time.sleep(1)
-            if not self._wal:
-                break
-            try:
-                while self._flush_wal_once():
-                    pass
-            except Exception as e:
-                logger.debug("WAL flush error: %s", e)
-
-    def _on_delivery(self, err, msg):
-        if err:
-            self._delivery_errors += 1
-            logger.debug("FluxMeter delivery failed: %s", err)
+        raise DeliveryError(event.event_id, f"FluxMeter delivery failed: {last_error}") from last_error
 
     def flush(self, timeout: float = 10.0) -> None:
-        """Flush pending events. Drains WAL before closing (Kafka mode)."""
-        if self._api_url:
-            return
-        if self._wal:
-            deadline = time.time() + timeout
-            while time.time() < deadline and self._flush_wal_once():
-                pass
-        if self._producer:
-            self._producer.flush(timeout=timeout)
-        if self._wal:
-            self._wal.close()
+        """Compatibility no-op: HTTP requests transfer custody synchronously."""
+        return
 
     @property
     def events_sent(self) -> int:

@@ -5,3 +5,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
        https://repo.maven.apache.org/maven2/org/apache/flink/flink-metrics-prometheus/1.18.1/flink-metrics-prometheus-1.18.1.jar \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 USER flink
+COPY --chown=flink:flink build/libs/fluxmeter-4.0.0.jar /opt/flink/usrlib/fluxmeter.jar

@@ -8,9 +8,9 @@ Set Theme "Catppuccin Mocha"
 Set Padding 20
 Set TypingSpeed 20ms
 
-Type "# FluxMeter v2.6.1 — real-time AI token metering + budget enforcement"
+Type "# FluxMeter v4.0.0 — one HTTP ingestion path"
 Enter
-Type "# Lite: Redis + API (make demo) · Full: Kafka + Flink @ 1M+ eps"
+Type "# HTTP → Kafka → Flink → Redis (make demo)"
 Enter
 Sleep 1.2s
 
@@ -40,11 +40,11 @@ Type "# 3. Ingest usage (session + agent span tags for billing queries)"
 Enter
 Sleep 300ms
 
-Type `curl -s -X POST localhost:8000/ingest -H 'Content-Type: application/json' -d '{"customerId":"cust_demo","modelId":"gpt-4o","inputTokens":1200,"outputTokens":450,"sessionId":"sess_demo","parentSpanId":"span_agent_demo"}' | python3 -m json.tool`
+Type `curl -s -X POST localhost:8000/ingest -H 'Content-Type: application/json' -d '{"eventId":"evt-demo-1","customerId":"cust_demo","modelId":"gpt-4o","inputTokens":1200,"outputTokens":450,"sessionId":"sess_demo","parentSpanId":"span_agent_demo"}' | python3 -m json.tool`
 Enter
 Sleep 2s
 
-Type `curl -s -X POST localhost:8000/ingest -H 'Content-Type: application/json' -d '{"customerId":"cust_demo","modelId":"claude-sonnet-4","inputTokens":800,"outputTokens":320,"reasoningTokens":150,"sessionId":"sess_demo","parentSpanId":"span_agent_demo"}' | python3 -m json.tool`
+Type `curl -s -X POST localhost:8000/ingest -H 'Content-Type: application/json' -d '{"eventId":"evt-demo-2","customerId":"cust_demo","modelId":"claude-sonnet-4","inputTokens":800,"outputTokens":320,"reasoningTokens":150,"sessionId":"sess_demo","parentSpanId":"span_agent_demo"}' | python3 -m json.tool`
 Enter
 Sleep 2s
 
@@ -53,6 +53,10 @@ Enter
 Type "# 4. Customer + session billing"
 Enter
 Sleep 300ms
+
+Type `sleep 15 && echo projection_ready`
+Enter
+Sleep 1s
 
 Type `curl -s localhost:8000/usage/customer/cust_demo | python3 -m json.tool`
 Enter
@@ -64,13 +68,9 @@ Sleep 2s
 
 Type ""
 Enter
-Type "# 5. Compact into calendar day/month buckets (lite rollup)"
+Type "# 5. Flink calendar day/month projections"
 Enter
 Sleep 300ms
-
-Type `python3 -c "import sys,time; sys.path.insert(0,'api'); import redis; from rollup_worker import rollup_customer_minute; rollup_customer_minute(redis.Redis(host='localhost',port=6379,decode_responses=True),'cust_demo',int(time.time()))" && echo rollup_ok`
-Enter
-Sleep 1.5s
 
 Type `curl -s localhost:8000/usage/customer/cust_demo/period/$(date -u +%Y-%m) | python3 -m json.tool`
 Enter
@@ -82,11 +82,11 @@ Sleep 2s
 
 Type ""
 Enter
-Type "# 6. Agent task cost (parentSpanId · Full mode Flink; seeded here for demo)"
+Type "# 6. Agent task cost (after the 60s inactivity window)"
 Enter
 Sleep 300ms
 
-Type `python3 -c "import redis; r=redis.Redis(host='localhost',port=6379,decode_responses=True); k='span:span_agent_demo'; r.mset({k+':cost_usd':'0.18',k+':total_tokens':'4200',k+':call_count':'3',k+':duration_ms':'2100',k+':customer_id':'cust_demo'}); print('span_ready')" && curl -s localhost:8000/usage/span/span_agent_demo | python3 -m json.tool`
+Type `sleep 50 && curl -s localhost:8000/usage/span/span_agent_demo | python3 -m json.tool`
 Enter
 Sleep 2s
 

@@ -6,7 +6,7 @@ cd "$ROOT"
 
 command -v vhs >/dev/null || { echo "Install vhs: https://github.com/charmbracelet/vhs"; exit 1; }
 
-echo "==> Starting lite stack..."
+echo "==> Starting FluxMeter stack..."
 docker compose up -d --build
 
 echo "==> Waiting for API..."
@@ -19,7 +19,7 @@ done
 curl -sf http://127.0.0.1:8000/health >/dev/null || { echo "API not ready"; exit 1; }
 
 echo "==> Reset demo customer keys..."
-docker exec fluxmeter-redis-lite redis-cli FLUSHDB >/dev/null
+docker exec fluxmeter-redis redis-cli FLUSHDB >/dev/null
 
 echo "==> Recording demo.tape → demo.gif ..."
 vhs demo.tape

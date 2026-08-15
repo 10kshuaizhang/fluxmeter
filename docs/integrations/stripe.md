@@ -12,7 +12,7 @@ App → FluxMeter (check / ingest) → Redis counters
 
 ## Prerequisites
 
-- FluxMeter API running (Lite or Full)
+- FluxMeter API, Kafka, and Flink running
 - Stripe account with Billing Meters enabled
 - `stripe` Python package in API container (included in `api/requirements.txt`)
 
@@ -68,7 +68,7 @@ After ingest activity, check API logs for `Reported usage for N customers`. In S
 |-------|-----|
 | FluxMeter total vs Stripe meter | Compare `GET /usage/customer/{id}` `event_count` / `cost_usd` with Stripe meter aggregates |
 | Delta tracking | Redis keys `billing:{id}:last_reported_events`, `last_reported_cost_usd` |
-| Tier repricing | Replay Kafka / rerun Lite ingest before syncing corrected totals (see [integrations.md](../integrations.md#re-rating-and-tiered-pricing)) |
+| Tier repricing | Run an authorized Kafka replay before syncing corrected totals (see [integrations.md](../integrations.md#re-rating-and-tiered-pricing)) |
 
 ## Division of responsibility
 

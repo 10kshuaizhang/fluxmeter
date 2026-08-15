@@ -1,30 +1,28 @@
 """Tests for FluxMeter client (provider response parsing)."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from fluxmeter.client import FluxMeter
 
 
 def _mock_meter():
-    """Create a FluxMeter with mocked Kafka producer."""
-    with patch("confluent_kafka.Producer") as mock_producer_cls:
-        mock_producer = MagicMock()
-        mock_producer_cls.return_value = mock_producer
-        meter = FluxMeter(kafka_brokers="localhost:9094", wal_enabled=False)
-        return meter, mock_producer
+    """Create a FluxMeter with its external HTTP boundary replaced."""
+    meter = FluxMeter()
+    http = patch.object(meter, "_http_json", return_value={"status": "accepted"})
+    return meter, http.start()
 
 
 def test_track_basic():
-    meter, producer = _mock_meter()
+    meter, http = _mock_meter()
     event = meter.track("cust_1", "gpt-4o", input_tokens=100, output_tokens=50)
     assert event.customer_id == "cust_1"
     assert event.model_id == "gpt-4o"
     assert event.input_tokens == 100
     assert event.output_tokens == 50
-    assert producer.produce.called
+    assert http.called
 
 
 def test_track_openai_dict_response():
-    meter, producer = _mock_meter()
+    meter, _ = _mock_meter()
     response = {
         "id": "chatcmpl-abc123",
         "model": "gpt-4o-2024-08-06",
@@ -47,7 +45,7 @@ def test_track_openai_dict_response():
 
 
 def test_track_anthropic_dict_response():
-    meter, producer = _mock_meter()
+    meter, _ = _mock_meter()
     response = {
         "id": "msg_abc123",
         "model": "claude-sonnet-4-20250514",
@@ -70,7 +68,7 @@ def test_track_anthropic_dict_response():
 
 
 def test_track_deepseek_dict_response():
-    meter, producer = _mock_meter()
+    meter, http = _mock_meter()
     response = {
         "id": "chatcmpl-ds-001",
         "model": "deepseek-v4-flash",
@@ -86,11 +84,11 @@ def test_track_deepseek_dict_response():
     assert event.input_tokens == 5000
     assert event.output_tokens == 1200
     assert event.cache_read_tokens == 800
-    assert producer.produce.called
+    assert http.called
 
 
 def test_track_qwen_dict_response():
-    meter, producer = _mock_meter()
+    meter, http = _mock_meter()
     response = {
         "id": "chatcmpl-qw-001",
         "model": "qwen-plus",
@@ -101,4 +99,4 @@ def test_track_qwen_dict_response():
     assert event.model_id == "qwen-plus"
     assert event.input_tokens == 3200
     assert event.output_tokens == 900
-    assert producer.produce.called
+    assert http.called

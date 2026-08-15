@@ -2,13 +2,13 @@
 
 **Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Docs:** [fluxmeter.dev/docs](https://fluxmeter.dev/docs) · **Blog:** [Agent cost control](https://fluxmeter.dev/blog/stop-runaway-agent-costs)
 
-Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request — sub-10ms latency, 1M+ events/sec in Full mode. Built for agent loops and prepaid token products where batch billing is too slow. **v3.1** adds Monetization Intelligence v1.0 — pricing optimizer, profitability dashboard, forecasts, alerts, and Finance-ready reports on top of the same metered data.
+Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request. All public usage events enter through HTTP and are durably acknowledged by Kafka before Flink performs billing and aggregation. **v4.0.0** removes the former Lite/Full split.
 
 **When to use FluxMeter:** prepaid token wallets, agent loop cost control, self-hosted LLM metering, export to Stripe/Lago/Orb/Metronome.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v3.1.0** · **Open spec + SDKs** · **1M+ events/sec** · **<10ms budget check** · **Multi-provider**
+**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v4.0.0** · **Open spec + HTTP SDKs** · **<10ms budget check** · **Multi-provider**
 
 **Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [Docs](https://github.com/10kshuaizhang/fluxmeter/tree/main/docs) · [API reference](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
 
@@ -30,7 +30,7 @@ If your customers prepay for tokens and you need to cut them off the instant the
 | **SDKs** | [`sdk/python/`](sdk/python/), [`sdk/js/`](sdk/js/) | Python + JS clients |
 | **Community** | [`contrib/`](contrib/) | Provider mappings, pricing, connectors |
 | **Engine** | [`src/`](src/) | Flink reference implementation (aggregation, budget enforcement) |
-| **Demo** | `make demo` or `make demo-full` | Lite (API→Redis, default) or Full (Kafka→Flink→Redis) |
+| **Demo** | `make demo` | HTTP→Kafka→Flink→Redis |
 
 ## Budget Enforcement (the core feature)
 
@@ -60,19 +60,14 @@ The pre-request check uses a three-layer resilience stack (in-process cache → 
 
 ## Quick Start
 
-**Lite** (1 minute, no Flink — default):
+Start the only supported architecture:
 
 ```bash
 git clone https://github.com/10kshuaizhang/fluxmeter.git
 cd fluxmeter
-make demo
+make demo          # API + Gateway + Kafka + Flink + Redis + Grafana
 ```
 
-**Full** (Kafka + Flink + 1M eps benchmark):
-
-```bash
-make demo-full
-```
 
 Starts Kafka, Flink, Redis, and the API. Open:
 
@@ -80,13 +75,13 @@ Starts Kafka, Flink, Redis, and the API. Open:
 - **Flink UI:** http://localhost:8081
 - **Grafana:** http://localhost:3000
 
-## Integration (3 ways)
+## Integration
 
-**Python SDK** (richest — WAL, auto-extraction, streaming):
+**Python SDK** (HTTP, retry-safe event IDs):
 ```python
 from fluxmeter import FluxMeter
 
-meter = FluxMeter(kafka_brokers="localhost:9094")
+meter = FluxMeter(api_url="http://localhost:8000")
 meter.track_openai("cust_123", openai_response, latency_ms=1200)
 ```
 
@@ -95,7 +90,7 @@ meter.track_openai("cust_123", openai_response, latency_ms=1200)
 from openai import OpenAI
 from fluxmeter import FluxMeter, wrap, BudgetExceededError
 
-meter = FluxMeter(api_url="http://localhost:8000")  # Lite HTTP, no Kafka
+meter = FluxMeter(api_url="http://localhost:8000")
 client = wrap(OpenAI(), meter, customer_id="cust_123", fail_open=True)
 try:
     client.chat.completions.create(model="gpt-4o-mini", messages=[...])
@@ -103,7 +98,7 @@ except BudgetExceededError:
     ...  # never hit the provider
 ```
 
-**JavaScript SDK** (HTTP or Kafka):
+**JavaScript SDK** (HTTP):
 ```typescript
 import { FluxMeter } from "@fluxmeter/client";
 const meter = new FluxMeter({ apiUrl: "http://localhost:8000" });
@@ -117,12 +112,7 @@ curl -X POST localhost:8000/ingest \
   -d '{"customerId":"cust_123","modelId":"gpt-4o","inputTokens":500,"outputTokens":150}'
 ```
 
-**Direct Kafka** (highest throughput — any Kafka client library):
-```
-Topic: token-events
-Format: JSON per spec/schema/token-event-v1.json, keyed by customerId
-OpenAPI: spec/openapi/openapi.yaml
-```
+Kafka is an internal transport. Customer SDKs do not accept broker configuration, and the base deployment does not expose a broker port. The benchmark overlay retains a trusted operator producer for load and recovery tooling.
 
 ## Query API
 
@@ -163,7 +153,7 @@ curl localhost:8000/usage/customer/cust_123/day/2026-07-05
 # Agent platform: cost of one run (set parentSpanId on every child LLM call)
 curl localhost:8000/usage/span/span_agent_42
 
-# Multi-turn project (lite ingest + sessionId)
+# Multi-turn project (set sessionId on each event)
 curl localhost:8000/usage/session/sess_456
 ```
 
@@ -173,16 +163,14 @@ curl localhost:8000/usage/session/sess_456
 | Monthly invoice | — | `GET /usage/customer/{id}/period/{YYYY-MM}` |
 | Today's spend | — | `GET /usage/customer/{id}/day/{YYYY-MM-DD}` |
 | One agent task | `parentSpanId` | `GET /usage/span/{id}` |
-| Conversation / project | `sessionId` (lite) | `GET /usage/session/{id}` |
+| Conversation / project | `sessionId` | `GET /usage/session/{id}` |
 
 ## Architecture
 
 ```
-[Your App] → [Kafka] → [Flink: aggregation] → [Redis] → [API]
-     │              │              │                │
-  SDK/HTTP     budget-alerts   keyed by         Budget check
-  ingest       ← kill signals  (customer,model) (3-layer cache)
-                               10s windows
+[Your App / SDK / Gateway] → [HTTP API] → [Kafka] → [Flink] → [Redis]
+                                                  │            │
+                                            budget alerts   Query API
 ```
 
 **Key design choices:**
@@ -222,12 +210,12 @@ No single-component failure loses billing data:
 
 | Failure | Protection |
 |---------|-----------|
-| Kafka down | SDK writes to local WAL (disk), flushes on recovery |
-| Broker crash | `acks=all` — all replicas have the event |
+| Kafka down | HTTP returns retryable `503`; Gateway retains a Redis outbox record |
+| Broker crash | HTTP custody waits for the configured Kafka acknowledgement |
 | Flink restart | Checkpoints restore state + offsets exactly |
 | Flink replay | Sink idempotency (SET NX) prevents double-counting |
 | Redis restart | AOF persistence + named volume |
-| Duplicate events | Sink-level dedup (SHA-256 window ID, 10-min TTL) |
+| Duplicate events | HTTP event identity registry (30-day TTL) plus idempotent sinks |
 | Late events | Routed to DLQ topic, not silently dropped |
 
 ## Performance
@@ -259,20 +247,14 @@ Estimated cost: ~$1,550/month for 100K events/sec on AWS.
 ## Makefile
 
 ```bash
-make demo        # Lite (default): Redis + API + Grafana
-make demo-full   # Full: build + start-full + submit job + generate
-make demo-lite   # Alias for make demo
-make start       # Start lite stack (default)
-make start-full  # Start full infrastructure (Kafka + Flink)
-make start-lite  # Alias for make start
-make submit-job  # Submit Flink job (full mode)
-make generate    # Run load generator (1M target, continuous)
+make demo        # Build and start the only architecture
+make start       # Start API, Gateway, Kafka, Flink, Redis, workers, Grafana
+make start-benchmark # Scale overlay and expose Kafka for trusted operator tools
+make generate    # Trusted internal load generator (benchmark overlay)
 make load-test   # Staged load test 10K→1M
 make load-test-quick  # Staged 10K→500K
 make test-e2e    # Integration + v2 E2E tests
-make test-lite   # Lite production pytest suite
 make test-unit        # Python + Java unit tests (no Docker)
-make test-unit-redis  # Lite Lua + rollup tests (needs Redis)
 make test-java        # Java unit tests only
 make benchmark        # Streaming vs batch comparison
 make validate-spec    # Validate schema + OpenAPI artifacts
@@ -284,14 +266,14 @@ make clean       # Stop + remove volumes + clean
 
 See **[ROADMAP.md](ROADMAP.md)** for the full plan. Highlights:
 
-- [x] Tiered pricing (flat / volume / graduated) in Lite + Flink — see `contrib/pricing/tiered-example.json`
+- [x] Tiered pricing (flat / volume / graduated) in Flink — see `contrib/pricing/tiered-example.json`
 - [ ] Full multi-tenant RBAC / org model
 - [x] Wrap SDK + mid-stream kill (`wrap(OpenAI())`, `StreamKilledError`) — full HTTP proxy still Phase 5
 - [ ] `@fluxmeter/client` on npm
 - [x] Webhook delivery for budget alerts
 - [x] Customer-scoped API keys
-- [x] Dual-path Lite / Full / SaaS (v2.1–2.2)
-- [x] Python SDK 1.1.0 on PyPI (HTTP lite + Kafka)
+- [x] Single public HTTP entrance backed by Kafka/Flink (v4.0)
+- [x] Python and JavaScript HTTP SDKs
 
 ## Requirements
 

@@ -6,15 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 ./gradlew shadowJar          # Build fat JAR (output: build/libs/fluxmeter-<version>.jar)
-make demo                    # Lite demo (default): Redis + API + Grafana
-make demo-full               # Full demo: build + start Flink stack + submit job + load generator
-make start                   # Start lite infrastructure (Redis, API, Grafana)
-make start-full              # Start full infrastructure (Kafka, Flink, Redis, Grafana)
-make submit-job              # Submit the Flink job to the running cluster (full mode)
-make generate                # Run the load generator locally (needs Java 17, full mode)
-make load-test               # Staged load test (10K→1M eps, full mode)
+make demo                    # Only architecture: HTTP + Kafka + Flink + Redis + Gateway + Grafana
+make start                   # Build and start the base stack; job submits automatically
+make start-benchmark         # Scaled overlay with trusted operator Kafka port
+make generate                # Trusted internal load generator (benchmark profile)
+make load-test               # Staged internal engine load test
 make test-e2e                # Integration + v2 E2E tests
-make test-lite               # Lite production pytest suite
+make test-unit               # Python, SDK, JavaScript, and Java unit tests
 make stop                    # Stop all containers
 make clean                   # Stop containers + clean build artifacts
 ```
@@ -25,8 +23,8 @@ FluxMeter is a streaming metering engine for AI token billing, built on Apache F
 
 **Data flow:**
 ```
-LoadGenerator -> Kafka (token-events topic, 12 partitions)
-    -> Flink TokenUsageAggregator (keyed by customer_id|model_id, 1-min tumbling window)
+Application/SDK -> HTTP API -> Kafka (token-events topic, 12 partitions)
+    -> Flink TokenUsageAggregator (keyed by customer_id|model_id, 10-sec tumbling window)
     -> RedisSink (pipelined writes of aggregated counters)
     -> Grafana (polls Redis for dashboard)
 ```
@@ -39,7 +37,7 @@ LoadGenerator -> Kafka (token-events topic, 12 partitions)
 - Checkpointing every 30s with hashmap state backend
 
 **Infrastructure (docker-compose):**
-- Kafka: KRaft mode (no ZooKeeper), single broker, 12 partitions
+- Kafka: KRaft mode (no ZooKeeper), single broker, 12 partitions, private in base profile
 - Flink: 1 JobManager + 2 TaskManagers (4 slots each = 8 total parallelism)
 - Redis: aggregated counters store (global + per-customer + per-model)
 - Grafana: dashboard on port 3000 (admin/fluxmeter)

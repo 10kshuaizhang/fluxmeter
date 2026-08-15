@@ -23,7 +23,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "api"))
 
 os.environ.setdefault("FLUXMETER_AUTH_OPTIONAL", "true")
-os.environ.setdefault("FLUXMETER_LITE_MODE", "true")
 
 
 def _self_check_deny() -> None:

@@ -2,7 +2,7 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 3.2.1 · Python SDK **1.5.0**  
+**Current version:** 4.0.0 · Python SDK **2.0.0**
 **Current phase:** Pillar B Intelligence (**complete** · 3.0–3.1) · Phase G Gateway (**done**) · Metering (**maintained**) · Phase 7+ (**demand-gated**)  
 **Design status:** APPROVED (2026-06-16) · Intelligence pivot APPROVED (2026-07-11)  
 **Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md) · pivot: [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md)
@@ -42,9 +42,9 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 | Item | Status |
 |------|--------|
-| Lite/Full correctness regression (`make test-java`, `make test-lite`) | Ongoing — green at 3.1.0 |
+| Single HTTP→Kafka→Flink correctness regression | Ongoing — contract, SDK, Gateway, and Java tests added in 4.0.0 |
 | Pricing catalog + exporter maintenance | Ongoing |
-| Python SDK + JS npm publish | Partial — PyPI 1.5.0; npm pack-ready |
+| Python SDK + JS npm publish | Partial — HTTP-only 2.0.0 packages ready for release |
 | Phase G Gateway proxy (side track, non-blocking) | Done — `gateway_app.py` + `:8080` + docs/gateway.md |
 
 ## Foundation F4 Checklist (v2.8 complementary export) — **done**
@@ -212,6 +212,8 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 ---
 
 ## Recent Activity
+
+- **2026-08-15** — **v4.0.0 single path**: public HTTP custody with trusted envelopes and 30-day event identity; Kafka/Flink-only billing; HTTP-only SDKs; Gateway durable outbox/reservation expiry; one base compose architecture and mode-free health/readiness.
 
 - **2026-07-12** — **v3.2.1 Lite lifetime usage fix**: rollup archives `customer:{id}:buf:*` only; `GET /usage/customer/{id}` lifetime totals match Full mode post-rollup.
 - **2026-07-11** — **Intelligence scope closed (MVP)**: Pillar B complete at 3.0–3.1; no 4.0.0 Intelligence track — Phase 7+ demand-gated only.

@@ -6,15 +6,15 @@ import os
 
 import redis
 
-from lite_aggregate_lua import LiteAggregator
+from gateway.outbox import start_worker
 from pricing_loader import reload_catalog
 
-LITE_MODE = os.getenv("FLUXMETER_LITE_MODE", "false").lower() == "true"
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD") or None
 KAFKA_BROKERS = os.getenv("KAFKA_BROKERS", "kafka:9092")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC", "token-events")
+KAFKA_ACK_TIMEOUT_SECONDS = float(os.getenv("KAFKA_ACK_TIMEOUT_SECONDS", "5"))
 UPSTREAM_BASE = os.getenv("GATEWAY_UPSTREAM_BASE", "https://api.openai.com/v1").rstrip("/")
 UPSTREAM_API_KEY = os.getenv("GATEWAY_UPSTREAM_API_KEY") or os.getenv("OPENAI_API_KEY") or ""
 
@@ -25,21 +25,11 @@ pool = redis.ConnectionPool(
     decode_responses=True,
 )
 
-_lite_aggregator: LiteAggregator | None = None
 _kafka_producer = None
 
 
 def get_redis() -> redis.Redis:
     return redis.Redis(connection_pool=pool)
-
-
-def get_lite_aggregator() -> LiteAggregator:
-    global _lite_aggregator
-    if _lite_aggregator is None:
-        r = get_redis()
-        reload_catalog(redis_client=r)
-        _lite_aggregator = LiteAggregator(r)
-    return _lite_aggregator
 
 
 def get_kafka_producer():
@@ -58,4 +48,13 @@ def get_kafka_producer():
 
 def init_gateway() -> None:
     """Startup hook: load pricing catalog."""
+    if "FLUXMETER_LITE_MODE" in os.environ:
+        raise RuntimeError("FLUXMETER_LITE_MODE was removed in FluxMeter 4.0")
     reload_catalog(redis_client=get_redis())
+    if os.getenv("GATEWAY_OUTBOX_WORKER", "true").lower() == "true":
+        start_worker(
+            get_redis,
+            get_kafka_producer,
+            KAFKA_TOPIC,
+            KAFKA_ACK_TIMEOUT_SECONDS,
+        )

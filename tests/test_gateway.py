@@ -11,8 +11,8 @@ import fakeredis
 import pytest
 
 os.environ["FLUXMETER_AUTH_OPTIONAL"] = "true"
-os.environ["FLUXMETER_LITE_MODE"] = "true"
 os.environ["GATEWAY_UPSTREAM_API_KEY"] = "sk-test-upstream"
+os.environ["GATEWAY_OUTBOX_WORKER"] = "false"
 
 sys.path.insert(0, "api")
 
@@ -84,13 +84,30 @@ class _MockAsyncClient:
         return _MockStreamResponse(self._stream_chunks)
 
 
+class _KafkaProducer:
+    def __init__(self):
+        self.error = None
+        self.messages = []
+
+    def produce(self, topic, *, key, value, on_delivery=None):
+        self.messages.append({"topic": topic, "key": key, "value": value})
+        if on_delivery:
+            on_delivery(self.error, None)
+
+    def poll(self, timeout):
+        return 0
+
+
 @pytest.fixture
 def gw(monkeypatch):
     _reset_upstream()
     fake = fakeredis.FakeRedis(decode_responses=True)
+    producer = _KafkaProducer()
     import gateway.deps as deps
+    import auth
 
-    deps._lite_aggregator = None
+    deps._kafka_producer = producer
+    monkeypatch.setattr(auth, "_redis", lambda: fake)
     monkeypatch.setattr(deps, "get_redis", lambda: fake)
     monkeypatch.setattr("gateway.routes.get_redis", lambda: fake)
 
@@ -100,11 +117,11 @@ def gw(monkeypatch):
     monkeypatch.setattr("gateway.proxy.httpx.AsyncClient", client_factory)
     from gateway_app import app
 
-    return TestClient(app), fake
+    return TestClient(app), fake, producer
 
 
 def test_check_denies_before_upstream(gw):
-    client, r = gw
+    client, r, _ = gw
     _setup_customer(r, "cust_deny", balance=0.0)
 
     resp = client.post(
@@ -119,7 +136,7 @@ def test_check_denies_before_upstream(gw):
 
 
 def test_non_stream_ingests_usage(gw, monkeypatch):
-    client, r = gw
+    client, r, producer = gw
     _setup_customer(r, "cust_ok", balance=10.0)
 
     monkeypatch.setattr(
@@ -143,14 +160,18 @@ def test_non_stream_ingests_usage(gw, monkeypatch):
     )
     assert resp.status_code == 200
     assert UPSTREAM_CALLS["n"] == 1
-    cost = float(r.get("customer:cust_ok:cost_usd") or 0)
-    assert cost > 0
-    assert int(r.get("customer:cust_ok:input_tokens") or 0) == 100
-    assert int(r.get("customer:cust_ok:output_tokens") or 0) == 50
+    envelope = json.loads(producer.messages[0]["value"])
+    assert envelope["source"] == "gateway"
+    assert envelope["payload"]["inputTokens"] == 100
+    assert envelope["payload"]["outputTokens"] == 50
+    assert envelope["auth"]["customerId"] == "cust_ok"
+    assert envelope["reservation"]["reservationId"]
+    assert envelope["reservation"]["reservedUsd"] > 0
+    assert float(r.get("budget:cust_ok:held_usd")) > 0
 
 
 def test_stream_kill_under_1s(gw, monkeypatch):
-    client, r = gw
+    client, r, producer = gw
     _setup_customer(r, "cust_kill", balance=10.0)
 
     chunk = json.dumps({"choices": [{"delta": {"content": "x" * 80}}]})
@@ -183,13 +204,12 @@ def test_stream_kill_under_1s(gw, monkeypatch):
     assert "stream_killed" in text or "fluxmeter_budget" in text
     assert elapsed < 1.0
     assert UPSTREAM_CALLS["n"] == 1
-    cost = float(r.get("customer:cust_kill:cost_usd") or 0)
-    assert cost > 0
+    assert producer.messages
 
 
 def test_proxy_only_no_track_sdk(gw, monkeypatch):
     """Usage recorded via Gateway only — no SDK track call."""
-    client, r = gw
+    client, r, producer = gw
     _setup_customer(r, "cust_proxy", balance=5.0)
 
     monkeypatch.setattr(
@@ -211,9 +231,71 @@ def test_proxy_only_no_track_sdk(gw, monkeypatch):
         json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "x"}]},
     )
     assert resp.status_code == 200
-    assert r.get("customer:cust_proxy:event_count") is not None
+    assert producer.messages
+
+
+def test_gateway_keeps_usage_in_durable_outbox_when_kafka_fails(gw, monkeypatch):
+    client, r, producer = gw
+    _setup_customer(r, "cust_outbox", balance=5.0)
+    producer.error = RuntimeError("down")
+    monkeypatch.setattr(
+        "gateway.proxy.httpx.AsyncClient",
+        lambda **kw: _MockAsyncClient(
+            _json_response={
+                "choices": [{"message": {"content": "proxy"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 15},
+            }
+        ),
+    )
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={
+            "X-FluxMeter-Customer-Id": "cust_outbox",
+            "Authorization": "Bearer sk-live",
+        },
+        json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "x"}]},
+    )
+
+    assert response.status_code == 200
+    assert r.zcard("gateway:outbox:pending") == 1
+
+
+def test_non_stream_zero_usage_still_reconciles_reservation_via_flink(gw, monkeypatch):
+    client, r, producer = gw
+    _setup_customer(r, "cust_zero", balance=5.0)
+    monkeypatch.setattr(
+        "gateway.proxy.httpx.AsyncClient",
+        lambda **kw: _MockAsyncClient(
+            _json_response={"choices": [{"message": {"content": "ok"}}], "usage": {}}
+        ),
+    )
+
+    response = client.post(
+        "/v1/chat/completions",
+        headers={
+            "X-FluxMeter-Customer-Id": "cust_zero",
+            "Authorization": "Bearer sk-live",
+        },
+        json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "x"}]},
+    )
+
+    assert response.status_code == 200
+    assert len(producer.messages) == 1
+    assert json.loads(producer.messages[0]["value"])["reservation"]["reservedUsd"] > 0
 
 
 def test_health(gw):
-    client, _ = gw
+    client, _, _ = gw
     assert client.get("/health").json()["status"] == "ok"
+
+
+def test_poison_outbox_record_does_not_block_following_events(gw):
+    _, r, producer = gw
+    from gateway.outbox import PENDING_KEY, flush_once
+
+    r.set("gateway:outbox:event:bad", "not-json")
+    r.zadd(PENDING_KEY, {"bad": 1})
+    assert flush_once(r, producer, "token-events", 1) is True
+    assert r.zcard(PENDING_KEY) == 0
+    assert r.llen("gateway:outbox:dead") == 1

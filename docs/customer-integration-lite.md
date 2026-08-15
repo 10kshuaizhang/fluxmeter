@@ -1,5 +1,7 @@
 # Lite 模式客户接入实施方案
 
+> FluxMeter 4.0 已移除 Lite 模式。请使用 [`migration-4.0.md`](migration-4.0.md) 和 [`api-reference.md`](api-reference.md)；以下内容仅保留为历史迁移参考。
+
 **版本：** 基于 FluxMeter **v2.6.2**  
 **适用路径：** Lite（`FLUXMETER_LITE_MODE=true`，API → Redis Lua，无 Kafka/Flink）  
 **客户：**  

@@ -10,7 +10,7 @@ from gateway.routes import router
 app = FastAPI(
     title="FluxMeter Gateway",
     description="OpenAI-compatible proxy with budget check, reserve, mid-stream kill, and auto-ingest",
-    version="3.2.0",
+    version="4.0.0",
 )
 
 app.include_router(router)

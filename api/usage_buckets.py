@@ -65,7 +65,7 @@ def increment_session(
     cache_read_tokens: int = 0,
     reasoning_tokens: int = 0,
 ) -> None:
-    """Accumulate usage for a conversation/project session (lite ingest path)."""
+    """Accumulate usage for a conversation/project session."""
     key = f"session:{session_id}"
     pipe = r.pipeline()
     pipe.set(f"{key}:customer_id", customer_id, ex=SESSION_TTL_SEC)
@@ -96,7 +96,7 @@ def increment_span(
     cost_usd: float,
     event_ts_ms: int,
 ) -> None:
-    """Accumulate usage for an agent run (lite ingest; key = parentSpanId)."""
+    """Accumulate usage for an agent run (key = parentSpanId)."""
     key = f"span:{span_id}"
     cust_key = customer_prefix(tenant_id, customer_id)
     pipe = r.pipeline()

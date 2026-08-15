@@ -14,19 +14,29 @@ import org.apache.flink.util.Collector;
  * Deduplicates events by eventId using Flink keyed state with TTL.
  *
  * If the same eventId arrives twice (SDK retry, Kafka redelivery), the second
- * one is dropped. State expires after 1 hour to bound memory usage.
+ * one is dropped. State expires after the billable replay horizon.
  *
  * Key: eventId
  * State: boolean (seen or not)
- * TTL: 1 hour
+ * TTL: EVENT_ID_TTL_SECONDS (30 days by default)
  */
 public class EventDeduplicator extends KeyedProcessFunction<String, TokenEvent, TokenEvent> {
 
     private transient ValueState<Boolean> seenState;
+    private final long ttlSeconds;
+
+    public EventDeduplicator() {
+        this(Long.parseLong(System.getenv().getOrDefault(
+                "EVENT_ID_TTL_SECONDS", String.valueOf(30L * 24 * 60 * 60))));
+    }
+
+    EventDeduplicator(long ttlSeconds) {
+        this.ttlSeconds = ttlSeconds;
+    }
 
     @Override
     public void open(Configuration parameters) {
-        StateTtlConfig ttlConfig = StateTtlConfig.newBuilder(Time.hours(1))
+        StateTtlConfig ttlConfig = StateTtlConfig.newBuilder(Time.seconds(ttlSeconds))
                 .setUpdateType(StateTtlConfig.UpdateType.OnCreateAndWrite)
                 .setStateVisibility(StateTtlConfig.StateVisibility.NeverReturnExpired)
                 .cleanupFullSnapshot()

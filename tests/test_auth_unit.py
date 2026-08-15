@@ -41,3 +41,13 @@ class TestRequireCustomerAccess:
         with pytest.raises(HTTPException) as exc:
             require_customer_access("cust_b", x_api_key="fm_live_test")
         assert exc.value.status_code == 403
+
+    def test_control_plane_tenant_key_may_ingest_tenant_customer(self, monkeypatch):
+        monkeypatch.setattr("auth.is_global_api_key", lambda _k: False)
+        monkeypatch.setattr("auth.resolve_customer_from_key", lambda _k: None)
+        monkeypatch.setattr(
+            "auth.resolve_tenant_from_key",
+            lambda key: "tenant_a" if key == "cp_tenant_key" else None,
+        )
+
+        require_customer_access("cust_inside_tenant", x_api_key="cp_tenant_key")

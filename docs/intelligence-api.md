@@ -350,7 +350,7 @@ Or set env: `FLUXMETER_INTEL_WEBHOOK_URL`, `FLUXMETER_INTEL_WEBHOOK_SECRET`. Bac
 
 | Source | Provides |
 |--------|----------|
-| FluxMeter native (Lite/Full ingest) | Usage, cost rollups, model/dim attribution |
+| FluxMeter native (HTTP → Kafka → Flink) | Usage, cost rollups, model/dim attribution |
 | OpenMeter overlay | Revenue per customer via `/import/openmeter` |
 | Manual admin POST | Revenue per customer via `/revenue/{customer_id}` |
 

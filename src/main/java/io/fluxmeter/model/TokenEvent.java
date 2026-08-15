@@ -21,6 +21,17 @@ public class TokenEvent implements Serializable {
     private String spanId;         // Agent/trace span ID for observability
     private String parentSpanId;   // Parent span (links child LLM calls to agent run)
 
+    // Trusted ingestion envelope (server/operator supplied, never client payload)
+    private String apiKeyId;
+    private String ingestSource;
+    private String ingestTraceId;
+    private String reservationId;
+    private double reservedUsd;
+    private long receivedAt;
+    private boolean malformedEnvelope;
+    private String rawEnvelope;
+    private boolean authorizedReplay;
+
     // Provider & Model
     private String provider;       // "openai", "anthropic", "google", "azure"
     private String modelId;        // "gpt-4o", "claude-sonnet-4-6", etc.
@@ -80,6 +91,33 @@ public class TokenEvent implements Serializable {
 
     public String getParentSpanId() { return parentSpanId; }
     public void setParentSpanId(String parentSpanId) { this.parentSpanId = parentSpanId; }
+
+    public String getApiKeyId() { return apiKeyId; }
+    public void setApiKeyId(String apiKeyId) { this.apiKeyId = apiKeyId; }
+
+    public String getIngestSource() { return ingestSource; }
+    public void setIngestSource(String ingestSource) { this.ingestSource = ingestSource; }
+
+    public String getIngestTraceId() { return ingestTraceId; }
+    public void setIngestTraceId(String ingestTraceId) { this.ingestTraceId = ingestTraceId; }
+
+    public String getReservationId() { return reservationId; }
+    public void setReservationId(String reservationId) { this.reservationId = reservationId; }
+
+    public double getReservedUsd() { return reservedUsd; }
+    public void setReservedUsd(double reservedUsd) { this.reservedUsd = reservedUsd; }
+
+    public long getReceivedAt() { return receivedAt; }
+    public void setReceivedAt(long receivedAt) { this.receivedAt = receivedAt; }
+
+    public boolean isMalformedEnvelope() { return malformedEnvelope; }
+    public void setMalformedEnvelope(boolean malformedEnvelope) { this.malformedEnvelope = malformedEnvelope; }
+
+    public String getRawEnvelope() { return rawEnvelope; }
+    public void setRawEnvelope(String rawEnvelope) { this.rawEnvelope = rawEnvelope; }
+
+    public boolean isAuthorizedReplay() { return authorizedReplay; }
+    public void setAuthorizedReplay(boolean authorizedReplay) { this.authorizedReplay = authorizedReplay; }
 
     public String getProvider() { return provider; }
     public void setProvider(String provider) { this.provider = provider; }

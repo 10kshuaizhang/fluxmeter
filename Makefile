@@ -1,89 +1,59 @@
-.PHONY: build demo demo-full demo-lite demo-gateway start start-full start-lite start-saas stop-saas stop clean generate submit-job benchmark correctness-bench validate-spec load-test load-test-quick test-e2e test-lite test-unit test-unit-redis test-java
+.PHONY: build demo demo-gateway start start-saas start-benchmark stop stop-saas clean generate benchmark correctness-bench validate-spec load-test load-test-quick http-load-test test-e2e test-unit test-java
 
 JAR = $(shell ls -t build/libs/fluxmeter-*.jar 2>/dev/null | head -1)
 
-# Build the fat JAR (only needed for full/Flink mode)
+# Build the Flink metering engine embedded in the runtime image.
 build:
 	./gradlew shadowJar
 
-# --- LITE MODE (default) ---
-
-# One-command lite demo: Redis + API + Grafana
+# One-command demo for the only architecture.
 demo: start
 	@echo ""
 	@echo "==================================="
-	@echo " FluxMeter Demo Running (Lite Mode)"
+	@echo " FluxMeter 4.0 — HTTP → Kafka → Flink → Redis"
 	@echo "==================================="
-	@echo " API:     http://localhost:8000/docs"
-	@echo " Gateway: http://localhost:8080/v1/chat/completions (OpenAI-compatible proxy)"
-	@echo " Grafana: http://localhost:3000 (admin/fluxmeter)"
+	@echo " API:           http://localhost:8000/docs"
+	@echo " Intelligence:  http://localhost:8000/docs#/intelligence"
+	@echo " Gateway:       http://localhost:8080/v1/chat/completions"
+	@echo " Grafana:       http://localhost:3000 (admin/fluxmeter)"
 	@echo ""
-	@echo " Try: curl -X POST localhost:8000/ingest -H 'Content-Type: application/json' \\"
-	@echo "   -d '{\"customerId\":\"cust_1\",\"modelId\":\"gpt-4o\",\"inputTokens\":100,\"outputTokens\":50}'"
+	@echo " Flink UI:      http://localhost:8081"
+	@echo ""
+	@echo " Gateway example:"
+	@echo "   curl localhost:8080/v1/chat/completions \\"
+	@echo "     -H 'X-FluxMeter-Customer-Id: cust_1' -H 'Authorization: Bearer \$$OPENAI_API_KEY' \\"
+	@echo "     -d '{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}'"
 	@echo "==================================="
 
-# Backward-compatible alias
-demo-lite: demo
 
 # Gateway mock self-check (no live OpenAI)
 demo-gateway:
 	PYTHONPATH=api python demos/gateway_demo.py
 
-# Start lite infrastructure (default)
-start:
+# Build and start Kafka, Flink, Redis, API, Gateway, webhook worker, and Grafana.
+start: build
 	docker compose up -d --build
-	@echo "Lite stack started. API aggregates directly to Redis (no Flink)."
+	@echo "FluxMeter started. The Flink job is submitted automatically."
 
-# Backward-compatible alias
-start-lite: start
-
-# --- FULL MODE (Kafka + Flink) ---
-
-# Full demo: build + start infra + submit job + run generator
-demo-full: build start-full
-	@echo "Waiting for Flink cluster to be ready..."
-	@sleep 10
-	@$(MAKE) submit-job
-	@echo ""
-	@echo "==================================="
-	@echo " FluxMeter Demo Running (Full Mode)"
-	@echo "==================================="
-	@echo " API:       http://localhost:8000/docs"
-	@echo " Flink UI:  http://localhost:8081"
-	@echo " Grafana:   http://localhost:3000 (admin/fluxmeter)"
-	@echo ""
-	@echo " Starting load generator (Ctrl+C to stop)..."
-	@echo "==================================="
-	@$(MAKE) generate
-
-# Start full infrastructure (Kafka, Flink, Redis, API, Grafana)
-start-full:
-	docker compose -f docker-compose.full.yml up -d --build
-	@echo "Full stack started. Kafka, Flink, Redis, API, Grafana running."
-
-# --- SHARED ---
+start-benchmark: build
+	docker compose -f docker-compose.yml -f docker-compose.benchmark.yml up -d --build
 
 # Stop everything
 stop:
 	docker compose down 2>/dev/null || true
-	docker compose -f docker-compose.full.yml down 2>/dev/null || true
-	docker compose -f docker-compose.saas.yml down 2>/dev/null || true
+	docker compose -f docker-compose.yml -f docker-compose.saas.yml down 2>/dev/null || true
+	docker compose -f docker-compose.yml -f docker-compose.benchmark.yml down 2>/dev/null || true
 
 # Clean build artifacts and containers
 clean: stop
 	./gradlew clean
 	docker compose down -v 2>/dev/null || true
-	docker compose -f docker-compose.full.yml down -v 2>/dev/null || true
-	docker compose -f docker-compose.saas.yml down -v 2>/dev/null || true
+	docker compose -f docker-compose.yml -f docker-compose.saas.yml down -v 2>/dev/null || true
+	docker compose -f docker-compose.yml -f docker-compose.benchmark.yml down -v 2>/dev/null || true
 
 # Validate open spec artifacts
 validate-spec:
 	./scripts/validate-spec.sh
-
-# Tests
-test-lite:
-	pip install -q -r tests/requirements.txt
-	pytest tests/test_lite_production.py -v --timeout=60
 
 test-e2e:
 	pip install -q -r tests/requirements.txt
@@ -96,28 +66,17 @@ test-unit:
 		tests/test_hierarchy_reserve.py tests/test_api_key_budget.py tests/test_billing_dims.py \
 		tests/test_control_plane_models.py tests/test_tenant_keys.py \
 		tests/test_pricing_loader.py tests/test_pricing_validate.py \
-		tests/test_rerate_tier.py tests/test_phase2_billing.py tests/test_gateway.py -v --timeout=60
+		tests/test_rerate_tier.py tests/test_phase2_billing.py tests/test_gateway.py \
+		tests/test_ingestion_contract.py tests/test_reservation_expiry.py \
+		tests/test_webhook_worker.py -v --timeout=60
+	PYTHONPATH=sdk/python pytest sdk/python/tests -q
+	cd sdk/js && npm run build
 	./gradlew test -q
-
-test-unit-redis:
-	pytest tests/test_lite_aggregate_unit.py tests/test_rollup.py \
-		tests/test_usage_buckets.py tests/test_tier_e2e.py -v --timeout=60
 
 test-java:
 	./gradlew test
 
-# Submit the Flink job to the cluster (parallelism 12 = 4 TM × 4 slots, capped for local Redis)
-FLINK_PARALLELISM ?= 12
-
-submit-job:
-	docker cp $(JAR) fluxmeter-jobmanager:/opt/flink/fluxmeter.jar
-	docker exec fluxmeter-jobmanager flink run \
-		-d \
-		-p $(FLINK_PARALLELISM) \
-		-c io.fluxmeter.job.TokenUsageAggregator \
-		/opt/flink/fluxmeter.jar
-
-# Staged load test (full mode, 10K → 1M eps bursts)
+# Staged internal engine load test (10K → 1M eps bursts)
 load-test:
 	./scripts/load-test.sh
 
@@ -125,16 +84,21 @@ load-test:
 load-test-quick:
 	QUICK=1 ./scripts/load-test.sh
 
+# Measure the supported customer entrance independently of internal Kafka throughput.
+http-load-test:
+	python3 scripts/http-load-test.py --mode single --min-eps 10000
+	python3 scripts/http-load-test.py --mode batch --min-eps 100000
+
 # Run the baseline comparison (Flink vs ClickHouse)
 benchmark:
 	./baseline/benchmark.sh
 
-# Known-event correctness + Flink checkpoint health (full mode)
+# Known-event correctness + Flink checkpoint health
 correctness-bench:
 	chmod +x scripts/correctness-bench.sh
 	./scripts/correctness-bench.sh
 
-# Run the load generator locally (requires Java 17, full mode)
+# Trusted operator load generator (benchmark overlay exposes Kafka locally).
 generate:
 	KAFKA_BROKERS=localhost:9094 \
 	NUM_CUSTOMERS=10000 \
@@ -142,11 +106,9 @@ generate:
 	TARGET_EPS=1000000 \
 	java -cp $(JAR) io.fluxmeter.generator.LoadGenerator
 
-# --- SAAS MODE ---
-
-start-saas:
-	docker compose -f docker-compose.saas.yml up -d --build
+start-saas: build
+	docker compose -f docker-compose.yml -f docker-compose.saas.yml up -d --build
 	@echo "SaaS stack started. API :8000, Control Plane :8001, Grafana :3000"
 
 stop-saas:
-	docker compose -f docker-compose.saas.yml down
+	docker compose -f docker-compose.yml -f docker-compose.saas.yml down

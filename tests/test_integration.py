@@ -1,12 +1,11 @@
 """FluxMeter integration tests — correctness verification for billing scenarios.
 
 Run with: pytest tests/test_integration.py -v --timeout=120
-Requires: docker-compose stack running, Flink job submitted.
+Requires: docker-compose stack running (the Flink job submits automatically).
 
 Setup before running:
     make start
     sleep 15
-    make submit-job
     pytest tests/test_integration.py -v
 """
 

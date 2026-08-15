@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # FluxMeter Baseline Comparison: Flink (streaming) vs ClickHouse (store-then-query)
-# Run this AFTER `make demo-full` has the pipeline running
+# Run this after `make start-benchmark` has the pipeline running.
 
 CLICKHOUSE_URL="http://localhost:8123"
 REDIS_CLI="docker exec fluxmeter-redis redis-cli"

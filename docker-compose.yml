@@ -1,81 +1,169 @@
-# Lite stack: Redis + API + Grafana — no Kafka/Flink. 1-minute try.
-version: '3.8'
-
+# FluxMeter 4.0 base architecture: HTTP -> Kafka -> Flink -> Redis.
 services:
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: fluxmeter-kafka
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_NUM_PARTITIONS: 12
+      CLUSTER_ID: fluxmeter-cluster-001
+    mem_limit: 768m
+
+  kafka-init:
+    image: apache/kafka:3.7.0
+    depends_on: [kafka]
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        until /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server kafka:9092 >/dev/null 2>&1; do sleep 2; done
+        for topic in token-events budget-alerts token-events-dlq token-events-quarantine; do
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic "$$topic" --partitions 12 --replication-factor 1
+        done
+    restart: "no"
+
   redis:
     image: redis:7-alpine
-    container_name: fluxmeter-redis-lite
-    ports:
-      - "6379:6379"
-    command: redis-server --appendonly yes --appendfsync everysec
-    volumes:
-      - redis-lite-data:/data
-    deploy:
-      resources:
-        limits:
-          memory: 512M
+    container_name: fluxmeter-redis
+    restart: unless-stopped
+    ports: ["6379:6379"]
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory 384mb --maxmemory-policy noeviction
+    volumes: [redis-data:/data]
+    mem_limit: 512m
+
+  jobmanager:
+    build:
+      context: .
+      dockerfile: flink/Dockerfile
+    container_name: fluxmeter-jobmanager
+    restart: unless-stopped
+    ports: ["8081:8081"]
+    command: jobmanager
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      CHECKPOINT_DIR: file:///opt/flink/checkpoints
+      PRICING_FILE: /opt/flink/usrlib/pricing.json
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 2
+        state.backend: hashmap
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+    volumes: [flink-checkpoints:/opt/flink/checkpoints]
+    mem_limit: 768m
+
+  taskmanager:
+    build:
+      context: .
+      dockerfile: flink/Dockerfile
+    container_name: fluxmeter-taskmanager
+    restart: unless-stopped
+    depends_on: [jobmanager]
+    command: taskmanager
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      CHECKPOINT_DIR: file:///opt/flink/checkpoints
+      PRICING_FILE: /opt/flink/usrlib/pricing.json
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        taskmanager.memory.process.size: 1024m
+        state.backend: hashmap
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+    volumes: [flink-checkpoints:/opt/flink/checkpoints]
+    mem_limit: 1152m
+
+  job-submitter:
+    build:
+      context: .
+      dockerfile: flink/Dockerfile
+    depends_on: [kafka-init, jobmanager, taskmanager, redis]
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        until curl -sf http://jobmanager:8081/overview >/dev/null; do sleep 2; done
+        flink run -d -p 2 -c io.fluxmeter.job.TokenUsageAggregator /opt/flink/usrlib/fluxmeter.jar
+    environment:
+      KAFKA_BROKERS: kafka:9092
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      CHECKPOINT_DIR: file:///opt/flink/checkpoints
+    restart: "no"
 
   api:
     build:
       context: .
       dockerfile: api/Dockerfile
-    container_name: fluxmeter-api-lite
-    ports:
-      - "8000:8000"
+    container_name: fluxmeter-api
+    restart: unless-stopped
+    ports: ["8000:8000"]
     environment:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-      FLUXMETER_LITE_MODE: "true"
+      KAFKA_BROKERS: kafka:9092
       FLUXMETER_AUTH_OPTIONAL: "true"
-      BUDGET_FAIL_POLICY: "open"
-    depends_on:
-      - redis
-    deploy:
-      resources:
-        limits:
-          memory: 256M
+      BUDGET_FAIL_POLICY: open
+    depends_on: [kafka-init, redis, job-submitter]
+    mem_limit: 256m
 
   gateway:
     build:
       context: .
       dockerfile: api/Dockerfile
-    container_name: fluxmeter-gateway-lite
+    container_name: fluxmeter-gateway
+    restart: unless-stopped
     command: uvicorn gateway_app:app --host 0.0.0.0 --port 8080
-    ports:
-      - "8080:8080"
+    ports: ["8080:8080"]
     environment:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-      FLUXMETER_LITE_MODE: "true"
+      KAFKA_BROKERS: kafka:9092
       FLUXMETER_AUTH_OPTIONAL: "true"
-      BUDGET_FAIL_POLICY: "open"
+      BUDGET_FAIL_POLICY: open
       GATEWAY_UPSTREAM_BASE: https://api.openai.com/v1
-    depends_on:
-      - redis
-    deploy:
-      resources:
-        limits:
-          memory: 256M
+    depends_on: [kafka-init, redis, job-submitter]
+    mem_limit: 256m
+
+  webhook-worker:
+    build:
+      context: .
+      dockerfile: api/Dockerfile.webhook
+    container_name: fluxmeter-webhook-worker
+    restart: unless-stopped
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      KAFKA_BROKERS: kafka:9092
+      ALERT_TOPIC: budget-alerts
+    depends_on: [kafka-init, redis]
+    mem_limit: 128m
 
   grafana:
     image: grafana/grafana:10.3.1
-    container_name: fluxmeter-grafana-lite
-    ports:
-      - "3000:3000"
+    container_name: fluxmeter-grafana
+    ports: ["3000:3000"]
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: fluxmeter
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_INSTALL_PLUGINS: redis-datasource
-    volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
-    depends_on:
-      - redis
-    deploy:
-      resources:
-        limits:
-          memory: 512M
+    volumes: [./grafana/provisioning:/etc/grafana/provisioning]
+    depends_on: [redis]
+    mem_limit: 512m
 
 volumes:
-  redis-lite-data:
+  redis-data:
+  flink-checkpoints:

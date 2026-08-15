@@ -45,7 +45,7 @@ Each category is priced independently. Set only fields present in the provider r
 
 | Field | Description |
 |-------|-------------|
-| `sessionId` | Conversation/project ID for multi-turn attribution. Query via `GET /usage/session/{sessionId}` (lite ingest; 90d TTL). |
+| `sessionId` | Conversation/project ID for multi-turn attribution. Query via `GET /usage/session/{sessionId}` (90d TTL). |
 | `environment` | `production`, `staging`, or `development`. |
 | `metadata` | Free-form string map (feature flags, plan tier, etc.). |
 
@@ -53,12 +53,12 @@ Each category is priced independently. Set only fields present in the provider r
 
 - **Topic**: `token-events`
 - **Key**: `customerId` (bytes)
-- **Value**: JSON matching `token-event-v1.json`
-- **Serde**: camelCase keys (Java Jackson + Python SDK)
+- **Value**: versioned trusted envelope containing `payload`, server-derived `auth`, and `receipt`
+- **Serde**: camelCase public payload inside the internal envelope
 
 ## Aggregation keys
 
 Flink keyed stream: `customerId|modelId` composite string.
 Span attribution keyed by `parentSpanId` in session windows → `GET /usage/span/{id}` (24h TTL).
-Session counters keyed by `sessionId` on lite ingest → `GET /usage/session/{id}` (90d TTL).
+Session counters keyed by `sessionId` in the Flink projection → `GET /usage/session/{id}` (90d TTL).
 Calendar billing buckets: `rollup:{customerId}:period:{YYYY-MM}`, `rollup:{customerId}:d:{YYYY-MM-DD}`.

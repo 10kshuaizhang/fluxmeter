@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
-from auth import require_api_key, require_customer_access, resolve_key_context
+from auth import require_api_key, require_customer_access, resolve_key_context, resolve_tenant_from_key
 from gateway.deps import get_redis
 from gateway.proxy import handle_chat_completion
 
@@ -51,4 +51,5 @@ async def chat_completions(
         parent_span_id=x_fluxmeter_span_id,
         session_id=x_fluxmeter_session_id,
         key_id=key_id,
+        tenant_id=resolve_tenant_from_key(x_api_key),
     )

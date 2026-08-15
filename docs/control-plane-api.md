@@ -122,7 +122,7 @@ Tenant-scoped usage vs plan limits.
 
 **Error:** `404` if tenant not found.
 
-Usage counters (`tenant:{tenant_id}:total_events`, etc.) are populated when events include `tenantId` and flow through Flink full mode with tenant-scoped Redis keys.
+Usage counters (`tenant:{tenant_id}:total_events`, etc.) are populated from the authentication-derived tenant envelope after Flink processing.
 
 ---
 

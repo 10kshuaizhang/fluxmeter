@@ -33,7 +33,7 @@ public class RedisSink extends RichSinkFunction<UsageAggregate> {
     // ARGV[8]=window_end
     // ARGV[9]=rollup TTL sec
     static final String SINK_LUA_SCRIPT =
-            "if redis.call('SET', KEYS[1], '1', 'NX', 'EX', '3600') == false then\n" +
+            "if redis.call('SET', KEYS[1], '1', 'NX', 'EX', '2592000') == false then\n" +
             "  return 'SKIP'\n" +
             "end\n" +
             "redis.call('INCRBY', KEYS[2], ARGV[1])\n" +

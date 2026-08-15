@@ -45,38 +45,6 @@ class TestBillingExportModes:
             be.BILLING_EXPORT_PERIOD = old
 
 
-class TestPackageDrawdown:
-    def test_package_exhausted_rejects(self):
-        import redis
-        try:
-            r = redis.Redis(host="localhost", port=6379, decode_responses=True)
-            r.ping()
-        except redis.ConnectionError:
-            pytest.skip("Redis not available")
-
-        import json
-        import uuid
-        from pathlib import Path
-
-        from lite_aggregate_lua import LiteAggregator
-        from pricing_loader import PricingCatalog, reload_catalog
-
-        reload_catalog(PricingCatalog.load_from_file())
-        agg = LiteAggregator(r)
-        cid = f"pkg_{uuid.uuid4().hex[:8]}"
-        r.set(f"package:{cid}:tokens_remaining", "50")
-
-        result = agg.aggregate({
-            "customerId": cid,
-            "modelId": "gpt-4o-mini",
-            "inputTokens": 100,
-            "outputTokens": 0,
-            "eventId": str(uuid.uuid4()),
-        })
-        assert result["status"] == "rejected"
-        assert result["reason"] == "package_exhausted"
-
-
 class TestStripeCheckout:
     def test_create_checkout_session_mocked(self):
         from unittest.mock import patch, MagicMock

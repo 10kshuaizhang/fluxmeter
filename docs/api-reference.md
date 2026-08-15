@@ -12,14 +12,16 @@ Interactive docs: `GET /docs` (Swagger UI)
 
 ### `GET /health`
 
-Check API and Redis connectivity.
+Liveness check for the API process and Redis.
 
 **Response:** `200 OK`
 ```json
-{"status": "ok", "mode": "full"}
+{"status": "ok"}
 ```
 
-`mode` is `lite` when `FLUXMETER_LITE_MODE=true` (API aggregates directly to Redis, no Flink).
+### `GET /ready`
+
+Returns `200` only when Redis is reachable and a causal readiness probe is acknowledged by Kafka and then observed by the Flink consumer. Use this endpoint for load-balancer readiness.
 
 ---
 
@@ -33,7 +35,7 @@ Most endpoints require the `X-API-Key` header.
 | Admin | `FLUXMETER_ADMIN_KEY` | Budget set/topup, rerate, reserve/reconcile, webhooks, pricing PUT |
 | Customer-scoped | Created via `POST /admin/customers/{id}/api-keys` | Ingest/check/usage for **that customer only** |
 
-Demo mode (`FLUXMETER_AUTH_OPTIONAL=true`, default in lite `docker-compose.yml` and full `docker-compose.full.yml`) allows unauthenticated access when keys are not configured. Production overlay (`docker-compose.prod.yml`, used with full stack) sets `FLUXMETER_AUTH_OPTIONAL=false`.
+Demo mode (`FLUXMETER_AUTH_OPTIONAL=true` in `docker-compose.yml`) allows unauthenticated access when keys are not configured. The production overlay sets `FLUXMETER_AUTH_OPTIONAL=false`.
 
 **Errors:** `401` invalid/missing key · `403` customer key does not match `customerId` in request
 
@@ -43,7 +45,7 @@ Demo mode (`FLUXMETER_AUTH_OPTIONAL=true`, default in lite `docker-compose.yml` 
 
 ### `POST /ingest`
 
-Ingest a single token usage event. Alternative to the Python SDK or direct Kafka producer.
+The sole public usage-event entrance. FluxMeter authenticates the request, creates a trusted envelope, and returns `202` only after Kafka acknowledges custody.
 
 **Auth:** API key or customer-scoped key (must match `customerId`)
 
@@ -78,6 +80,10 @@ Ingest a single token usage event. Alternative to the Python SDK or direct Kafka
 ```json
 {"status": "accepted", "eventId": "2b14b730-4d7a-4985-a92f-c63a6f96d26f"}
 ```
+
+Identical retries with the same `eventId` are accepted without republishing for 30 days. Reusing an ID with a different payload returns `409`. Kafka custody failures return retryable `503`. Suspicious timestamps are acknowledged with `status: quarantined`.
+
+Usage and balance queries are eventually consistent: Flink normally projects accepted events within approximately 10–15 seconds.
 
 ---
 
@@ -290,7 +296,7 @@ span:{span_id}:*                        # agent run (24h TTL)
 | `FLUXMETER_SESSION_TTL_SEC` | `7776000` (90d) | Session counter TTL |
 | `FLUXMETER_DAY_BUCKET_TTL_SEC` | `34560000` (~400d) | Daily rollup hash TTL |
 
-Period/day buckets accumulate from deploy forward; no historical backfill. Lite `/ingest` aggregates **`sessionId`** and **`parentSpanId`** (span queries, v2.6.2+).
+Period/day buckets accumulate from deploy forward; no historical backfill. Flink projects **`sessionId`** and **`parentSpanId`** from HTTP-ingested events.
 
 ---
 
@@ -566,10 +572,9 @@ Configure HTTPS webhook for budget alerts:
 |--------|------|
 | `BUDGET_WARN` | Spent ≥ 70% or 90% of `initial_balance + topups` (payload includes `warn_pct`, `spent_pct`) |
 | `BUDGET_LOW` | `balance_usd` ≤ `alert_threshold_usd` |
-| `BUDGET_EXHAUSTED` | Balance hits zero after Lite/Full deduction |
+| `BUDGET_EXHAUSTED` | Balance hits zero after Flink deduction |
 
-- **Lite mode:** delivered inline after `/ingest` (no Kafka). Each tier is debounced until spend falls below that tier (or budget is reset).
-- **Full mode:** `BUDGET_LOW` / `BUDGET_EXHAUSTED` via `webhook-worker` (Kafka `budget-alerts`); `BUDGET_WARN` ladder is Lite-path today (`BUDGET_WARN_PCTS=70,90`).
+Alerts are emitted by Flink to `budget-alerts` and delivered by `webhook-worker`. The default warning ladder crosses 70% and 90% spent.
 
 **Auth:** Admin key
 
@@ -603,7 +608,7 @@ Return configured webhook URL for a customer.
 
 ## Pricing
 
-Pricing is loaded from `config/pricing.json` (or classpath `pricing.json`). Flink uses `PRICING_FILE` env; Lite API loads the same file or Redis `pricing:current` on startup.
+Pricing is loaded from `config/pricing.json` (or classpath `pricing.json`). Flink uses `PRICING_FILE`; the API reads the same catalog for admission estimates.
 
 ### Pricing modes (v2.4)
 
@@ -648,7 +653,7 @@ Catalog-level fields:
 
 | Path | Volume state | Enable tiers |
 |------|--------------|--------------|
-| Lite (`POST /ingest`) | Redis `…:period:{YYYY-MM}:volume_tokens` | `PRICING_FILE=contrib/pricing/tiered-example.json` |
+| HTTP → Kafka → Flink | Redis `…:period:{YYYY-MM}:volume_tokens` | `PRICING_FILE=contrib/pricing/tiered-example.json` |
 | Flink (Full) | Keyed Flink `ValueState` per `tenant\|customer\|model` | Same `PRICING_FILE` on JobManager / submit |
 
 Production `config/pricing.json` remains flat — existing costs unchanged until you opt into a tier catalog.
@@ -906,11 +911,9 @@ pip install fluxmeter
 from fluxmeter import FluxMeter
 
 meter = FluxMeter(
-    kafka_brokers="localhost:9094",
-    topic="token-events",
+    api_url="http://localhost:8000",
+    api_key="fm_live_...",
     environment="production",
-    wal_enabled=True,
-    wal_path="~/.fluxmeter/wal",
 )
 ```
 
@@ -946,7 +949,7 @@ meter = FluxMeter(
 | `request_id` | str | No | Provider request ID |
 | `span_id` | str | No | Observability span ID |
 | `parent_span_id` | str | No | Agent run root — query cost via `GET /usage/span/{id}` |
-| `session_id` | str | No | Conversation/project — query via `GET /usage/session/{id}` (lite ingest) |
+| `session_id` | str | No | Conversation/project — query via `GET /usage/session/{id}` |
 | `latency_ms` | int | No | Provider response time |
 | `environment` | str | No | "production", "staging" |
 | `metadata` | dict | No | Arbitrary key-value pairs |

@@ -20,14 +20,12 @@ def test_daily_cap_denies():
     }.get(k)
 
     import auth as auth_mod
-    import pricing_loader as pl
-
-    old_day = pl.billing_period_day
-    pl.billing_period_day = lambda _ms: "2026-07-11"
+    old_day = auth_mod.billing_period_day
+    auth_mod.billing_period_day = lambda _ms: "2026-07-11"
     try:
         deny = check_api_key_budget(r, "key1", 0.3)
     finally:
-        pl.billing_period_day = old_day
+        auth_mod.billing_period_day = old_day
 
     assert deny is not None
     assert deny["reason"] == "api_key_daily_budget"

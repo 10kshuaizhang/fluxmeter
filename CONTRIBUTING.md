@@ -34,7 +34,6 @@ make test-unit
 # Integration + v2 E2E (requires running stack)
 make start
 sleep 15
-make submit-job
 make test-e2e
 # Or: pytest tests/test_integration.py tests/test_e2e_v2.py -v --timeout=300
 make stop

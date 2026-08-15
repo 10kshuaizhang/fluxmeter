@@ -41,7 +41,7 @@ Product narrative shifts to Layer 4; **metering is not deprecated** — it remai
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │  Pillar A — Metering & Guardrail (Layer 3) · ONGOING        │
-│  Lite/Full ingest · pricing · check/reserve/kill · export   │
+│  HTTP→Kafka→Flink ingest · pricing · check/reserve · export │
 │  Maintained + evolved (Gateway side track)                  │
 └───────────────────────────┬─────────────────────────────────┘
                             │ native usage + cost data
@@ -62,7 +62,7 @@ Product narrative shifts to Layer 4; **metering is not deprecated** — it remai
 
 ```text
 Shipped ✓   → Intelligence MVP + v1.0 (3.0–3.1); metering + Gateway P1 (3.2.0)
-Maintain    → Lite/Full engine, SDK, exporters, correctness — every release
+Maintain    → single-path engine, SDK, exporters, correctness — every release
 Demand-gated→ Phase 7+ (Hosted SaaS, NL agent, enterprise) — only if traction
 Optional    → Gateway P2, Langfuse overlay, ecosystem cookbooks — backlog, not active
 ```
@@ -101,12 +101,11 @@ Langfuse · Helicone · LangSmith               Finout · Vantage · (sparse ded
 
 | Layer | Status | Notes |
 |-------|--------|-------|
-| **Lite path** (default) | Shipped | API → Redis Lua; rollup worker; period/day/session/span queries; Stripe export |
-| **Full path** (Flink) | Shipped | 1M eps bursts; span attribution; month/day rollup; DLQ; Kafka kill alerts |
+| **Single ingestion path** | Shipped | HTTP custody → Kafka → Flink; period/day/session/span projections; DLQ and alerts |
 | **Financial core** | Shipped | `check`, `reserve`/`reconcile`, prepaid USD + token packages, tiered pricing, re-rate |
-| **Path activation** | Shipped | `wrap()`, Lite webhooks, hierarchy caps, kill demo (2.7.0) |
+| **Path activation** | Shipped | `wrap()`, Kafka webhook worker, hierarchy caps, kill demo |
 | **Invoice exporters** | Shipped | Stripe / Metronome / Orb (2.8.0) |
-| **Open spec + SDKs** | Shipped | `spec/schema`, OpenAPI; Python 1.5.0 PyPI; JS pack-ready |
+| **Open spec + SDKs** | Shipped | v4 HTTP contract; Python/JS HTTP-only 2.0.0 packages |
 | **SaaS scaffold** | Shipped | Control plane `:8001`; demand-gated for full RBAC |
 | **Production ops** | Partial | Helm, DR runbook, Prometheus profile, reconciliation job |
 | **Gateway proxy** | Shipped | OpenAI-compatible proxy `:8080`; check + kill + proxy-only ingest (3.2.0) |
@@ -125,12 +124,12 @@ Docs: [`docs/intelligence-api.md`](docs/intelligence-api.md)
 
 **Out of MVP scope (backlog only):** Langfuse/Helicone overlays, dedicated Helm for Intelligence, partner cookbooks — revisit only with user demand.
 
-### Deployment paths (metering — unchanged)
+### Deployment profiles
 
 ```text
-Lite (make demo)      →  side projects, <100K eps, zero Flink ops (+ Gateway :8080)
-Full (make demo-full) →  100K–1M eps, spans, DLQ, Kafka alerts
-SaaS (make start-saas)→  multi-tenant product builders (scaffold)
+Base (make demo)           → HTTP + Gateway + Kafka + Flink + Redis
+Benchmark (make start-benchmark) → same semantics, scaled resources/operator Kafka port
+SaaS (make start-saas)     → base architecture plus control plane
 ```
 
 ---
@@ -169,7 +168,7 @@ Historical phases — **capabilities remain first-class**; see [changLog.md](cha
 | **F3** | Path activation: wrap, kill demo, webhook, hierarchy | 2.7.0 | ✓ |
 | **F4** | Metronome/Orb/Stripe export, agent budgets, dims | 2.8.0 | ✓ |
 
-**Ongoing metering maintenance (every release):** correctness tests, pricing catalog updates, exporter fixes, SDK parity, Lite/Full regression — not optional.
+**Ongoing metering maintenance (every release):** correctness tests, pricing catalog updates, exporter fixes, SDK parity, and single-path regression — not optional.
 
 ---
 
@@ -295,8 +294,8 @@ Parallel to version phases — **required**, not backlog.
 | **3.0.0** ✓ | Intelligence MVP | 3.0.0 | 1.5.0 | Product narrative → Layer 4; OpenMeter overlay |
 | **3.1.0** ✓ | Intelligence v1.0 (features) | 3.1.0 | 1.5.0 | Optimizer, alerts, forecast, report |
 | **3.2.0** ✓ | Gateway P1 (Metering) | 3.2.0 | 1.5.0 | Proxy + check + kill; Pillar A production path |
-| **3.2.x** | Metering maintenance + Gateway P2 | 3.2.x | 1.5.x | Correctness, LiteLLM/TPM optional |
-| **4.0.0+** | Hosted SaaS + Enterprise (if built) | 4.x | 2.x+ | Demand-gated; not required for Intelligence MVP |
+| **4.0.0** ✓ | One HTTP→Kafka→Flink path | 4.0.0 | 2.0.0 | Breaking SDK/deployment simplification |
+| **4.1.0+** | Hosted SaaS + Enterprise (if built) | 4.x | 2.x+ | Demand-gated; not required for Intelligence MVP |
 
 **Intelligence is complete at 3.1.0** for the agreed scope — no separate 4.0.0 Intelligence release planned.
 

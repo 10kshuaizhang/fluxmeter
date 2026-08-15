@@ -6,6 +6,21 @@ Format: `[version] — date — summary`
 
 ---
 
+## [4.0.0] — 2026-08-15
+
+### Changed
+- Consolidated public event ingestion on HTTP with Kafka acknowledgement before `202 Accepted`; Flink is now the only billing and aggregation engine.
+- Added versioned trusted envelopes, authentication-derived tenant context, 30-day event identity, batch per-event outcomes, timestamp quarantine, and dependency readiness.
+- Made Python and JavaScript SDKs HTTP-only with bounded retries, stable event IDs, and typed delivery failures.
+- Made Gateway metering durable through a Redis outbox and expiry-safe asynchronous reservation reconciliation.
+- Replaced Lite/Full compose families with one base stack plus SaaS, production, and benchmark overlays; Flink jobs submit automatically.
+
+### Removed
+- Removed direct Redis ingest/rollup modules, direct customer Kafka SDK modes and Python WAL, `FLUXMETER_LITE_MODE`, `docker-compose.full.yml`, and Lite/Full Make targets.
+
+### Notes
+- This is a breaking release. See [`docs/migration-4.0.md`](docs/migration-4.0.md) and ADR-024.
+
 ## [3.2.1] — 2026-07-12
 
 ### Fixed

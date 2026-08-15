@@ -68,7 +68,7 @@ Invoice tools show what was billed. Observability tools show what ran. Few produ
 
 ```
 [Pillar A: Metering & Guardrail]
-  Lite/Full ingest → pricing → check/reserve/kill → export to invoice SoR
+  HTTP/Kafka/Flink ingest → pricing → check/reserve/kill → export to invoice SoR
   Gateway proxy (:8080) for path activation without SDK changes
 
 [Pillar B: Monetization Intelligence]
@@ -90,7 +90,7 @@ Invoice tools show what was billed. Observability tools show what ran. Few produ
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │  Pillar A — Metering & Guardrail (Layer 3) · MAINTAINED      │
-│  Lite/Full ingest · pricing · check/reserve/kill · export   │
+│  HTTP/Kafka/Flink ingest · pricing · check/reserve/kill · export │
 │  Gateway proxy · hierarchy caps · span/session queries      │
 └───────────────────────────┬─────────────────────────────────┘
                             │ native usage + cost rollups

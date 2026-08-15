@@ -4,11 +4,20 @@ import { TokenEvent, toEventPayload } from "./event.js";
 export interface FluxMeterOptions {
   /** HTTP ingest base URL (default http://localhost:8000) */
   apiUrl?: string;
-  /** Kafka brokers — if set, uses kafkajs instead of HTTP */
-  kafkaBrokers?: string;
-  topic?: string;
   apiKey?: string;
   environment?: string;
+  maxRetries?: number;
+  retryBaseMs?: number;
+}
+
+export class DeliveryError extends Error {
+  constructor(
+    public readonly eventId: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "DeliveryError";
+  }
 }
 
 type OpenAIUsage = {
@@ -58,60 +67,22 @@ function parseOpenAIUsage(response: OpenAIResponse) {
 
 export class FluxMeter {
   private apiUrl: string;
-  private topic: string;
   private apiKey?: string;
   private environment?: string;
-  private kafkaBrokers?: string;
-  private producer: {
-    send: (topic: string, messages: { key: string; value: string }[]) => Promise<void>;
-    disconnect: () => Promise<void>;
-  } | null = null;
-  private producerReady: Promise<void> | null = null;
+  private maxRetries: number;
+  private retryBaseMs: number;
 
   constructor(options: FluxMeterOptions = {}) {
     this.apiUrl = (options.apiUrl ?? "http://localhost:8000").replace(/\/$/, "");
-    this.topic = options.topic ?? "token-events";
     this.apiKey = options.apiKey;
     this.environment = options.environment;
-    this.kafkaBrokers = options.kafkaBrokers;
+    this.maxRetries = Math.max(0, options.maxRetries ?? 2);
+    this.retryBaseMs = Math.max(0, options.retryBaseMs ?? 100);
   }
 
-  private ensureKafka(): Promise<void> {
-    if (!this.kafkaBrokers) {
-      return Promise.resolve();
-    }
-    if (!this.producerReady) {
-      this.producerReady = this.initKafka(this.kafkaBrokers);
-    }
-    return this.producerReady;
-  }
-
-  private async initKafka(brokers: string): Promise<void> {
-    const { Kafka } = await import("kafkajs");
-    const kafka = new Kafka({ brokers: brokers.split(",") });
-    const producer = kafka.producer();
-    await producer.connect();
-    this.producer = {
-      send: async (topic, messages) => {
-        await producer.send({
-          topic,
-          messages: messages.map((m) => ({
-            key: m.key,
-            value: m.value,
-          })),
-        });
-      },
-      disconnect: () => producer.disconnect(),
-    };
-  }
-
-  /** Release Kafka producer connections (no-op for HTTP transport). */
+  /** Compatibility no-op: HTTP requests transfer custody synchronously. */
   async close(): Promise<void> {
-    if (this.producer) {
-      await this.producer.disconnect();
-      this.producer = null;
-      this.producerReady = null;
-    }
+    return;
   }
 
   async track(
@@ -238,28 +209,38 @@ export class FluxMeter {
 
   private async send(event: TokenEvent): Promise<void> {
     const payload = toEventPayload(event);
-
-    await this.ensureKafka();
-    if (this.producer) {
-      await this.producer.send(this.topic, [
-        {
-          key: event.customerId,
-          value: JSON.stringify(payload),
-        },
-      ]);
-      return;
-    }
-
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (this.apiKey) headers["X-API-Key"] = this.apiKey;
 
-    const res = await fetch(`${this.apiUrl}/ingest`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      throw new Error(`FluxMeter ingest failed: ${res.status} ${await res.text()}`);
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
+      try {
+        const res = await fetch(`${this.apiUrl}/ingest`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const message = `HTTP ${res.status}: ${await res.text()}`;
+          if (res.status !== 429 && res.status !== 503 && res.status < 500) {
+            throw new DeliveryError(event.eventId ?? "unknown", message);
+          }
+          throw new Error(message);
+        }
+        return;
+      } catch (error) {
+        if (error instanceof DeliveryError) throw error;
+        lastError = error;
+        if (attempt < this.maxRetries) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, this.retryBaseMs * 2 ** attempt),
+          );
+        }
+      }
     }
+    throw new DeliveryError(
+      event.eventId ?? "unknown",
+      `FluxMeter delivery failed: ${String(lastError)}`,
+    );
   }
 }

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import time
+
 import redis
 
 from usage_buckets import SPAN_TTL_SEC
@@ -82,6 +85,112 @@ end
 local balance = tonumber(redis.call('GET', KEYS[2]) or '0')
 return {balance, held - reserved, reserved}
 """
+
+EXPIRE_RESERVATION_SCRIPT = """
+local customer = redis.call('HGET', KEYS[1], 'customer_id')
+if not customer then redis.call('ZREM', KEYS[2], ARGV[1]); return {} end
+local reserved = tonumber(redis.call('HGET', KEYS[1], 'reserved_usd') or '0')
+local parent = redis.call('HGET', KEYS[1], 'parent_span_id') or ''
+local held_key = 'budget:' .. customer .. ':held_usd'
+local held = tonumber(redis.call('GET', held_key) or '0')
+local release = math.min(held, reserved)
+if release > 0 then redis.call('INCRBYFLOAT', held_key, -release) end
+if parent ~= '' then
+  local span_key = 'span:' .. parent .. ':held_usd'
+  local span_held = tonumber(redis.call('GET', span_key) or '0')
+  if span_held > 0 then redis.call('INCRBYFLOAT', span_key, -math.min(span_held, release)) end
+end
+redis.call('DEL', KEYS[1])
+redis.call('ZREM', KEYS[2], ARGV[1])
+return {customer, tostring(release)}
+"""
+
+
+def register_gateway_reservation(
+    r: redis.Redis,
+    reservation_id: str,
+    *,
+    customer_id: str,
+    reserved_usd: float,
+    parent_span_id: str | None,
+    expires_at: float | None = None,
+) -> None:
+    """Persist a Gateway hold until Flink reconciles it or the timeout reaper releases it."""
+    deadline = expires_at if expires_at is not None else time.time() + 900
+    key = f"reservation:{reservation_id}"
+    pipe = r.pipeline()
+    pipe.hset(
+        key,
+        mapping={
+            "customer_id": customer_id,
+            "reserved_usd": str(max(0.0, reserved_usd)),
+            "parent_span_id": parent_span_id or "",
+        },
+    )
+    pipe.expire(key, 86400)
+    pipe.zadd("gateway:reservations:pending", {reservation_id: deadline})
+    pipe.execute()
+
+
+def refresh_gateway_reservation(
+    r: redis.Redis,
+    reservation_id: str,
+    *,
+    expires_at: float | None = None,
+) -> None:
+    """Extend an active long-stream reservation without changing its amount."""
+    if not r.exists(f"reservation:{reservation_id}"):
+        return
+    deadline = expires_at if expires_at is not None else time.time() + 900
+    pipe = r.pipeline()
+    pipe.expire(f"reservation:{reservation_id}", 86400)
+    pipe.zadd("gateway:reservations:pending", {reservation_id: deadline})
+    pipe.execute()
+
+
+def reap_expired_reservations(r: redis.Redis, *, now: float | None = None) -> int:
+    """Release timed-out Gateway holds and append an operational alert."""
+    cutoff = time.time() if now is None else now
+    expired = r.zrangebyscore("gateway:reservations:pending", 0, cutoff)
+    released = 0
+    for reservation_id in expired:
+        result = r.eval(
+            EXPIRE_RESERVATION_SCRIPT,
+            2,
+            f"reservation:{reservation_id}",
+            "gateway:reservations:pending",
+            reservation_id,
+        )
+        if not result:
+            continue
+        customer_id = str(result[0])
+        released_usd = float(result[1])
+        r.rpush(
+            "gateway:reservation:alerts",
+            json.dumps(
+                {
+                    "type": "RESERVATION_EXPIRED",
+                    "reservationId": reservation_id,
+                    "customerId": customer_id,
+                    "releasedUsd": released_usd,
+                    "timestamp": int(cutoff * 1000),
+                }
+            ),
+        )
+        released += 1
+    return released
+
+
+def settle_gateway_reservation(r: redis.Redis, reservation_id: str) -> float:
+    """Atomically release and remove a reservation when no billable usage exists."""
+    result = r.eval(
+        EXPIRE_RESERVATION_SCRIPT,
+        2,
+        f"reservation:{reservation_id}",
+        "gateway:reservations:pending",
+        reservation_id,
+    )
+    return float(result[1]) if result else 0.0
 
 
 def reserve_hold(

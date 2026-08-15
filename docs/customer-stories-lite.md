@@ -1,5 +1,7 @@
 # 客户故事与 Use Case — Lite 模式实施方案
 
+> FluxMeter 4.0 已移除此模式。当前架构和迁移步骤见 [`migration-4.0.md`](migration-4.0.md)。
+
 **FluxMeter v2.6.2** · Lite 路径（Redis + API，无 Flink）  
 **配套工程文档：** [customer-integration-lite.md](customer-integration-lite.md) · [api-reference.md](api-reference.md)
 
