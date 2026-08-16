@@ -2,7 +2,7 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 4.1.0 · Python SDK **2.0.0**
+**Current version:** 4.1.1 · Python SDK **2.0.0**
 **Current phase:** Pillar B Intelligence (**complete** · 3.0–3.1) · Phase G Gateway (**done**) · Metering (**maintained**) · Phase 7+ (**demand-gated**)  
 **Design status:** APPROVED (2026-06-16) · Intelligence pivot APPROVED (2026-07-11)  
 **Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md) · pivot: [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md)

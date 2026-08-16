@@ -6,6 +6,11 @@ Format: `[version] — date — summary`
 
 ---
 
+## [4.1.1] — 2026-08-16
+
+### Fixed
+- `GET /intelligence/forecast` now resolves `tenant_id` from the API key so customer-scope budgets read the tenant-prefixed Redis key.
+
 ## [4.1.0] — 2026-08-16
 
 ### Added

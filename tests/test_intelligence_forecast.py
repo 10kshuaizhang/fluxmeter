@@ -36,3 +36,13 @@ def test_forecast_over_budget():
     fc = compute_forecast(r, period="2026-07", scope="customer:c1")
     assert fc.budget_usd == 50.0
     assert fc.status in ("at_risk", "over_budget", "on_track")
+
+
+def test_forecast_reads_tenant_budget_key():
+    r = fakeredis.FakeRedis(decode_responses=True)
+    for day in range(1, 4):
+        _seed_day(r, "c1", f"2026-07-{day:02d}", 10.0)
+    r.set("tenant:t9:budget:c1:initial_balance_usd", "30")
+    r.set("budget:c1:initial_balance_usd", "999")  # must not win when tenant key exists
+    fc = compute_forecast(r, period="2026-07", scope="customer:c1", tenant_id="t9")
+    assert fc.budget_usd == 30.0

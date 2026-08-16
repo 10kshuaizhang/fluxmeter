@@ -34,7 +34,13 @@ def _budget_for_scope(r: redis.Redis, scope: str, tenant_id: str | None = None) 
     return None
 
 
-def compute_forecast(r: redis.Redis, *, period: str, scope: str = "global") -> SpendForecast:
+def compute_forecast(
+    r: redis.Redis,
+    *,
+    period: str,
+    scope: str = "global",
+    tenant_id: str | None = None,
+) -> SpendForecast:
     date_prefix = period
     if scope.startswith("customer:"):
         cid = scope.split(":", 1)[1]
@@ -49,7 +55,7 @@ def compute_forecast(r: redis.Redis, *, period: str, scope: str = "global") -> S
     avg_daily = mtd / days_elapsed if days_elapsed else 0.0
     forecast_eom = mtd + avg_daily * days_remaining
 
-    budget = _budget_for_scope(r, scope)
+    budget = _budget_for_scope(r, scope, tenant_id=tenant_id)
     variance = (forecast_eom - budget) if budget is not None else None
 
     if budget is None:

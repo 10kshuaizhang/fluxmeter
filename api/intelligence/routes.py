@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-from auth import require_admin_key, require_api_key
+from auth import require_admin_key, require_api_key, resolve_tenant_from_key
 from intelligence.connectors.openmeter import import_openmeter_events
 from intelligence.alerts import set_webhook_config
 from intelligence.forecast import compute_forecast
@@ -186,8 +186,17 @@ def profitability(period: str, months: int = 3) -> ProfitabilityDashboard:
     response_model=SpendForecast,
     dependencies=[Depends(require_api_key)],
 )
-def forecast(period: str, scope: str = "global") -> SpendForecast:
-    return compute_forecast(_redis(), period=period, scope=scope)
+def forecast(
+    period: str,
+    scope: str = "global",
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> SpendForecast:
+    return compute_forecast(
+        _redis(),
+        period=period,
+        scope=scope,
+        tenant_id=resolve_tenant_from_key(x_api_key),
+    )
 
 
 @router.get("/report", dependencies=[Depends(require_api_key)])
