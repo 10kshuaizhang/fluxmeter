@@ -44,7 +44,7 @@ from ingestion import (
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="4.1.0",
+    version="4.1.1",
 )
 
 from intelligence.routes import router as intelligence_router
