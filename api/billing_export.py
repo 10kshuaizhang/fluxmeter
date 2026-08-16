@@ -22,6 +22,7 @@ import httpx
 import redis
 
 from pricing_loader import billing_period_month
+from usage_query import customer_counters
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,9 @@ def discover_billable_customers(r: redis.Redis) -> list[str]:
     return sorted(customers)
 
 
-def collect_customer_usage(r: redis.Redis, customer_id: str) -> Optional[dict]:
+def collect_customer_usage(
+    r: redis.Redis, customer_id: str, tenant_id: str | None = None
+) -> Optional[dict]:
     """Collect usage delta for one customer since last report."""
     stripe_cid = r.get(f"billing:{customer_id}:stripe_customer_id")
     metronome_cid = r.get(f"billing:{customer_id}:metronome_customer_id")
@@ -118,13 +121,14 @@ def collect_customer_usage(r: redis.Redis, customer_id: str) -> Optional[dict]:
     if not any([stripe_cid, metronome_cid, orb_cid]):
         return None
 
-    total_events = int(r.get(f"customer:{customer_id}:event_count") or 0)
+    counters = customer_counters(r, tenant_id, customer_id)
+    total_events = counters["event_count"]
     last_reported = int(r.get(f"billing:{customer_id}:last_reported_events") or 0)
-    input_tokens = int(r.get(f"customer:{customer_id}:input_tokens") or 0)
-    output_tokens = int(r.get(f"customer:{customer_id}:output_tokens") or 0)
+    input_tokens = counters["input_tokens"]
+    output_tokens = counters["output_tokens"]
     last_input = int(r.get(f"billing:{customer_id}:last_reported_input_tokens") or 0)
     last_output = int(r.get(f"billing:{customer_id}:last_reported_output_tokens") or 0)
-    cost_usd = float(r.get(f"customer:{customer_id}:cost_usd") or 0)
+    cost_usd = counters["cost_usd"]
     last_cost = float(r.get(f"billing:{customer_id}:last_reported_cost_usd") or 0)
 
     return {

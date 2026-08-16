@@ -6,6 +6,19 @@ Format: `[version] — date — summary`
 
 ---
 
+## [4.3.0] — 2026-08-16
+
+### Added
+- **UsageQuery** module for tenant-aware lifetime counter reads (`customer:` / `global:`) with legacy dual-read.
+- **ProxiedCompletion** Gateway orchestration (`run`) consolidating estimate → gate → reserve → upstream → Custody.
+
+### Fixed
+- Usage / spans / budget `total_spent` / billing export / rerate now resolve tenant-prefixed Flink keys (no bare-key read leak).
+- Gateway stream upstream HTTP ≥400 settles Reservation (aligned with non-stream); skips Custody ingest after settle.
+
+### Changed
+- Rerate preview/apply dual-scans tenant + bare model keys; cost writes follow the scanned key family; budget adjust uses tenant-aware prefix.
+
 ## [4.2.0] — 2026-08-16
 
 ### Removed

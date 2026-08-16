@@ -6,7 +6,13 @@ import sys
 
 sys.path.insert(0, "api")
 
-from tenant_keys import budget_prefix, customer_prefix, global_key, has_tenant  # noqa: E402
+from tenant_keys import (  # noqa: E402
+    budget_prefix,
+    customer_prefix,
+    customer_prefix_for_write,
+    global_key,
+    has_tenant,
+)
 
 
 def test_has_tenant():
@@ -27,3 +33,4 @@ def test_multi_tenant_keys():
     assert customer_prefix(tid, "cust_1") == "tenant:tenant_xyz:customer:cust_1"
     assert budget_prefix(tid, "cust_1") == "tenant:tenant_xyz:budget:cust_1"
     assert global_key(tid, "total_tokens") == "tenant:tenant_xyz:global:total_tokens"
+    assert customer_prefix_for_write(tid, "cust_1") == customer_prefix(tid, "cust_1")

@@ -32,6 +32,15 @@ from billing_export import billing_export_loop, link_customer_platform, link_cus
 from pricing_loader import billing_period_month, get_catalog, reload_catalog
 from intelligence.intel_alert_worker import intel_alert_loop
 from usage_buckets import read_session, read_usage_bucket, rollup_day_key, rollup_month_key
+from usage_query import (
+    apply_model_cost_adjustment,
+    customer_cost_usd,
+    get_customer,
+    get_customer_model,
+    get_global,
+    iter_model_usage_rows,
+    list_customer_spans,
+)
 from billing_dims import read_dim_usage, validate_metadata
 from ingestion import (
     KafkaUnavailableError,
@@ -44,7 +53,7 @@ from ingestion import (
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="4.2.0",
+    version="4.3.0",
 )
 
 from intelligence.routes import router as intelligence_router
@@ -456,55 +465,44 @@ def ingest_batch(
     return JSONResponse(status_code=207, content={"status": "partial", "results": final_results})
 
 
-@app.get("/usage/global", response_model=GlobalUsage, dependencies=[Depends(require_api_key)])
-def get_global_usage():
+@app.get("/usage/global", response_model=GlobalUsage)
+def get_global_usage(
+    _: None = Depends(require_api_key),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Global aggregated usage across all customers."""
     r = get_redis()
-    return GlobalUsage(
-        total_events=int(r.get("global:total_events") or 0),
-        total_tokens=int(r.get("global:total_tokens") or 0),
-        input_tokens=int(r.get("global:input_tokens") or 0),
-        output_tokens=int(r.get("global:output_tokens") or 0),
-        total_cost_usd=float(r.get("global:total_cost_usd") or 0),
-        last_window_end=_int_or_none(r.get("global:last_window_end")),
-    )
+    data = get_global(r, resolve_tenant_from_key(x_api_key))
+    return GlobalUsage(**data)
 
 
-@app.get("/usage/customer/{customer_id}", response_model=CustomerUsage, dependencies=[Depends(require_api_key)])
-def get_customer_usage(customer_id: str):
+@app.get("/usage/customer/{customer_id}", response_model=CustomerUsage)
+def get_customer_usage(
+    customer_id: str,
+    _: None = Depends(require_api_key),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Usage for a specific customer."""
     r = get_redis()
-    key = f"customer:{customer_id}"
-    total_tokens = r.get(f"{key}:total_tokens")
-    if total_tokens is None:
+    data = get_customer(r, resolve_tenant_from_key(x_api_key), customer_id)
+    if data is None:
         raise HTTPException(status_code=404, detail=f"Customer {customer_id} not found")
-    return CustomerUsage(
-        customer_id=customer_id,
-        total_tokens=int(total_tokens),
-        input_tokens=int(r.get(f"{key}:input_tokens") or 0),
-        output_tokens=int(r.get(f"{key}:output_tokens") or 0),
-        cache_read_tokens=int(r.get(f"{key}:cache_read_tokens") or 0),
-        reasoning_tokens=int(r.get(f"{key}:reasoning_tokens") or 0),
-        event_count=int(r.get(f"{key}:event_count") or 0),
-        cost_usd=float(r.get(f"{key}:cost_usd") or 0),
-    )
+    return CustomerUsage(**data)
 
 
-@app.get("/usage/customer/{customer_id}/model/{model_id}", response_model=ModelUsage, dependencies=[Depends(require_api_key)])
-def get_customer_model_usage(customer_id: str, model_id: str):
+@app.get("/usage/customer/{customer_id}/model/{model_id}", response_model=ModelUsage)
+def get_customer_model_usage(
+    customer_id: str,
+    model_id: str,
+    _: None = Depends(require_api_key),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Per-model usage breakdown for a customer."""
     r = get_redis()
-    key = f"customer:{customer_id}:model:{model_id}"
-    total_tokens = r.get(f"{key}:total_tokens")
-    if total_tokens is None:
+    data = get_customer_model(r, resolve_tenant_from_key(x_api_key), customer_id, model_id)
+    if data is None:
         raise HTTPException(status_code=404, detail=f"No usage for {customer_id}/{model_id}")
-    return ModelUsage(
-        model_id=model_id,
-        total_tokens=int(total_tokens),
-        input_tokens=int(r.get(f"{key}:input_tokens") or 0),
-        output_tokens=int(r.get(f"{key}:output_tokens") or 0),
-        cost_usd=float(r.get(f"{key}:cost_usd") or 0),
-    )
+    return ModelUsage(**data)
 
 
 def _bucket_usage_response(customer_id: str, bucket: str, data: dict) -> BucketUsage:
@@ -615,7 +613,7 @@ def _fetch_customer_budget(customer_id: str, tenant_id: str | None = None) -> Cu
         held_usd=held_val,
         effective_balance_usd=balance_val - held_val,
         debt_usd=debt_val,
-        total_spent_usd=float(r.get(f"customer:{customer_id}:cost_usd") or 0),
+        total_spent_usd=customer_cost_usd(r, tenant_id, customer_id),
         alert_threshold_usd=_float_or_none(r.get(f"{budget_key}:alert_threshold_usd")),
         is_exhausted=balance_val <= 0,
     )
@@ -773,14 +771,16 @@ def get_span_usage(span_id: str):
     )
 
 
-@app.get("/usage/customer/{customer_id}/spans", dependencies=[Depends(require_api_key)])
-def get_customer_top_spans(customer_id: str, limit: int = 10):
+@app.get("/usage/customer/{customer_id}/spans")
+def get_customer_top_spans(
+    customer_id: str,
+    limit: int = 10,
+    _: None = Depends(require_api_key),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Top N most expensive agent spans for a customer (sorted by cost)."""
     r = get_redis()
-    spans = r.zrevrange(f"customer:{customer_id}:spans", 0, limit - 1, withscores=True)
-    if not spans:
-        return []
-    return [{"span_id": span_id, "cost_usd": score} for span_id, score in spans]
+    return list_customer_spans(r, resolve_tenant_from_key(x_api_key), customer_id, limit)
 
 
 class ReRateRequest(BaseModel):
@@ -806,8 +806,12 @@ def _assert_flat_rerate(model_id: str) -> None:
         )
 
 
-@app.post("/rerate/preview", dependencies=[Depends(require_admin_key)])
-def preview_rerate(req: ReRateRequest):
+@app.post("/rerate/preview")
+def preview_rerate(
+    req: ReRateRequest,
+    _: None = Depends(require_admin_key),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Preview retroactive re-rating adjustment without applying.
 
     Computes the cost delta for all customers who used the specified model,
@@ -816,29 +820,24 @@ def preview_rerate(req: ReRateRequest):
     """
     _assert_flat_rerate(req.model_id)
     r = get_redis()
-    # Find all customers with usage on this model
-    pattern = f"customer:*:model:{req.model_id}:input_tokens"
+    tenant_id = resolve_tenant_from_key(x_api_key)
     adjustments = []
     total_adjustment = 0.0
 
-    for key in r.scan_iter(match=pattern, count=1000):
-        # Extract customer_id from key pattern
-        parts = key.split(":")
-        customer_id = parts[1]
-        model_key = f"customer:{customer_id}:model:{req.model_id}"
-
-        input_tokens = int(r.get(f"{model_key}:input_tokens") or 0)
-        output_tokens = int(r.get(f"{model_key}:output_tokens") or 0)
-
-        input_delta = (input_tokens / 1_000_000) * (req.new_input_price - req.old_input_price)
-        output_delta = (output_tokens / 1_000_000) * (req.new_output_price - req.old_output_price)
+    for row in iter_model_usage_rows(r, tenant_id, req.model_id):
+        input_delta = (row["input_tokens"] / 1_000_000) * (
+            req.new_input_price - req.old_input_price
+        )
+        output_delta = (row["output_tokens"] / 1_000_000) * (
+            req.new_output_price - req.old_output_price
+        )
         adjustment = input_delta + output_delta
 
         if abs(adjustment) > 0.001:  # Skip negligible adjustments
             adjustments.append({
-                "customer_id": customer_id,
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
+                "customer_id": row["customer_id"],
+                "input_tokens": row["input_tokens"],
+                "output_tokens": row["output_tokens"],
                 "adjustment_usd": round(adjustment, 6),
             })
             total_adjustment += adjustment
@@ -851,8 +850,12 @@ def preview_rerate(req: ReRateRequest):
     }
 
 
-@app.post("/rerate/apply", status_code=202, dependencies=[Depends(require_admin_key)])
-def apply_rerate(req: ReRateRequest):
+@app.post("/rerate/apply", status_code=202)
+def apply_rerate(
+    req: ReRateRequest,
+    _: None = Depends(require_admin_key),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
     """Apply retroactive re-rating: adjust cost_usd for all affected customers.
     NOTE: For large customer bases (>10K), this runs synchronously but should
     be behind a task queue in production. Returns 202 to signal async semantics.
@@ -863,37 +866,33 @@ def apply_rerate(req: ReRateRequest):
     """
     _assert_flat_rerate(req.model_id)
     r = get_redis()
-    pattern = f"customer:*:model:{req.model_id}:input_tokens"
+    tenant_id = resolve_tenant_from_key(x_api_key)
     applied = 0
     total_adjustment = 0.0
 
-    for key in r.scan_iter(match=pattern, count=1000):
-        parts = key.split(":")
-        customer_id = parts[1]
-        model_key = f"customer:{customer_id}:model:{req.model_id}"
-
-        input_tokens = int(r.get(f"{model_key}:input_tokens") or 0)
-        output_tokens = int(r.get(f"{model_key}:output_tokens") or 0)
-
-        input_delta = (input_tokens / 1_000_000) * (req.new_input_price - req.old_input_price)
-        output_delta = (output_tokens / 1_000_000) * (req.new_output_price - req.old_output_price)
+    for row in iter_model_usage_rows(r, tenant_id, req.model_id):
+        input_delta = (row["input_tokens"] / 1_000_000) * (
+            req.new_input_price - req.old_input_price
+        )
+        output_delta = (row["output_tokens"] / 1_000_000) * (
+            req.new_output_price - req.old_output_price
+        )
         adjustment = input_delta + output_delta
 
         if abs(adjustment) < 0.001:
             continue
 
-        pipe = r.pipeline()
-        # Adjust per-model cost
-        pipe.incrbyfloat(f"{model_key}:cost_usd", adjustment)
-        # Adjust per-customer cost
-        pipe.incrbyfloat(f"customer:{customer_id}:cost_usd", adjustment)
-        # Adjust global cost
-        pipe.incrbyfloat("global:total_cost_usd", adjustment)
-        # If customer has budget, credit back (price decrease = positive balance adjustment)
-        budget_bal = f"{budget_prefix_for_read(r, None, customer_id)}:balance_usd"
+        apply_model_cost_adjustment(
+            r,
+            tenant_id,
+            customer_id=row["customer_id"],
+            model_key=row["model_key"],
+            customer_prefix=row["customer_prefix"],
+            adjustment=adjustment,
+        )
+        budget_bal = f"{budget_prefix_for_read(r, tenant_id, row['customer_id'])}:balance_usd"
         if r.exists(budget_bal):
-            pipe.incrbyfloat(budget_bal, -adjustment)
-        pipe.execute()
+            r.incrbyfloat(budget_bal, -adjustment)
 
         applied += 1
         total_adjustment += adjustment

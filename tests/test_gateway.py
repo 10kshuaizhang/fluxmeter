@@ -31,10 +31,10 @@ def _setup_customer(r, customer_id: str, balance: float):
 
 
 class _MockStreamResponse:
-    status_code = 200
-
-    def __init__(self, chunks: list[bytes]):
+    def __init__(self, chunks: list[bytes], status_code: int = 200, body: bytes = b""):
+        self.status_code = status_code
         self._chunks = chunks
+        self._body = body
 
     async def __aenter__(self):
         UPSTREAM_CALLS["n"] += 1
@@ -48,13 +48,15 @@ class _MockStreamResponse:
             yield chunk
 
     async def aread(self):
-        return b""
+        return self._body
 
 
 class _MockAsyncClient:
     def __init__(self, **kwargs):
         self._stream_chunks = kwargs.pop("_stream_chunks", [])
         self._json_response = kwargs.pop("_json_response", None)
+        self._stream_status = kwargs.pop("_stream_status", 200)
+        self._stream_body = kwargs.pop("_stream_body", b"")
 
     async def __aenter__(self):
         return self
@@ -81,7 +83,11 @@ class _MockAsyncClient:
         return Resp()
 
     def stream(self, method, url, **kwargs):
-        return _MockStreamResponse(self._stream_chunks)
+        return _MockStreamResponse(
+            self._stream_chunks,
+            status_code=self._stream_status,
+            body=self._stream_body,
+        )
 
 
 class _KafkaProducer:
@@ -283,6 +289,35 @@ def test_non_stream_zero_usage_still_reconciles_reservation_via_flink(gw, monkey
     assert response.status_code == 200
     assert len(producer.messages) == 1
     assert json.loads(producer.messages[0]["value"])["reservation"]["reservedUsd"] > 0
+
+
+def test_stream_upstream_error_settles_reservation(gw, monkeypatch):
+    client, r, producer = gw
+    _setup_customer(r, "cust_stream_err", balance=10.0)
+    monkeypatch.setattr(
+        "gateway.proxy.httpx.AsyncClient",
+        lambda **kw: _MockAsyncClient(
+            _stream_status=500,
+            _stream_body=b'{"error":"upstream"}',
+        ),
+    )
+
+    resp = client.post(
+        "/v1/chat/completions",
+        headers={
+            "X-FluxMeter-Customer-Id": "cust_stream_err",
+            "Authorization": "Bearer sk-live",
+        },
+        json={
+            "model": "gpt-4o-mini",
+            "stream": True,
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+    assert resp.status_code == 200  # SSE passthrough of error body
+    assert float(r.get("budget:cust_stream_err:held_usd") or 0) == 0.0
+    assert r.zcard("gateway:reservations:pending") == 0
+    assert len(producer.messages) == 0
 
 
 def test_health(gw):
