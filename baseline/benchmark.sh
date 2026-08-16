@@ -6,11 +6,18 @@ set -euo pipefail
 
 CLICKHOUSE_URL="http://localhost:8123"
 REDIS_CLI="docker exec fluxmeter-redis redis-cli"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "=============================================="
 echo " FluxMeter vs ClickHouse Baseline Comparison"
 echo "=============================================="
 echo ""
+
+# Derived aggregates are NOT in default cold-store init (ADR-004 / ADR-025).
+if ! curl -sf "$CLICKHOUSE_URL" --data-binary "EXISTS TABLE fluxmeter.usage_per_minute" | grep -q 1; then
+  echo "Applying baseline/benchmark_init.sql (benchmark-only derived tables)..."
+  docker exec -i fluxmeter-clickhouse clickhouse-client --multiquery < "$ROOT_DIR/baseline/benchmark_init.sql"
+fi
 
 # Wait for ClickHouse to have data
 echo "Waiting for ClickHouse to ingest events..."

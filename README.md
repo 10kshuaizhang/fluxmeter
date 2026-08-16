@@ -68,6 +68,13 @@ cd fluxmeter
 make demo          # API + Gateway + Kafka + Flink + Redis + Grafana
 ```
 
+**Record the terminal GIF** (optional, requires [vhs](https://github.com/charmbracelet/vhs)):
+
+```bash
+make demo && make demo-record   # writes demo.gif from demo.tape
+```
+
+See also: [docs/intelligence-api.md](docs/intelligence-api.md) · [docs/gateway.md](docs/gateway.md)
 
 Starts Kafka, Flink, Redis, and the API. Open:
 
@@ -248,6 +255,8 @@ Estimated cost: ~$1,550/month for 100K events/sec on AWS.
 
 ```bash
 make demo        # Build and start the only architecture
+make demo-record # Re-record demo.gif (requires vhs)
+make demo-gateway  # Gateway mock self-check only
 make start       # Start API, Gateway, Kafka, Flink, Redis, workers, Grafana
 make start-benchmark # Scale overlay and expose Kafka for trusted operator tools
 make generate    # Trusted internal load generator (benchmark overlay)
@@ -257,6 +266,8 @@ make test-e2e    # Integration + v2 E2E tests
 make test-unit        # Python + Java unit tests (no Docker)
 make test-java        # Java unit tests only
 make benchmark        # Streaming vs batch comparison
+make apply-cold-store-init  # ClickHouse cold-store DDL (benchmark overlay)
+make test-cold-store  # ADR-025 acceptance A1–A7 (kafka + clickhouse)
 make validate-spec    # Validate schema + OpenAPI artifacts
 make stop        # Stop containers
 make clean       # Stop + remove volumes + clean

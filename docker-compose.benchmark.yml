@@ -1,4 +1,5 @@
 # Scale/observability overlay; ingestion semantics remain unchanged.
+# Includes ClickHouse Cold Store (ADR-025) — apply DDL via make apply-cold-store-init.
 services:
   api:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
@@ -30,7 +31,19 @@ services:
     volumes: [./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro]
   clickhouse:
     image: clickhouse/clickhouse-server:24.1
+    container_name: fluxmeter-clickhouse
     ports: ["8123:8123", "9000:9000"]
-    volumes: [./baseline/init.sql:/docker-entrypoint-initdb.d/init.sql]
+    environment:
+      CLICKHOUSE_DB: fluxmeter
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    volumes:
+      - ./baseline/init.sql:/docker-entrypoint-initdb.d/01_cold_store.sql
+      # Named volume: image ships a non-empty data dir that breaks initdb heuristics.
+      # scripts/apply-cold-store-init.sh also applies DDL after start for reliability.
+      - clickhouse-data:/var/lib/clickhouse
     depends_on: [kafka]
     mem_limit: 4g
+
+volumes:
+  clickhouse-data:

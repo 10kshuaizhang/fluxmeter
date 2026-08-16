@@ -2,7 +2,7 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 4.3.0 · Python SDK **2.0.0**
+**Current version:** 4.4.0 · Python SDK **2.0.0**
 **Current phase:** Pillar B Intelligence (**complete** · 3.0–3.1) · Phase G Gateway (**done**) · Metering (**maintained**) · Phase 7+ (**demand-gated**)  
 **Design status:** APPROVED (2026-06-16) · Intelligence pivot APPROVED (2026-07-11)  
 **Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md) · pivot: [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md)
@@ -212,6 +212,8 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 ---
 
 ## Recent Activity
+
+- **2026-08-16** — **v4.4.0**: ADR-025 Cold Store (`raw_events` + DLQ, Trusted Envelope); closed stale PR #2; `make test-cold-store`.
 
 - **2026-08-16** — **v4.3.0**: UsageQuery (tenant lifetime reads + rerate) + ProxiedCompletion; stream ≥400 settles Reservation.
 

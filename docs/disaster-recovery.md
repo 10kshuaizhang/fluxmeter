@@ -18,6 +18,14 @@ Operational procedures for recovering billing state after infrastructure failure
 - Redis AOF enabled (`appendonly yes`)
 - Documented budget seed values per customer (Postgres/control-plane or ops vault)
 
+## 1a. ClickHouse cold store (benchmark overlay)
+
+- Audit copy: `fluxmeter.raw_events` (dedupe with `FINAL` by `event_id`).
+- Consumer group: `fluxmeter-cold-store` (independent from Flink).
+- Bad messages: `fluxmeter.raw_events_dlq` — see [runbooks/cold-store-dlq.md](runbooks/cold-store-dlq.md).
+- Recreating the ClickHouse volume requires `make apply-cold-store-init` (or `FORCE_COLD_STORE_INIT=1`); offsets for `fluxmeter-cold-store` start fresh (replay from topic retention).
+- Cold store is an audit copy only (ADR-025); billing truth remains Flink → Redis.
+
 ## 1. Redis Total Loss
 
 **Symptoms:** API returns zero usage; budgets missing; Grafana flatlines.

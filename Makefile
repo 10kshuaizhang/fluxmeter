@@ -1,4 +1,4 @@
-.PHONY: build demo demo-gateway start start-saas start-benchmark stop stop-saas clean generate benchmark correctness-bench validate-spec load-test load-test-quick http-load-test test-e2e test-unit test-java
+.PHONY: build demo demo-gateway demo-record start start-saas start-benchmark stop stop-saas clean generate benchmark correctness-bench validate-spec load-test load-test-quick http-load-test test-e2e test-unit test-java test-cold-store apply-cold-store-init
 
 JAR = $(shell ls -t build/libs/fluxmeter-*.jar 2>/dev/null | head -1)
 
@@ -18,6 +18,7 @@ demo: start
 	@echo " Grafana:       http://localhost:3000 (admin/fluxmeter)"
 	@echo ""
 	@echo " Flink UI:      http://localhost:8081"
+	@echo " Record demo.gif: make demo-record  (requires vhs)"
 	@echo ""
 	@echo " Gateway example:"
 	@echo "   curl localhost:8080/v1/chat/completions \\"
@@ -25,6 +26,9 @@ demo: start
 	@echo "     -d '{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}'"
 	@echo "==================================="
 
+# Re-record demo.gif from demo.tape (brew install vhs)
+demo-record:
+	vhs demo.tape
 
 # Gateway mock self-check (no live OpenAI)
 demo-gateway:
@@ -88,6 +92,17 @@ load-test-quick:
 http-load-test:
 	python3 scripts/http-load-test.py --mode single --min-eps 10000
 	python3 scripts/http-load-test.py --mode batch --min-eps 100000
+
+# ADR-025 ClickHouse cold store DDL (benchmark overlay must be up)
+apply-cold-store-init:
+	chmod +x scripts/apply-cold-store-init.sh
+	./scripts/apply-cold-store-init.sh
+
+# ADR-025 acceptance A1–A7 (needs kafka + clickhouse from start-benchmark)
+test-cold-store:
+	chmod +x scripts/test-cold-store.sh scripts/apply-cold-store-init.sh
+	./scripts/apply-cold-store-init.sh
+	./scripts/test-cold-store.sh
 
 # Run the baseline comparison (Flink vs ClickHouse)
 benchmark:

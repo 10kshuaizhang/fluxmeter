@@ -6,6 +6,21 @@ Format: `[version] — date — summary`
 
 ---
 
+## [4.4.0] — 2026-08-16
+
+### Added
+- **Cold Store** (ADR-025): ClickHouse `raw_events` + DLQ via Kafka group `fluxmeter-cold-store`; Trusted Envelope extract (flat JSON still accepted).
+- `make apply-cold-store-init` / `make test-cold-store` (A1–A7); runbook `docs/runbooks/cold-store-dlq.md`.
+- Spec/plan under `docs/superpowers/` (relanded from closed PR #2 as 4.4.0).
+
+### Changed
+- Benchmark aggregates moved to `baseline/benchmark_init.sql` (applied by `make benchmark` only).
+- ADR-004 amended: aggregates remain benchmark-only; Cold Store is the audit path on the same CH deployment.
+
+### Notes
+- Non-goals unchanged: Lite-only cold path, ADR-2 query API, ADR-3 reconciliation.
+- Wire-up: `docker-compose.benchmark.yml` (not deleted `docker-compose.full.yml`).
+
 ## [4.3.0] — 2026-08-16
 
 ### Added
