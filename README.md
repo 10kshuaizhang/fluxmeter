@@ -2,13 +2,13 @@
 
 **Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Docs:** [fluxmeter.dev/docs](https://fluxmeter.dev/docs) · **Blog:** [Agent cost control](https://fluxmeter.dev/blog/stop-runaway-agent-costs)
 
-Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request. All public usage events enter through HTTP and are durably acknowledged by Kafka before Flink performs billing and aggregation. **v4.0.0** removes the former Lite/Full split.
+Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request. All public usage events enter through HTTP and are durably acknowledged by Kafka before Flink performs billing and aggregation. **v4.4.1** is the single HTTP→Kafka→Flink path (Lite/Full split removed in 4.0).
 
 **When to use FluxMeter:** prepaid token wallets, agent loop cost control, self-hosted LLM metering, export to Stripe/Lago/Orb/Metronome.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v4.0.0** · **Open spec + HTTP SDKs** · **<10ms budget check** · **Multi-provider**
+**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v4.4.1** · **Open spec + HTTP SDKs** · **<10ms budget check** · **Multi-provider**
 
 **Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [Docs](https://github.com/10kshuaizhang/fluxmeter/tree/main/docs) · [API reference](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
 
@@ -119,7 +119,7 @@ curl -X POST localhost:8000/ingest \
   -d '{"customerId":"cust_123","modelId":"gpt-4o","inputTokens":500,"outputTokens":150}'
 ```
 
-Kafka is an internal transport. Customer SDKs do not accept broker configuration, and the base deployment does not expose a broker port. The benchmark overlay retains a trusted operator producer for load and recovery tooling.
+Kafka is an internal transport. Customer SDKs do not accept broker configuration, and the base deployment does not expose a broker port. The benchmark overlay retains a trusted operator producer for load and recovery tooling. On Kafka outage: **HTTP `/ingest` returns retryable 503**; the **Gateway** may buffer via Redis outbox until Kafka recovers.
 
 ## Query API
 
@@ -148,7 +148,7 @@ Kafka is an internal transport. Customer SDKs do not accept broker configuration
 
 Full reference: [docs/api-reference.md](docs/api-reference.md)
 
-### Customer billing queries (v2.6.1)
+### Customer billing queries
 
 Expose usage to end users without a separate warehouse:
 
@@ -178,6 +178,8 @@ curl localhost:8000/usage/session/sess_456
 [Your App / SDK / Gateway] → [HTTP API] → [Kafka] → [Flink] → [Redis]
                                                   │            │
                                             budget alerts   Query API
+                                                  │
+                                    ClickHouse cold store (benchmark overlay)
 ```
 
 **Key design choices:**
@@ -186,6 +188,7 @@ curl localhost:8000/usage/session/sess_456
 - Microdollar precision (long) — no float accumulation errors
 - Sink idempotency (SHA-256 + SET NX) — no double-billing on replay
 - Three-layer budget check (cache → Redis → fail policy) — never blocks
+- Auditable ClickHouse cold store (ADR-025) on `make start-benchmark` — not billing truth
 
 ## Event Schema
 
@@ -279,11 +282,12 @@ See **[ROADMAP.md](ROADMAP.md)** for the full plan. Highlights:
 
 - [x] Tiered pricing (flat / volume / graduated) in Flink — see `contrib/pricing/tiered-example.json`
 - [ ] Full multi-tenant RBAC / org model
-- [x] Wrap SDK + mid-stream kill (`wrap(OpenAI())`, `StreamKilledError`) — full HTTP proxy still Phase 5
+- [x] Wrap SDK + mid-stream kill (`wrap(OpenAI())`, `StreamKilledError`) + Gateway proxy (`/v1/chat/completions`)
 - [ ] `@fluxmeter/client` on npm
 - [x] Webhook delivery for budget alerts
 - [x] Customer-scoped API keys
-- [x] Single public HTTP entrance backed by Kafka/Flink (v4.0)
+- [x] Single public HTTP entrance backed by Kafka/Flink (v4.0+)
+- [x] Auditable ClickHouse cold store (v4.4.0)
 - [x] Python and JavaScript HTTP SDKs
 
 ## Requirements

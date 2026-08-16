@@ -90,8 +90,7 @@
     },
     "environment": {
       "type": "string",
-      "enum": ["production", "staging", "development"],
-      "description": "Deployment environment tag."
+      "description": "Deployment environment tag (e.g. production, staging, development, or custom)."
     },
     "metadata": {
       "type": "object",

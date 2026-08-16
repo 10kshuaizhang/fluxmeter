@@ -6,6 +6,15 @@ Format: `[version] — date — summary`
 
 ---
 
+## [4.4.1] — 2026-08-16
+
+### Changed
+- README / OpenAPI / `docs/api-reference.md` synced to current FastAPI routes and Custody semantics (batch `results`, 207/409/503, `held_usd` / package / pricing / admin keys).
+- Token-event `environment` is a free-form string (matches `IngestEvent`).
+
+### Notes
+- Docs-only PATCH; runtime behavior unchanged from 4.4.0.
+
 ## [4.4.0] — 2026-08-16
 
 ### Added

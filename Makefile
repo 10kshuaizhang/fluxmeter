@@ -10,7 +10,7 @@ build:
 demo: start
 	@echo ""
 	@echo "==================================="
-	@echo " FluxMeter 4.0 — HTTP → Kafka → Flink → Redis"
+	@echo " FluxMeter 4.4 — HTTP → Kafka → Flink → Redis"
 	@echo "==================================="
 	@echo " API:           http://localhost:8000/docs"
 	@echo " Intelligence:  http://localhost:8000/docs#/intelligence"

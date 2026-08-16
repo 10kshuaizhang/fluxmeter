@@ -4,7 +4,7 @@ info:
   description: |
     Real-time token usage queries, HTTP ingest, and budget enforcement.
     Implements the FluxMeter open spec — see `spec/schema/` and `spec/openapi/`.
-  version: 4.0.0
+  version: 4.4.1
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -42,10 +42,24 @@ paths:
           description: Ready to accept events
         "503":
           description: A required dependency is unavailable or stale
+  /openapi.yaml:
+    get:
+      summary: Download this OpenAPI document
+      security: []
+      responses:
+        "200":
+          description: OpenAPI YAML
+          content:
+            application/yaml:
+              schema:
+                type: string
   /ingest:
     post:
       summary: Ingest single token event
-      description: The sole public event entrance. Returns only after Kafka acknowledges custody.
+      description: |
+        The sole public event entrance. Returns 202 only after Kafka acknowledges custody.
+        Identical retries with the same eventId return 202 with idempotent=true.
+        Pending custody or Kafka outage returns retryable 503.
       requestBody:
         required: true
         content:
@@ -54,7 +68,7 @@ paths:
               $ref: "#/components/schemas/TokenEvent"
       responses:
         "202":
-          description: Accepted
+          description: Accepted, quarantined, or idempotent replay
           content:
             application/json:
               schema:
@@ -62,7 +76,7 @@ paths:
         "409":
           description: The eventId was previously used with a different payload
         "503":
-          description: Kafka did not acknowledge custody; the request is retryable
+          description: Kafka custody pending or unavailable; retryable (event_pending / kafka_unavailable)
   /ingest/batch:
     post:
       summary: Batch ingest (max 1000)
@@ -77,21 +91,178 @@ paths:
                 $ref: "#/components/schemas/TokenEvent"
       responses:
         "202":
-          description: Accepted
+          description: All rows accepted or quarantined
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/IngestBatchResponse"
         "207":
-          description: Mixed per-event custody outcomes
+          description: Mixed per-event outcomes (partial)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/IngestBatchResponse"
         "400":
           description: Invalid event or batch larger than 1000
+        "409":
+          description: Every row conflicted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestBatchResponse"
         "503":
-          description: No event obtained Kafka custody; the request is retryable
+          description: Custody failures (failed); retryable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestBatchResponse"
+  /pricing:
+    get:
+      summary: Current pricing catalog
+      responses:
+        "200":
+          description: Pricing JSON (Redis snapshot or file)
+        "404":
+          description: Pricing file not found
+  /admin/pricing:
+    put:
+      summary: Upload pricing catalog to Redis
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Updated
+        "400":
+          description: Invalid catalog
+  /admin/pricing/validate:
+    post:
+      summary: Validate pricing catalog structure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Valid
+        "400":
+          description: Invalid
+  /admin/reconciliation:
+    get:
+      summary: Last reconciliation job snapshot
+      responses:
+        "200":
+          description: Snapshot or no_data
+  /admin/billing/{customer_id}/link:
+    post:
+      summary: Link customer to Stripe, Metronome, or Orb
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform, external_customer_id]
+              properties:
+                platform:
+                  type: string
+                  enum: [stripe, metronome, orb]
+                external_customer_id:
+                  type: string
+      responses:
+        "200":
+          description: Linked
+        "400":
+          description: Invalid platform or missing id
+  /admin/customers/{customer_id}/api-keys:
+    post:
+      summary: Create customer-scoped API key
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Created key (secret shown once)
+  /admin/customers/{customer_id}/api-keys/{key_id}/budget:
+    post:
+      summary: Set daily/monthly spend caps on a reseller API key
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                daily_budget_usd:
+                  type: number
+                monthly_budget_usd:
+                  type: number
+      responses:
+        "200":
+          description: Caps set
+        "404":
+          description: API key not found
+  /admin/api-keys/{key_id}:
+    delete:
+      summary: Revoke a customer API key
+      parameters:
+        - name: key_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Revoked
+        "404":
+          description: Not found
+  /usage/dim/{dim_key}/{dim_value}:
+    get:
+      summary: Usage for a whitelisted ingest metadata dimension
+      parameters:
+        - name: dim_key
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: dim_value
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: period
+          in: query
+          schema:
+            type: string
+            pattern: '^\d{4}-\d{2}$'
+      responses:
+        "200":
+          description: Dimension usage
   /admin/billing/{customer_id}/link-stripe:
     post:
       summary: Link customer to Stripe for usage billing export
@@ -338,6 +509,14 @@ paths:
           schema:
             type: number
             default: 0
+        - name: parent_span_id
+          in: query
+          schema:
+            type: string
+        - name: session_id
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           content:
@@ -400,6 +579,104 @@ paths:
       responses:
         "200":
           description: Reconciled
+  /budget/{customer_id}/cap:
+    post:
+      summary: Set span or session spend cap
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, id, max_cost_usd]
+              properties:
+                kind:
+                  type: string
+                  enum: [span, session]
+                id:
+                  type: string
+                max_cost_usd:
+                  type: number
+      responses:
+        "200":
+          description: Cap set
+  /budget/{customer_id}/webhook:
+    post:
+      summary: Configure budget alert webhook
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [webhook_url]
+              properties:
+                webhook_url:
+                  type: string
+                webhook_secret:
+                  type: string
+      responses:
+        "200":
+          description: Configured
+    get:
+      summary: Get budget alert webhook URL
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Webhook URL
+        "404":
+          description: Not configured
+  /budget/{customer_id}/package:
+    post:
+      summary: Set prepaid token package allowance
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tokens]
+              properties:
+                tokens:
+                  type: integer
+                  minimum: 0
+      responses:
+        "200":
+          description: Package set
+    get:
+      summary: Remaining prepaid token package balance
+      parameters:
+        - name: customer_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Remaining tokens
   /rerate/preview:
     post:
       summary: Preview retroactive re-rating
@@ -702,13 +979,14 @@ components:
           type: string
         idempotent:
           type: boolean
+          description: True when this eventId was already accepted with the same payload
     IngestBatchResponse:
       type: object
       required: [status, results]
       properties:
         status:
           type: string
-          enum: [accepted, partial, failed]
+          enum: [accepted, partial, conflict, failed]
         results:
           type: array
           items:
@@ -719,7 +997,7 @@ components:
                 type: string
               status:
                 type: string
-                enum: [accepted, quarantined, conflict, failed]
+                enum: [accepted, quarantined, conflict, failed, pending]
               idempotent:
                 type: boolean
               retryable:
@@ -823,6 +1101,15 @@ components:
           type: string
         balance_usd:
           type: number
+        held_usd:
+          type: number
+          description: Sum of active streaming reserves
+        effective_balance_usd:
+          type: number
+          description: balance_usd minus held_usd
+        debt_usd:
+          type: number
+          description: Overdrawn amount when balance is zero
         total_spent_usd:
           type: number
         alert_threshold_usd:
@@ -849,11 +1136,17 @@ components:
         balance_usd:
           type: number
           nullable: true
+        held_usd:
+          type: number
+        effective_balance_usd:
+          type: number
         reason:
           type: string
         source:
           type: string
           enum: [redis, cache, policy]
+        max_rpm:
+          type: integer
     SpanUsage:
       type: object
       properties:

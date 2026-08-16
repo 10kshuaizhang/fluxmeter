@@ -53,7 +53,7 @@ from ingestion import (
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="4.4.0",
+    version="4.4.1",
 )
 
 from intelligence.routes import router as intelligence_router
@@ -525,7 +525,7 @@ def _bucket_usage_response(customer_id: str, bucket: str, data: dict) -> BucketU
     dependencies=[Depends(require_api_key)],
 )
 def get_customer_period_usage(customer_id: str, period: str):
-    """Calendar-month usage for a customer (UTC). Lite: rollup worker; Full: Flink RedisSink."""
+    """Calendar-month usage for a customer (UTC). Populated by Flink RedisSink rollups."""
     if not re.fullmatch(r"\d{4}-\d{2}", period):
         raise HTTPException(status_code=400, detail="period must be YYYY-MM")
     r = get_redis()
