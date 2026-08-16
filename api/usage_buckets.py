@@ -1,4 +1,4 @@
-"""Rollup bucket keys, session counters — shared by rollup worker and query API."""
+"""Rollup bucket keys and read helpers — shared by query API and Intelligence."""
 
 from __future__ import annotations
 
@@ -6,9 +6,6 @@ import os
 from typing import Any
 
 import redis
-
-from pricing_loader import billing_period_day, billing_period_month
-from tenant_keys import customer_prefix
 
 DAY_BUCKET_TTL = int(os.getenv("FLUXMETER_DAY_BUCKET_TTL_SEC", str(400 * 86400)))
 SESSION_TTL_SEC = int(os.getenv("FLUXMETER_SESSION_TTL_SEC", str(90 * 86400)))
@@ -37,6 +34,10 @@ def model_period_key(customer_id: str, model_id: str, period: str) -> str:
     return f"rollup:{customer_id}:model:{model_id}:period:{period}"
 
 
+def period_customers_index(period: str) -> str:
+    return f"idx:period:{period}:customers"
+
+
 def read_usage_bucket(r: redis.Redis, key: str) -> dict[str, Any] | None:
     """Read a rollup hash. Returns None if bucket is missing or empty."""
     if not r.exists(key):
@@ -51,82 +52,6 @@ def read_usage_bucket(r: redis.Redis, key: str) -> dict[str, Any] | None:
     if data["event_count"] == 0 and data["total_tokens"] == 0:
         return None
     return data
-
-
-def increment_session(
-    r: redis.Redis,
-    customer_id: str,
-    session_id: str,
-    *,
-    input_tokens: int,
-    output_tokens: int,
-    total_tokens: int,
-    cost_usd: float,
-    cache_read_tokens: int = 0,
-    reasoning_tokens: int = 0,
-) -> None:
-    """Accumulate usage for a conversation/project session."""
-    key = f"session:{session_id}"
-    pipe = r.pipeline()
-    pipe.set(f"{key}:customer_id", customer_id, ex=SESSION_TTL_SEC)
-    pipe.incrby(f"{key}:input_tokens", input_tokens)
-    pipe.incrby(f"{key}:output_tokens", output_tokens)
-    pipe.incrby(f"{key}:total_tokens", total_tokens)
-    pipe.incrby(f"{key}:event_count", 1)
-    pipe.incrbyfloat(f"{key}:cost_usd", cost_usd)
-    if cache_read_tokens > 0:
-        pipe.incrby(f"{key}:cache_read_tokens", cache_read_tokens)
-    if reasoning_tokens > 0:
-        pipe.incrby(f"{key}:reasoning_tokens", reasoning_tokens)
-    pipe.expire(f"{key}:customer_id", SESSION_TTL_SEC)
-    for suffix in BUCKET_FIELDS:
-        if suffix == "customer_id":
-            continue
-        pipe.expire(f"{key}:{suffix}", SESSION_TTL_SEC)
-    pipe.execute()
-
-
-def increment_span(
-    r: redis.Redis,
-    tenant_id: str | None,
-    customer_id: str,
-    span_id: str,
-    *,
-    total_tokens: int,
-    cost_usd: float,
-    event_ts_ms: int,
-) -> None:
-    """Accumulate usage for an agent run (key = parentSpanId)."""
-    key = f"span:{span_id}"
-    cust_key = customer_prefix(tenant_id, customer_id)
-    pipe = r.pipeline()
-    pipe.set(f"{key}:customer_id", customer_id, ex=SPAN_TTL_SEC)
-    pipe.incrby(f"{key}:total_tokens", total_tokens)
-    pipe.incrbyfloat(f"{key}:cost_usd", cost_usd)
-    pipe.incr(f"{key}:call_count")
-    for suffix in ("total_tokens", "cost_usd", "call_count", "duration_ms"):
-        pipe.expire(f"{key}:{suffix}", SPAN_TTL_SEC)
-    pipe.execute()
-
-    # ponytail: min/max timestamps — rare races on concurrent same-span events; upgrade: Lua
-    first_key = f"{key}:first_ts"
-    last_key = f"{key}:last_ts"
-    first = r.get(first_key)
-    if first is None or event_ts_ms < int(first):
-        r.set(first_key, event_ts_ms, ex=SPAN_TTL_SEC)
-    last = r.get(last_key)
-    if last is None or event_ts_ms > int(last):
-        r.set(last_key, event_ts_ms, ex=SPAN_TTL_SEC)
-    first_v = int(r.get(first_key) or event_ts_ms)
-    last_v = int(r.get(last_key) or event_ts_ms)
-    duration = max(0, last_v - first_v)
-    r.set(f"{key}:duration_ms", duration, ex=SPAN_TTL_SEC)
-    r.expire(first_key, SPAN_TTL_SEC)
-    r.expire(last_key, SPAN_TTL_SEC)
-
-    total_cost = float(r.get(f"{key}:cost_usd") or 0)
-    r.zadd(f"{cust_key}:spans", {span_id: total_cost})
-    r.expire(f"{cust_key}:spans", SPAN_TTL_SEC)
 
 
 def read_session(r: redis.Redis, session_id: str) -> dict[str, Any] | None:
@@ -149,9 +74,8 @@ __all__ = [
     "rollup_month_key",
     "rollup_day_key",
     "model_period_key",
+    "period_customers_index",
     "read_usage_bucket",
-    "increment_session",
-    "increment_span",
     "read_session",
     "DAY_BUCKET_TTL",
     "SESSION_TTL_SEC",

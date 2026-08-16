@@ -414,22 +414,9 @@ def run_clip_pipeline(creator_id: str, live_id: str):
 
 以下为对接 Review 时发现、**当前 Lite 路径尚未覆盖**的能力，按优先级排列。
 
-### 6.1 ~~[P0] Lite 路径缺少 `parentSpanId` / Span 聚合~~ ✓ Shipped v2.6.2
+### 6.1 ~~[P0] Lite 路径缺少 `parentSpanId` / Span 聚合~~ ✓ Shipped v2.6.2 · **removed in v4.0**
 
-**已交付：** Lite ingest 在 Lua 聚合成功后调用 `usage_buckets.increment_span()`，Redis key 与 Flink `SpanSink` 一致（24h TTL）。`GET /usage/span/{id}` / `/usage/customer/{id}/spans` 在 Lite 路径可用。
-
-**原设计记录：**
-
-```
-ingest 带 parentSpanId
-  → Lite Lua 或 Python 侧调用 increment_span()  # 镜像 increment_session
-  → Redis keys 与 Full 模式一致：
-      span:{id}:cost_usd, :total_tokens, :call_count, :duration_ms, :customer_id
-      customer:{cid}:spans  (ZSET by cost)
-  → GET /usage/span/{id} 无需改 API
-```
-
-**工作量：** ~80 LOC（复用 `usage_buckets.py` 模式）+ 测试对齐 `test_lite_production.py`。
+**历史：** Lite 曾通过 `usage_buckets.increment_span()` 写 span 计数。ADR-024 / v4.0 删除 Lite 聚合后，span 仅由 Flink `SpanSink`（`parentSpanId`）维护；Python `increment_*` writers 已删除。
 
 ---
 

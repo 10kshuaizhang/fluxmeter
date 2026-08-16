@@ -6,6 +6,20 @@ Format: `[version] — date — summary`
 
 ---
 
+## [4.2.0] — 2026-08-16
+
+### Removed
+- Deleted Lite orphan writers (`increment_session` / `increment_span`) and unwired `OptimizedRedisSink`.
+- Removed Pricing Catalog `to_lua_spec` / Lite pricing_spec surface.
+
+### Added
+- Shared Pricing Catalog golden vectors (`docs/contracts/pricing-vectors.json`) run by Python and Java.
+- `RollupStore` with `idx:period:{YYYY-MM}:customers` written by BudgetEnforcerSink; SCAN fallback when index missing.
+
+### Changed
+- Gateway stream estimate uses catalog `cost_micro` (no `tier_at_token(0)` shortcut).
+- `demos/full_demo.py` self-check uses Custody + seeded rollups (no Lite imports).
+
 ## [4.1.1] — 2026-08-16
 
 ### Fixed

@@ -40,7 +40,8 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
     private static final double DEFAULT_ALERT_THRESHOLD_PERCENT = 0.10;
 
     // KEYS[1..23]=atomic counters/budget, [24]=period volume,
-    // [25]=month rollup hash, [26]=day rollup hash.
+    // [25]=period rollup, [26]=day rollup, [27]=reservation set, [28]=held,
+    // [29]=pending zset, [30]=idx:period:customers; ARGV[10]=customerId
     private static final String SINK_LUA_SCRIPT =
             "if redis.call('SET', KEYS[1], '1', 'NX', 'EX', '2592000') == false then\n" +
             "  return {'SKIP', '0', '0'}\n" +
@@ -69,6 +70,7 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
             " if tonumber(ARGV[6]) > 0 then redis.call('HINCRBY', hk, 'cache_read_tokens', ARGV[6]) end; if tonumber(ARGV[7]) > 0 then redis.call('HINCRBY', hk, 'reasoning_tokens', ARGV[7]) end\n" +
             "end\n" +
             "rollup(KEYS[25]); rollup(KEYS[26])\n" +
+            "redis.call('SADD', KEYS[30], ARGV[10])\n" +
             "for _,rid in ipairs(redis.call('SMEMBERS', KEYS[27])) do\n" +
             " local rk='reservation:'..rid; local reserved=tonumber(redis.call('HGET', rk, 'reserved_usd') or '0'); local held=tonumber(redis.call('GET', KEYS[28]) or '0'); local release=math.min(held, reserved)\n" +
             " if release > 0 then redis.call('INCRBYFLOAT', KEYS[28], -release) end\n" +
@@ -141,7 +143,7 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
             @SuppressWarnings("unchecked")
             java.util.List<String> result = (java.util.List<String>) jedis.eval(
                     SINK_LUA_SCRIPT,
-                    29,
+                    30,
                     idempotencyKey,
                     customerKey + ":input_tokens",
                     customerKey + ":output_tokens",
@@ -171,6 +173,7 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
                     reservationSetKey,
                     budgetKey + ":held_usd",
                     "gateway:reservations:pending",
+                    "idx:period:" + BillingPeriod.monthUtc(agg.getWindowEnd()) + ":customers",
                     String.valueOf(agg.getInputTokens()),
                     String.valueOf(agg.getOutputTokens()),
                     String.valueOf(agg.getTotalTokens()),
@@ -179,7 +182,8 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
                     String.valueOf(agg.getCacheReadTokens()),
                     String.valueOf(agg.getReasoningTokens()),
                     String.valueOf(DEFAULT_ALERT_THRESHOLD_PERCENT),
-                    String.valueOf(agg.getWindowEnd())
+                    String.valueOf(agg.getWindowEnd()),
+                    customerId
             );
 
             String status = result.get(0);

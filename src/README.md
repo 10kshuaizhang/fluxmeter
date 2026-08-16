@@ -26,4 +26,4 @@ Applications integrate through the HTTP API or Gateway. Kafka and this engine ar
 
 ## Performance-critical internals
 
-Window tuning, incremental aggregation (OOM-safe), OptimizedRedisSink batching, and budget Lua scripts are maintained here — not duplicated in `spec/` or `contrib/`.
+Window tuning, incremental aggregation (OOM-safe), BudgetEnforcerSink batching, and budget Lua scripts are maintained here — not duplicated in `spec/` or `contrib/`.

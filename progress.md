@@ -2,7 +2,7 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 4.1.1 · Python SDK **2.0.0**
+**Current version:** 4.2.0 · Python SDK **2.0.0**
 **Current phase:** Pillar B Intelligence (**complete** · 3.0–3.1) · Phase G Gateway (**done**) · Metering (**maintained**) · Phase 7+ (**demand-gated**)  
 **Design status:** APPROVED (2026-06-16) · Intelligence pivot APPROVED (2026-07-11)  
 **Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md) · pivot: [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md)
@@ -212,6 +212,10 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 ---
 
 ## Recent Activity
+
+- **2026-08-16** — **v4.2.0**: delete Lite orphans + OptimizedRedisSink; Pricing Catalog golden vectors; RollupStore period-customer index (Flink SADD + SCAN fallback).
+
+- **2026-08-16** — **v4.1.1**: Intelligence `/forecast` passes API-key `tenant_id` into budget read (completes tenant Budget seam for forecast).
 
 - **2026-08-16** — **v4.1.0 architecture deepen**: Token Event Custody (`accept`/`accept_many`) shared by HTTP+Gateway; Reservation contract + `expire_reservations`; tenant Budget key alignment with legacy read fallback; `CONTEXT.md` glossary.
 

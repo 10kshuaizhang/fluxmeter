@@ -3,25 +3,19 @@ from __future__ import annotations
 import redis
 
 from billing_dims import ALLOWED_DIMS
+from rollup_store import list_customer_period_costs
 from usage_buckets import read_usage_bucket
 
-
-def list_customer_period_costs(r: redis.Redis, period: str) -> dict[str, float]:
-    out: dict[str, float] = {}
-    cursor = 0
-    pattern = f"rollup:*:period:{period}"
-    while True:
-        cursor, keys = r.scan(cursor, match=pattern, count=200)
-        for key in keys:
-            parts = key.split(":")
-            if len(parts) == 4 and parts[0] == "rollup" and parts[2] == "period":
-                cid = parts[1]
-                data = read_usage_bucket(r, key)
-                if data:
-                    out[cid] = data["cost_usd"]
-        if cursor == 0:
-            break
-    return out
+# Re-export for Intelligence callers; period-customer path is RollupStore.
+__all__ = [
+    "list_customer_period_costs",
+    "list_model_period_costs",
+    "list_dim_period_costs",
+    "list_customer_daily_costs",
+    "list_global_daily_costs",
+    "list_global_period_costs",
+    "list_dim_margin_series",
+]
 
 
 def list_model_period_costs(

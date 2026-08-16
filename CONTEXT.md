@@ -15,7 +15,8 @@ Avoid synonyms that dilute these terms.
 | **Reservation** | Temporary hold on Budget (`held_usd`) tied to a Gateway or SDK reserve, attached to a window, then settled or expired. |
 | **Gateway** | Side-track OpenAI-compatible proxy that reserves, calls upstream, then ingests via Custody. |
 | **Intelligence** | Read-side analytics over Redis rollups (not a second billing engine). |
-| **Pricing Catalog** | Shared JSON model rates; Flink is billing truth, Gateway estimate is advisory. |
+| **RollupStore** | Read-side module over Redis period rollups; prefers `idx:period:{YYYY-MM}:customers`, falls back to SCAN. |
+| **Pricing Catalog** | Shared JSON model rates; Flink is billing truth, Gateway estimate is advisory (same `cost_micro`, `monthly_before=0`). |
 
 ## Avoid
 

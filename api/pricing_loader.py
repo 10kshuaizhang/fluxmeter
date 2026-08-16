@@ -79,17 +79,6 @@ class ModelPricing:
             return MAX_TIER_END
         return tier.up_to_tokens_m * 1_000_000
 
-    def to_lua_spec(self) -> str:
-        """Compact spec for Redis Lua: mode,I,O,E|up:I:O:E,..."""
-        header = f"{self.pricing_mode},{self.input_per_m},{self.output_per_m},{self.embedding_per_m}"
-        if not self.tiers:
-            return header + "|"
-        parts = []
-        for t in self.tiers:
-            up = "null" if t.up_to_tokens_m is None else str(t.up_to_tokens_m)
-            parts.append(f"{up}:{t.input_per_m}:{t.output_per_m}:{t.embedding_per_m}")
-        return header + "|" + ",".join(parts)
-
 
 class PricingCatalog:
     def __init__(self, root: dict[str, Any]):
@@ -128,9 +117,6 @@ class PricingCatalog:
 
     def model_pricing(self, model: str) -> ModelPricing:
         return self.models.get(self.normalize_model_id(model), self.defaults)
-
-    def pricing_spec(self, model: str) -> str:
-        return self.model_pricing(model).to_lua_spec()
 
     def calculate_cost_micro(self, event: dict[str, Any], monthly_tokens_before: int = 0) -> int:
         pricing = self.model_pricing(event.get("modelId", "unknown"))

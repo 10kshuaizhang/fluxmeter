@@ -1,0 +1,23 @@
+[
+  {
+    "name": "gpt4o_one_million_input",
+    "catalog": "config/pricing.json",
+    "event": {"modelId": "gpt-4o", "inputTokens": 1000000, "outputTokens": 0},
+    "monthly_tokens_before": 0,
+    "expected_micro": 2500000
+  },
+  {
+    "name": "claude_opus_mixed",
+    "catalog": "config/pricing.json",
+    "event": {"modelId": "claude-opus-4", "inputTokens": 10000, "outputTokens": 5000},
+    "monthly_tokens_before": 0,
+    "expected_micro": 525000
+  },
+  {
+    "name": "deepseek_v4_flash_one_million_input",
+    "catalog": "config/pricing.json",
+    "event": {"modelId": "deepseek-v4-flash", "inputTokens": 1000000, "outputTokens": 0},
+    "monthly_tokens_before": 0,
+    "expected_micro": 140000
+  }
+]
