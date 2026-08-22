@@ -22,14 +22,13 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-# Prefer local SDK trees
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "sdk", "python"))
 
 from fluxmeter import BudgetExceededError, FluxMeter, StreamKilledError, wrap  # noqa: E402
 
 
-def _self_check_wrap_deny() -> None:
+def self_check_wrap_deny() -> None:
     meter = MagicMock()
     meter._api_url = "http://x"
     meter.check.return_value = {"allowed": False, "reason": "budget_exhausted"}
@@ -45,7 +44,7 @@ def _self_check_wrap_deny() -> None:
     print("ok  wrap denies before provider when budget exhausted")
 
 
-def _self_check_stream_kill() -> None:
+def self_check_stream_kill() -> None:
     meter = MagicMock()
     meter._api_url = "http://x"
     meter.check.return_value = {"allowed": True}
@@ -82,9 +81,7 @@ def _self_check_stream_kill() -> None:
     print("ok  mid-stream kill when est cost exceeds reserve")
 
 
-def _live(api: str) -> None:
-    import urllib.request
-
+def live_check(api: str) -> None:
     admin = os.getenv("FLUXMETER_ADMIN_KEY", "")
     api_key = os.getenv("FLUXMETER_API_KEY", admin)
     headers = {"Content-Type": "application/json"}
@@ -95,6 +92,8 @@ def _live(api: str) -> None:
 
     def post(path: str, body: dict) -> None:
         import json
+        import urllib.request
+
         data = json.dumps(body).encode()
         req = urllib.request.Request(
             f"{api}{path}", data=data, headers=headers, method="POST"
@@ -107,7 +106,6 @@ def _live(api: str) -> None:
     assert gate.get("allowed") is False, gate
     print(f"ok  live check denies oversized estimate for {cust}")
 
-    # Tiny allowed estimate then burn balance via ingest
     gate_ok = meter.check(cust, 0.0)
     assert gate_ok.get("allowed") is True
     meter.track(cust, "gpt-4o-mini", input_tokens=50_000, output_tokens=50_000)
@@ -122,11 +120,11 @@ def main() -> int:
     parser.add_argument("--live", action="store_true", help="Hit a running Lite API")
     args = parser.parse_args()
 
-    _self_check_wrap_deny()
-    _self_check_stream_kill()
+    self_check_wrap_deny()
+    self_check_stream_kill()
     if args.live:
         api = os.getenv("FLUXMETER_API", "http://127.0.0.1:8000").rstrip("/")
-        _live(api)
+        live_check(api)
     print("path activation demo: all checks passed")
     return 0
 

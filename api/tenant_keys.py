@@ -25,6 +25,48 @@ def global_key(tenant_id: str | None, suffix: str) -> str:
     return f"global:{suffix}"
 
 
+def scope_prefix(tenant_id: str | None, kind: str, scope_id: str) -> str:
+    """Span/session namespace shared by Budget, Reservation, and projections."""
+    if kind not in ("span", "session"):
+        raise ValueError("scope kind must be span or session")
+    if has_tenant(tenant_id):
+        return f"tenant:{tenant_id}:{kind}:{scope_id}"
+    return f"{kind}:{scope_id}"
+
+
+def scope_prefix_for_read(
+    redis_client, tenant_id: str | None, kind: str, scope_id: str
+) -> str:
+    """Prefer tenant scope; retain a read-only legacy fallback during cutover."""
+    preferred = scope_prefix(tenant_id, kind, scope_id)
+    if not has_tenant(tenant_id):
+        return preferred
+    if any(
+        redis_client.exists(f"{preferred}:{suffix}")
+        for suffix in ("cost_usd", "held_usd", "max_cost_usd", "event_count")
+    ):
+        return preferred
+    legacy = f"{kind}:{scope_id}"
+    if any(
+        redis_client.exists(f"{legacy}:{suffix}")
+        for suffix in ("cost_usd", "held_usd", "max_cost_usd", "event_count")
+    ):
+        return legacy
+    return preferred
+
+
+def rate_limit_key(tenant_id: str | None, customer_id: str, minute: int) -> str:
+    if has_tenant(tenant_id):
+        return f"tenant:{tenant_id}:ratelimit:{customer_id}:{minute}"
+    return f"ratelimit:{customer_id}:{minute}"
+
+
+def package_key(tenant_id: str | None, customer_id: str) -> str:
+    if has_tenant(tenant_id):
+        return f"tenant:{tenant_id}:package:{customer_id}:tokens_remaining"
+    return f"package:{customer_id}:tokens_remaining"
+
+
 def budget_prefix_for_write(tenant_id: str | None, customer_id: str) -> str:
     """Writes always use the canonical (possibly tenant-scoped) key."""
     return budget_prefix(tenant_id, customer_id)

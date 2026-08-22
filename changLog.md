@@ -6,6 +6,165 @@ Format: `[version] — date — summary`
 
 ---
 
+## [4.8.2] — 2026-08-22
+
+### Changed
+- Reclassified the single-event HTTP Custody release SLO to p50 ≤50ms / p99 ≤200ms, with the former 25/100ms limits retained as a stretch target, and raised the separate-host Java runner to 4,000 request slots so its own in-flight ceiling does not create false drops.
+- Bounded Flink per-event projection idempotency to a configurable crash-safety window (`EVENT_PROJECTION_IDEMPOTENCY_TTL_SECONDS`, 600 seconds by default). The client retry identity remains a separate compact 30-day Custody record.
+- Made Job parallelism configurable and set the 12-slot benchmark profile to parallelism 12 instead of silently submitting every benchmark Job with the base `-p 2` default.
+
+### Fixed
+- Removed the second 30-day one-key-per-event registry from the Flink projection sink. A 35-minute 10K run created millions of these keys, exhausted Redis at 6 GiB, and caused `OOM command not allowed` restarts; projection markers now expire with the 10-minute Flink replay-safety horizon.
+- Added a Redis `PONG` healthcheck and conditioned Flink submission, API, and Gateway startup on Redis being fully loaded. This prevents AOF `BUSYLOADING` from exhausting the Flink restart strategy and leaving a failed job after the database recovers.
+
+### Notes
+- The 5-minute-warmup + 30-minute single-event run accepted 18,063,140 events at 10,034.90 eps with zero rejection or transport error and p50 36ms / p99 173ms. The Custody throughput/latency SLO passed, but the strict run verdict remained false because the 2,000-slot generator dropped 26,949 offered requests (0.149%).
+- That run also exposed 13.66 million business events of downstream lag and Redis OOM pressure. After safely draining Kafka to zero, 14 failed checkpoints / 7 restores were diagnosed, only `projection:*` benchmark markers were removed, and the live 4.8.2 marker TTL was verified at 576 seconds from a 600-second configuration.
+- A follow-up full-stack 60-second single sample at 4,000 slots reached 7,369.36 eps (p50 99ms / p99 1,679ms), while the 100K batch sample reached 32,567.14 eps (p50 2,949ms / p99 3,959ms). Both failed, showing that the co-located sustained Metering pipeline—not isolated HTTP Custody—is now the capacity boundary.
+- Correcting benchmark parallelism from 2 to 12 improved the full-stack 60-second sample to 7,772.28 eps and reduced end-of-run business lag from about 178K to 333; all six checkpoints completed, though p50 222ms / p99 1,472ms still failed. A temporary split Custody Redis improved throughput to 9,197.21 eps without warmup and 8,952.97 eps after warmup, but remained outside the latency/throughput gate and was removed.
+- Deterministic billing correctness passed at 1,000,001 input tokens / $0.15, with 39/39 checkpoints; ClickHouse cold-audit A1–A7 passed 12/12 assertions. The formal 10K full-pipeline and 100K batch gates remain open.
+- On the retained p12/main-Redis configuration, a 200-event steady-state accepted-to-Redis projection sample materialized 200/200 events with p50 465.85ms, p99 896.81ms, and max 909.60ms, passing the <20s event-to-billing criterion.
+
+## [4.8.1] — 2026-08-22
+
+### Changed
+- Made optional anonymous authentication an async no-identity-store fast path and moved Redis-backed scoped-key lookup off the event loop.
+- Authenticated `/ingest` and `/ingest/batch` explicitly inside their handlers, avoiding FastAPI dependency-graph and thread-pool overhead on the public metering hot path while preserving the same rejection contract.
+- Registered the broad Intelligence router after the fixed ingress routes, and set the measured benchmark profile to 12 API workers with a one-millisecond Custody microbatch window.
+- Gave the formal Java gate 10.05K offered-load headroom and 2,000 request slots while retaining a strict 10K accepted-throughput minimum; this prevents its drain-time denominator from making the minimum mathematically unreachable.
+
+### Fixed
+- Removed an unused global Flink `Keyed Reduce` branch that accumulated unbounded state despite having no sink. On the Tencent stack that operator held 465 MiB of a 503 MiB checkpoint and eventually failed with `ArrayIndexOutOfBoundsException`; the replacement job runs 12 instead of 14 tasks and its initial checkpoint measured 21.99 MiB.
+- Increased the Java generator unit-test concurrency allowance so full-suite scheduler variance does not cause false failures.
+
+### Notes
+- The final independent-host short diagnostic offered 10.05K events/s and accepted all 301,502 events at 10,034.95 events/s with zero rejection, transport error, or generator drop. p50 29ms and p99 134ms still exceed the 25/100ms latency limits, so the 35-minute single-event gate was deliberately not started and both formal public gates remain open.
+- Embedded RocksDB checkpoints and a second Redis dedicated to Custody were both measured and reverted: each reduced this co-located benchmark's latency/capacity rather than improving the release result.
+- Final cloud health after the API deployment: API `ready` at 4.8.1, Flink 12/12 `RUNNING`, 32/32 successful checkpoints (latest 0.82 MiB / 22ms), and zero lag on every business-event partition.
+
+## [4.8.0] — 2026-08-22
+
+### Added
+- A bounded cross-request Custody microbatcher for single-event HTTP ingest, with a 64-item default, one-millisecond flush window, tenant-context isolation, bounded queueing, and per-request result mapping.
+- A Java 17 open-loop public HTTP gate that reports offered, completed, accepted, rejected, transport-error, concurrency-drop, p50, p99, and maximum-latency evidence and exits non-zero when any gate fails.
+- Regression coverage for microbatch coalescing, tenant isolation, the HTTP batcher seam, Java gate accounting, and benchmark-safe runtime tuning.
+
+### Changed
+- `POST /ingest` delegates to the shared Custody batcher while retaining its existing ACK-plus-finalize 202 contract and retry/error mappings.
+- The benchmark API defaults to the measured 12-worker / 2ms profile, disables per-request access logging, removes redundant Kafka producer linger after application-level coalescing, and exposes worker, batch-window, queue, shard, and cleanup controls for repeatable experiments.
+- `make http-load-test-single` uses the Java runner instead of the CPU-limited Python/httpx single-event generator.
+
+### Notes
+- Tencent 16C32G safe tuning reached 7,812.72 accepted events/s on eight API workers (p50 192ms, p99 372ms), 3.10x the prior 2,522.73 eps Java baseline. Every completed request returned 202 with zero transport errors.
+- A cleanup-disabled diagnostic reached 8,711.62 eps but was reverted because it does not safely reclaim retained identities. During live sampling the co-located Java runner consumed 3.3–5.2 CPU cores, so formal 10K evidence requires a separate same-VPC load host. The 10K/100K public gates remain open.
+- A separate 8C16G same-VPC runner measured a best safe 9,814.66 eps (p50 49ms, p99 151ms) at 12 workers / 2ms, with zero rejection or transport error. 13–14 workers regressed and a dedicated Custody Redis experiment did not improve results, so it was removed. The strict short gate still fails and the 35-minute release run was not started.
+
+## [4.7.2] — 2026-08-22
+
+### Added
+- A dedicated one-partition `metering-watermarks` Kafka topic and elected API heartbeat publisher for bounded event-time window materialization during zero business traffic.
+- Regression coverage for targeted identity expiry, single-publisher heartbeat envelopes, source idleness, and existing late-event side-output behavior.
+
+### Changed
+- Flink consumes business and watermark topics with five-second bounded out-of-orderness and 15-second source idleness; internal heartbeat events are filtered before deduplication, projection, aggregation, and billing.
+
+### Fixed
+- A retry now expires its own custody identity atomically before state evaluation, so it cannot remain `pending` behind an arbitrarily large shard cleanup backlog.
+- Completed event-time windows no longer require a later billable event to advance the watermark after every business partition becomes idle.
+
+### Notes
+- Tencent 16C32G verification reclaimed a target identity ranked 205,310 behind expired members and returned `202 accepted`. A single event with no later business traffic materialized as exactly 1 event / 26 tokens in 17 seconds. A final TaskManager restart restored 14/14 tasks and produced exact Redis 2-event/56-token state plus two ClickHouse audit rows, again materializing 17 seconds after the post-recovery event.
+- Focused custody/gateway Python regressions and the full Java suite passed locally; cloud Java regressions and live API/Kafka/Flink/Redis probes passed.
+
+## [4.7.1] — 2026-08-22
+
+### Added
+- Multi-process HTTP load generation with offered-rate/concurrency partitioning and merged bounded latency histograms.
+- `scripts/benchmark_capacity.py` to report bounded benchmark identity memory separately from the production 30-day retention footprint.
+- Regression coverage for worker planning, result aggregation, capacity projection, and benchmark Compose limits.
+
+### Changed
+- The benchmark overlay uses an explicitly labeled five-minute custody identity TTL, 6 GiB Redis `maxmemory`, and an 8 GiB container limit; production defaults remain unchanged.
+- The 10K single-event Make target uses eight generator processes and 800 total connections.
+
+### Fixed
+- Prevented a single CPU-bound Python/httpx process from being mistaken for the 10K HTTP custody capacity of the deployed stack.
+- Prevented the 32GB benchmark protocol from using the base 384 MiB Redis limit while comparing projections against a fictional 20 GiB safety line.
+
+### Notes
+- Initial Tencent 16 vCPU / 32 GiB diagnosis measured ~429 single eps with the old one-process harness. The corrected eight-process 30s+60s gate measured 1,318.85 eps, p50 402ms, p99 3018ms, and 79,752 accepted events with one transport failure; the 10K gate remains open.
+- Measured Redis growth was ~789 bytes per accepted event: about 2.2 GiB at the five-minute benchmark TTL, but 18.6 TiB at the production 30-day retry window and 10K eps. A single Redis node is not a valid production retention design at that cardinality.
+- Batch diagnostics on the same host found the p99<500ms boundary near 30K eps: 29,586 eps / p99 423ms at the 30K tier, versus 33,983 eps / p99 894ms at 35K. A safety-shortened 100K smoke reached 25,645 eps / p99 5.7s and projected 14.5 GiB even at the five-minute benchmark TTL, so the full 100K run was deliberately skipped.
+- Fault diagnostics: Kafka pause/recovery preserved the no-false-202 contract, reconciled an uncertain delivery, and produced one audit row. Redis freeze preserved safety but exposed retry starvation behind 203,581 expired identities in one shard. Flink TaskManager restart restored checkpointed state and both audit rows, but idle event-time traffic required a later event to advance the watermark before the exact aggregate materialized.
+
+## [4.7.0] — 2026-08-22
+
+### Added
+- Deterministic `make demo-proof` acceptance path for reserve → meter → kill → settle → audit, using a local OpenAI-compatible stream and the deployed Gateway, Custody, Kafka, Flink, Redis, and ClickHouse services.
+- Gateway Reservation response headers and structured streaming-kill metering receipts with token counts, metered cost, and reserved cost.
+- Focused tests for proof receipt parsing, polling behavior, response headers, and streaming metering evidence.
+
+### Changed
+- The proof overlay points only the provider transport at a local mock; all metering, enforcement, settlement, and audit work remains on the production path.
+- Flink job submission now treats restarting/initializing jobs as active to avoid duplicate jobs during repeated local compose starts.
+- Repaired `demos/full_demo.py` after the v4.6 deep-module migration so it uses `TokenEventCustody` and `PricingCatalog` directly.
+
+### Notes
+- Live Mac proof: reserved $0.000078; killed after 301 output tokens at $0.000181; Flink released the hold, deducted actual usage to a $0.000819 balance, and ClickHouse recorded matching `_stream_killed=true` audit metadata.
+- Verification: 104 API/core Python tests, 17 Python SDK tests, JS TypeScript build, 52 Java tests, shadow JAR, OpenAPI/spec validation, and `git diff --check` passed.
+- Public 10K/100K HTTP performance gates remain open and are not claimed by this release.
+
+## [4.6.0] — 2026-08-22
+
+### Added
+- Four explicit deep-module interfaces: `TokenEventCustody`, `PricingCatalog`, `Reservation`, and `Budget` (ADR-026).
+- Interface tests for tenant-isolated Budget cache/RPM, hierarchy holds, atomic Reservation open, replay/conflict, and idempotent settlement/expiry.
+- Tenant-scoped span/session key vocabulary shared by Python and Java projections.
+
+### Changed
+- HTTP and Gateway callers now pass `CustodyConfig` + `CustodyContext` instead of assembling Custody from topic, TTL, identity, and failure parameters.
+- Gateway hold creation and durable Reservation registration now occur atomically in one Redis Lua transition.
+- Pricing catalog construction is the sole validation path and also owns exact usage quotes and advisory Gateway estimates.
+- Budget configuration, top-up, snapshot, authorization, cache fallback, RPM accounting, hierarchy caps, and API-key caps now live behind `Budget`.
+
+### Fixed
+- Prevented same-named customers from sharing cached Budget decisions, rate-limit counters, or prepaid token packages across tenants.
+- Hierarchy authorization now counts existing scope holds as well as settled spend.
+- Removed the crash window that could leave a Gateway hold without a Reservation record.
+- Hot pricing updates now reload the current API/Gateway process after validation.
+- Isolated the Java event-projection Reservation assertion from a concurrently running local Gateway expiry worker.
+
+### Removed
+- Shallow `budget_gate.py`, `budget_ops.py`, and `gateway/pricing_estimate.py` modules.
+
+### Notes
+- Python module regression: 115 passed / 3 local-Redis cases skipped in sandbox; the Redis-backed file passed 5/5 separately with host access. Clean Java suite and v4.6.0 shadow JAR build passed.
+- HTTP 10K/100K Linux performance gates remain open from v4.5; this release does not change that claim.
+
+## [4.5.0] — 2026-08-17
+
+### Added
+- Compact tenant-sharded Redis custody identities with per-field expiry indexes, a 30-day accepted retry window, 120-second pending claims, and 600-second uncertain claims.
+- Late Kafka delivery reconciliation, bounded async producer dispatch, custody-stage/outcome metrics, per-item batch validation, and explicit `429` overload behavior.
+- Reproducible HTTP gate runner with open/closed load models, minimal/typical/heavy payloads, noisy-tenant profiles, warmup/measurement phases, host snapshots, latency/capacity assertions, and JSON artifacts.
+- Java coverage for the bounded Flink event safety dedup.
+
+### Changed
+- `202 Accepted` now requires both Kafka broker ACK and identity finalization. ACK timeouts/finalize ambiguity return retryable `503 custody_uncertain`; definitive failure releases the claim.
+- Client retry identity is `(tenant_id, eventId)`. Batch rows preserve independent rejected, conflict, pending, uncertain, unavailable, overloaded, accepted, or quarantined outcomes.
+- Flink event-ID state is restricted to a 10-minute crash-window safety TTL instead of duplicating the 30-day HTTP identity registry.
+- Public performance gates are 10K single-event eps (p50 <25ms, p99 <100ms) and 100K batch-event eps (1,000 items, p99 <500ms), using 5-minute warmup plus 30-minute measurement.
+
+### Fixed
+- Closed ACK-timeout callback races so late success/failure reconciles identity exactly once.
+- Preserved batch producer queue saturation as `overloaded` instead of accidentally treating it as success.
+- Flink container builds now copy a stable `build/docker/fluxmeter.jar`, eliminating the hard-coded 4.0.0 JAR path that could run stale engine code.
+
+### Notes
+- Python unit/contract regression: 97 passed. Java test suite: passed.
+- Local Kafka-pause and Redis-pause probes returned retryable `503` without a false `202`.
+- Short MacBook diagnostics passed only low-load smoke traffic and failed the 10K/100K public gates. The formal 16 vCPU / 32GB Linux report and full fault-injection audit remain pending; v4.5.0 is not production throughput-validated.
+
 ## [4.4.1] — 2026-08-16
 
 ### Changed

@@ -1,0 +1,55 @@
+{
+  "accepted": 0,
+  "batch_size": 1,
+  "completed_requests": 35,
+  "concurrency": 10,
+  "duration_seconds": 3.632,
+  "error_samples": [
+    {
+      "detail": "",
+      "status": 503
+    },
+    {
+      "detail": "",
+      "status": 503
+    },
+    {
+      "detail": "",
+      "status": 503
+    },
+    {
+      "detail": "",
+      "status": 503
+    },
+    {
+      "detail": "",
+      "status": 503
+    }
+  ],
+  "events_per_second": 0.0,
+  "failed": 35,
+  "host": {
+    "logical_cpu_count": 8,
+    "machine": "x86_64",
+    "platform": "macOS-15.4.1-x86_64-i386-64bit",
+    "python": "3.9.6"
+  },
+  "latency_ms": {
+    "mean": 825.42,
+    "p50": 828.97,
+    "p95": 848.49,
+    "p99": 852.9
+  },
+  "minimum_one_minute_eps": 0.0,
+  "mode": "single",
+  "passed": false,
+  "profile": "typical",
+  "requests_per_second": 9.64,
+  "status_counts": {
+    "503": 35
+  },
+  "target_events_per_second": 20.0,
+  "tenant_mode": "normal",
+  "traffic_model": "open",
+  "warmup_seconds": 1
+}

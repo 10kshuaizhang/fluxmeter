@@ -1,0 +1,36 @@
+{
+  "accepted": 2248,
+  "batch_size": 1,
+  "completed_requests": 2257,
+  "concurrency": 1000,
+  "duration_seconds": 22.961,
+  "error_samples": [],
+  "events_per_second": 97.9,
+  "failed": 9,
+  "host": {
+    "logical_cpu_count": 16,
+    "machine": "x86_64",
+    "platform": "Linux-7.0.0-14-generic-x86_64-with-glibc2.43",
+    "python": "3.14.4"
+  },
+  "latency_ms": {
+    "mean": 7038.5,
+    "p50": 5990.48,
+    "p95": 16851.75,
+    "p99": 19597.32
+  },
+  "minimum_one_minute_eps": 102.18,
+  "mode": "single",
+  "passed": false,
+  "profile": "typical",
+  "requests_per_second": 98.3,
+  "status_counts": {
+    "202": 2248,
+    "ReadError": 6,
+    "RemoteProtocolError": 3
+  },
+  "target_events_per_second": 10000.0,
+  "tenant_mode": "normal",
+  "traffic_model": "open",
+  "warmup_seconds": 5
+}

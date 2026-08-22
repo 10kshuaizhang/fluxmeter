@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Optional
 
-from gateway.pricing_estimate import estimate_stream_cost
+from pricing_loader import get_catalog
 
 
 @dataclass
@@ -71,8 +71,11 @@ class StreamGuard:
 
             self.usage.chunks += 1
             self._note_chunk(chunk)
-            est = estimate_stream_cost(
-                self.model, self.usage.input_tokens, self.usage.output_tokens
+            est = get_catalog().quote_usd(
+                self.model,
+                input_tokens=self.usage.input_tokens,
+                output_tokens=self.usage.output_tokens,
+                monthly_tokens_before=0,
             )
             # ponytail: char/4 heuristic when usage chunk absent; upgrade path = provider usage field
             if self.reserved_usd > 0 and est > self.reserved_usd:
@@ -97,13 +100,24 @@ class StreamGuard:
             if usage.get("prompt_tokens") is not None:
                 self.usage.input_tokens = int(usage["prompt_tokens"])
 
-    @staticmethod
-    def _kill_sse() -> bytes:
+    def _kill_sse(self) -> bytes:
+        metered_usd = get_catalog().quote_usd(
+            self.model,
+            input_tokens=self.usage.input_tokens,
+            output_tokens=self.usage.output_tokens,
+            monthly_tokens_before=0,
+        )
         err = {
             "error": {
                 "message": "stream killed: estimated cost exceeds reserved hold",
                 "type": "fluxmeter_budget",
                 "code": "stream_killed",
+                "fluxmeter": {
+                    "input_tokens": self.usage.input_tokens,
+                    "output_tokens": self.usage.output_tokens,
+                    "metered_usd": metered_usd,
+                    "reserved_usd": self.reserved_usd,
+                },
             }
         }
         return (

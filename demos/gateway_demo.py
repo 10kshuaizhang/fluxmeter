@@ -3,6 +3,7 @@
 
 Self-check (mock upstream, no stack)::
 
+    make demo-gateway
     PYTHONPATH=api python demos/gateway_demo.py
 
 Live Lite stack (optional)::
@@ -25,7 +26,7 @@ sys.path.insert(0, os.path.join(ROOT, "api"))
 os.environ.setdefault("FLUXMETER_AUTH_OPTIONAL", "true")
 
 
-def _self_check_deny() -> None:
+def self_check_deny() -> None:
     import fakeredis
     from fastapi.testclient import TestClient
     import gateway.deps as deps
@@ -69,7 +70,7 @@ def _self_check_deny() -> None:
     print("ok  budget deny blocks upstream")
 
 
-def _self_check_ingest() -> None:
+def self_check_ingest() -> None:
     import fakeredis
     from fastapi.testclient import TestClient
     import gateway.deps as deps
@@ -120,18 +121,19 @@ def _self_check_ingest() -> None:
     print("ok  proxy-only ingest (no SDK track)")
 
 
-def _live(api_base: str) -> None:
+def live(api_base: str, gw: str | None = None) -> None:
     import httpx
 
     key = os.getenv("OPENAI_API_KEY")
     if not key:
         print("Set OPENAI_API_KEY for --live", file=sys.stderr)
         sys.exit(1)
-    gw = os.getenv("FLUXMETER_GATEWAY", "http://127.0.0.1:8080")
+    gw = gw or os.getenv("FLUXMETER_GATEWAY", "http://127.0.0.1:8080")
+    cust = "cust_demo"
     resp = httpx.post(
         f"{gw}/v1/chat/completions",
         headers={
-            "X-FluxMeter-Customer-Id": "cust_demo",
+            "X-FluxMeter-Customer-Id": cust,
             "Authorization": f"Bearer {key}",
         },
         json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Say hi in 3 words"}]},
@@ -139,7 +141,7 @@ def _live(api_base: str) -> None:
     )
     print("status", resp.status_code)
     print(json.dumps(resp.json(), indent=2)[:500])
-    usage = httpx.get(f"{api_base}/usage/cust_demo", timeout=10.0)
+    usage = httpx.get(f"{api_base}/usage/customer/{cust}", timeout=10.0)
     print("usage", usage.json())
 
 
@@ -150,12 +152,12 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.live:
-        _live(args.api)
+        live(args.api.rstrip("/"))
         return
 
     t0 = time.monotonic()
-    _self_check_deny()
-    _self_check_ingest()
+    self_check_deny()
+    self_check_ingest()
     print(f"ok  gateway self-check ({time.monotonic() - t0:.2f}s)")
 
 

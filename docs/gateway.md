@@ -46,6 +46,13 @@ make demo-gateway
 # or: PYTHONPATH=api python demos/gateway_demo.py
 ```
 
+Full production-path proof (no OpenAI key):
+
+```bash
+make demo-proof
+# reserve → live meter receipt → stream kill → Flink settlement → ClickHouse audit
+```
+
 ## OpenAI Python SDK
 
 Point `base_url` at the gateway and pass FluxMeter headers:
@@ -68,12 +75,14 @@ resp = client.chat.completions.create(
 
 ## Request flow
 
-1. **Pre-check** — budget / RPM / hierarchy caps (`budget_gate.run_budget_check`)
-2. **Reserve** — hold estimated cost in Redis and register its expiry
+1. **Pre-check** — budget / RPM / hierarchy caps (`Budget.check`)
+2. **Reserve** — atomically hold estimated cost and register a durable `Reservation`
 3. **Forward** — passthrough to provider (`GATEWAY_UPSTREAM_BASE`)
 4. **Stream guard** — kill SSE when estimated spend exceeds hold (<1s)
 5. **Outbox** — persist the trusted usage envelope before Kafka publication
 6. **Reconcile** — Flink releases the hold after processing; expiry releases abandoned holds
+
+Successful responses include `X-FluxMeter-Reservation-Id` and `X-FluxMeter-Reserved-Usd`. A streaming kill error also includes `fluxmeter.input_tokens`, `output_tokens`, `metered_usd`, and `reserved_usd`, so operators can connect the enforcement decision to its audit event.
 
 ## Headers
 
@@ -93,7 +102,7 @@ resp = client.chat.completions.create(
 |----------|---------|-------------|
 | `GATEWAY_UPSTREAM_BASE` | `https://api.openai.com/v1` | Provider base URL |
 | `GATEWAY_UPSTREAM_API_KEY` | — | Fallback provider key |
-| `GATEWAY_DEFAULT_ESTIMATE_USD` | `0.05` | Pre-check / reserve estimate when `max_tokens` absent |
+| `GATEWAY_DEFAULT_INPUT_TOKENS` | `512` | Input-token estimate used for the advisory hold |
 | `KAFKA_BROKERS` | `kafka:9092` | Internal Kafka bootstrap servers |
 | `GATEWAY_OUTBOX_WORKER` | `true` | Retry pending outbox entries and expire reservations |
 | `BUDGET_FAIL_POLICY` | `closed` | `open` / `closed` when Redis unavailable |
@@ -106,7 +115,7 @@ resp = client.chat.completions.create(
 | 402 | Budget denied before upstream (`budget_exhausted`, `rate_limited`, etc.) |
 | 401 | Missing provider or FluxMeter API key |
 
-Streaming kill returns an SSE error chunk with `"code": "stream_killed"` then `[DONE]`.
+Streaming kill returns an SSE error chunk with `"code": "stream_killed"`, the metering receipt, then `[DONE]`.
 
 ## Gateway vs SDK `wrap()`
 

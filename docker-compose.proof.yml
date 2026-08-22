@@ -1,0 +1,10 @@
+# Deterministic local proof overlay. The runner serves a mock OpenAI-compatible
+# upstream on the host; every metering action still traverses Gateway → Custody
+# → Kafka → Flink → Redis and the independent ClickHouse audit consumer.
+services:
+  gateway:
+    environment:
+      GATEWAY_UPSTREAM_BASE: http://host.docker.internal:18080/v1
+      GATEWAY_UPSTREAM_API_KEY: sk-proof
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

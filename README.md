@@ -2,13 +2,13 @@
 
 **Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Docs:** [fluxmeter.dev/docs](https://fluxmeter.dev/docs) · **Blog:** [Agent cost control](https://fluxmeter.dev/blog/stop-runaway-agent-costs)
 
-Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request. All public usage events enter through HTTP and are durably acknowledged by Kafka before Flink performs billing and aggregation. **v4.4.1** is the single HTTP→Kafka→Flink path (Lite/Full split removed in 4.0).
+Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request. All public usage events enter through HTTP; `202` means Kafka acknowledged the event and FluxMeter finalized its tenant-scoped retry identity before Flink performs billing and aggregation. **v4.8.2** bounds Flink projection idempotency to its crash-safety horizon instead of retaining a second 30-day event registry.
 
 **When to use FluxMeter:** prepaid token wallets, agent loop cost control, self-hosted LLM metering, export to Stripe/Lago/Orb/Metronome.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v4.4.1** · **Open spec + HTTP SDKs** · **<10ms budget check** · **Multi-provider**
+**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v4.8.2** · **Open spec + HTTP SDKs** · **<10ms budget check** · **Multi-provider**
 
 **Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [Docs](https://github.com/10kshuaizhang/fluxmeter/tree/main/docs) · [API reference](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
 
@@ -31,6 +31,8 @@ If your customers prepay for tokens and you need to cut them off the instant the
 | **Community** | [`contrib/`](contrib/) | Provider mappings, pricing, connectors |
 | **Engine** | [`src/`](src/) | Flink reference implementation (aggregation, budget enforcement) |
 | **Demo** | `make demo` | HTTP→Kafka→Flink→Redis |
+
+The runtime is organized around four deep modules: **Custody** accepts retry-safe events, **Pricing** validates and quotes token categories, **Reservation** owns temporary holds, and **Budget** authorizes spend. HTTP routes, the Gateway, Redis, and Kafka implementations adapt to those interfaces rather than duplicating their state machines. See [ADR-026](docs/adr/en/026-four-deep-metering-modules.md).
 
 ## Budget Enforcement (the core feature)
 
@@ -66,7 +68,10 @@ Start the only supported architecture:
 git clone https://github.com/10kshuaizhang/fluxmeter.git
 cd fluxmeter
 make demo          # API + Gateway + Kafka + Flink + Redis + Grafana
+make demo-proof    # deterministic reserve → meter → kill → audit; no provider key
 ```
+
+`make demo-proof` starts the benchmark audit overlay, serves a local OpenAI-compatible stream, and fails unless it observes the temporary hold, metered token/cost receipt, mid-stream termination, Flink settlement, and matching ClickHouse raw event.
 
 **Record the terminal GIF** (optional, requires [vhs](https://github.com/charmbracelet/vhs)):
 
@@ -116,8 +121,10 @@ await meter.trackOpenAI("cust_123", openaiResponse);
 ```bash
 curl -X POST localhost:8000/ingest \
   -H 'Content-Type: application/json' \
-  -d '{"customerId":"cust_123","modelId":"gpt-4o","inputTokens":500,"outputTokens":150}'
+  -d '{"eventId":"completion-01J...","customerId":"cust_123","modelId":"gpt-4o","inputTokens":500,"outputTokens":150}'
 ```
+
+Supply a stable `eventId` for retry-safe delivery. If it is omitted, the API creates an ID for that request, but a later retry cannot be recognized as the same event. The SDKs and Gateway always supply stable IDs.
 
 Kafka is an internal transport. Customer SDKs do not accept broker configuration, and the base deployment does not expose a broker port. The benchmark overlay retains a trusted operator producer for load and recovery tooling. On Kafka outage: **HTTP `/ingest` returns retryable 503**; the **Gateway** may buffer via Redis outbox until Kafka recovers.
 
@@ -221,23 +228,23 @@ No single-component failure loses billing data:
 | Failure | Protection |
 |---------|-----------|
 | Kafka down | HTTP returns retryable `503`; Gateway retains a Redis outbox record |
-| Broker crash | HTTP custody waits for the configured Kafka acknowledgement |
+| Broker crash / ACK timeout | HTTP returns `503 custody_uncertain`; a late delivery callback finalizes or releases the identity |
 | Flink restart | Checkpoints restore state + offsets exactly |
 | Flink replay | Sink idempotency (SET NX) prevents double-counting |
 | Redis restart | AOF persistence + named volume |
-| Duplicate events | HTTP event identity registry (30-day TTL) plus idempotent sinks |
+| Duplicate events | Compact tenant-sharded HTTP identity registry (30-day retry window) plus idempotent sinks; Flink keeps only a 10-minute crash-window safety dedup |
 | Late events | Routed to DLQ topic, not silently dropped |
 
 ## Performance
 
-Load tested with `make load-test` (see [docs/load-testing.md](docs/load-testing.md)):
+FluxMeter measures the public HTTP custody boundary separately from the trusted internal Kafka/Flink generator. See [docs/load-testing.md](docs/load-testing.md).
 
 | Environment | 10K eps | 50K eps | 500K+ target |
 |-------------|---------|---------|--------------|
 | **Local docker-compose** (1 TM, 4 slots) | ~9K avg / ~18K peak | ~49K avg / ~92K peak | ~40–45K avg (Redis/Flink bound) |
-| **Reference cluster** (2 TM, 8 slots, prior runs) | Stable | Stable | 500K indefinite; 1M bursts |
+| **Historical internal engine runs** (not HTTP ingress) | Stable | Stable | 500K indefinite; 1M bursts |
 
-For sustained 500K+ eps, scale TaskManagers and use managed Kafka/Redis — [docs/production-deploy.md](docs/production-deploy.md).
+The public gates are 10K single-event eps (p50 ≤50ms, p99 ≤200ms; 25/100ms stretch) and 100K batch-event eps (1,000 items, p99 ≤500ms), each after 5 minutes warmup for a 30-minute measurement. They are **not yet passed as full-pipeline sustained claims**. A v4.8.2 35-minute Custody run accepted 18,063,140 events at 10,034.90 eps with p50 36ms / p99 173ms and no rejection or transport error, but the 2,000-slot generator dropped 0.149% of offers and the co-located Flink/Redis pipeline accumulated lag. Correcting benchmark Flink parallelism from 2 to 12 raised the full-stack 60-second sample to 7,772 eps with near-zero end lag; a split-Redis A/B peaked at 9,197 eps but missed latency. The 100K batch stage reached 32,567 eps. Historical 1M figures are internal burst benchmarks, not public HTTP or a current sustained claim.
 
 ## Integrations
 

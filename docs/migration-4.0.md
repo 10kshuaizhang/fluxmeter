@@ -17,7 +17,7 @@ application or Gateway -> HTTP -> Kafka -> Flink -> Redis
 
 ## Delivery contract
 
-`POST /ingest` returns `202` only after Kafka acknowledges custody. A `503` response is retryable. SDKs retry with one stable `eventId`; identical retries are accepted for 30 days and conflicting payload reuse returns `409`.
+As of v4.5, `POST /ingest` returns `202` only after Kafka acknowledges the record and the tenant-scoped event identity is finalized. A `503` response is retryable; `custody_uncertain` means an ACK/finalize outcome is still being reconciled. SDKs retry with one stable `eventId`; identical retries are accepted for 30 days and conflicting payload reuse returns `409`.
 
 Batch ingestion validates the entire request before publishing. It returns `202` when all events have custody, `207` for mixed outcomes, and `503` when none do. Inspect each result before retrying.
 

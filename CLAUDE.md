@@ -119,3 +119,17 @@ After implementing the ClickHouse baseline:
 2. Bump `build.gradle` to `0.2.0`, add `[0.2.0]` entry to `changLog.md`
 3. Mark checklist row #7 Done in `progress.md`, update Recent Activity
 4. If a success criterion was measured, update that table too
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues for `10kshuaizhang/fluxmeter` (via `gh`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical roles map 1:1 to tracker labels (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.

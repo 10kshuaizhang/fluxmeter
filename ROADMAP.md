@@ -2,17 +2,17 @@
 
 Forward-looking plan for the FluxMeter project. **Website:** [fluxmeter.dev](https://fluxmeter.dev). For **what shipped**, see [changLog.md](changLog.md). For **milestone checklists**, see [progress.md](progress.md). For **architecture intent**, see [docs/DESIGN.md](docs/DESIGN.md). For **industry calibration**, see [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md). For **pivot rationale**, see [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md).
 
-**Current version:** 3.2.0 (engine) · 1.5.0 (Python SDK) · 1.3.0 (JS SDK pack-ready)  
-**Active phase:** Phase 7+ (demand-gated) · **Pillar B Intelligence complete** (3.0–3.1) · Pillar A metering (**maintained** · Gateway P1 ✓)  
-**Last updated:** 2026-07-11
+**Current version:** 4.7.2 (engine/API) · 2.0.0 (Python SDK) · JS SDK HTTP package ready
+**Active phase:** **Metering path proof** — reserve→meter→kill→audit demo and Kafka/Redis/Flink fault fixes shipped; HTTP throughput gates and production retention sizing remain active · Pillar B Intelligence complete/demand-gated
+**Last updated:** 2026-08-22
 
 ---
 
 ## Vision
 
-Become the open-source **AI Monetization Platform** — **Layer 3 metering + guardrail** *and* **Layer 4 monetization intelligence** in one stack.
+Become the open-source **token metering and budget enforcement system** that can account for, stop, and audit every billable AI completion. Monetization Intelligence remains a downstream application of trustworthy meter data.
 
-**North star:** A Founder / Finance / RevOps user connects their observability + billing data (or FluxMeter native ingest) and within 30 minutes sees: *why* AI margin dropped, *which* customers lose money, and *what to do next* — with optional sub-second budget enforcement on the hot path.
+**North star:** An engineering or billing team can integrate one HTTP event boundary and demonstrate reserve → meter → kill → audit with retry-safe custody and evidence-backed latency/capacity limits.
 
 **Market map (2026-07):**
 
@@ -55,14 +55,15 @@ Product narrative shifts to Layer 4; **metering is not deprecated** — it remai
 
 | Pillar | What it solves | Primary audience | Status |
 |--------|----------------|------------------|--------|
-| **A — Metering & Guardrail** | Can we meter, bill, and stop runaway spend? | Engineering, billing ops | **Shipped** (F0–F4 + Gateway P1 3.2.0); maintained |
-| **B — Intelligence** | Can we make money? Why did margin drop? | Founder, Finance, RevOps, Product | **Done** (3.0 MVP + 3.1 v1.0); no further feature track |
+| **A — Metering & Guardrail** | Can we meter, bill, and stop runaway spend? | Engineering, billing ops | **Active hardening** (v4.5 custody; Linux gates open) |
+| **B — Intelligence** | Can we make money? Why did margin drop? | Founder, Finance, RevOps, Product | **Done** (3.0 MVP + 3.1 v1.0); demand-gated maintenance |
 
 **Priority principle:**
 
 ```text
-Shipped ✓   → Intelligence MVP + v1.0 (3.0–3.1); metering + Gateway P1 (3.2.0)
-Maintain    → single-path engine, SDK, exporters, correctness — every release
+Active      → HTTP custody correctness and 10K/100K public gates
+Delivered   → deterministic reserve→meter→kill→settle→audit proof (`make demo-proof`)
+Maintain    → Intelligence, SDK, exporters — correctness and compatibility only
 Demand-gated→ Phase 7+ (Hosted SaaS, NL agent, enterprise) — only if traction
 Optional    → Gateway P2, Langfuse overlay, ecosystem cookbooks — backlog, not active
 ```

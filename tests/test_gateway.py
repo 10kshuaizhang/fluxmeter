@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import time
+from types import SimpleNamespace
 
 import fakeredis
 import pytest
@@ -173,6 +174,8 @@ def test_non_stream_ingests_usage(gw, monkeypatch):
     assert envelope["auth"]["customerId"] == "cust_ok"
     assert envelope["reservation"]["reservationId"]
     assert envelope["reservation"]["reservedUsd"] > 0
+    assert resp.headers["X-FluxMeter-Reservation-Id"] == envelope["reservation"]["reservationId"]
+    assert float(resp.headers["X-FluxMeter-Reserved-Usd"]) > 0
     assert float(r.get("budget:cust_ok:held_usd")) > 0
 
 
@@ -189,7 +192,10 @@ def test_stream_kill_under_1s(gw, monkeypatch):
         "gateway.proxy.httpx.AsyncClient",
         lambda **kw: _MockAsyncClient(_stream_chunks=stream_chunks),
     )
-    monkeypatch.setattr("gateway.proxy.estimate_request_cost", lambda *a, **k: 0.00001)
+    monkeypatch.setattr(
+        "gateway.proxy.get_catalog",
+        lambda: SimpleNamespace(estimate_completion_usd=lambda *a, **k: 0.00001),
+    )
 
     t0 = time.monotonic()
     resp = client.post(
@@ -208,6 +214,10 @@ def test_stream_kill_under_1s(gw, monkeypatch):
     assert resp.status_code == 200
     text = resp.text
     assert "stream_killed" in text or "fluxmeter_budget" in text
+    assert '"output_tokens"' in text
+    assert '"metered_usd"' in text
+    assert resp.headers["X-FluxMeter-Reservation-Id"]
+    assert float(resp.headers["X-FluxMeter-Reserved-Usd"]) > 0
     assert elapsed < 1.0
     assert UPSTREAM_CALLS["n"] == 1
     assert producer.messages

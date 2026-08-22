@@ -7,6 +7,8 @@ from typing import Any
 
 import redis
 
+from tenant_keys import scope_prefix_for_read
+
 DAY_BUCKET_TTL = int(os.getenv("FLUXMETER_DAY_BUCKET_TTL_SEC", str(400 * 86400)))
 SESSION_TTL_SEC = int(os.getenv("FLUXMETER_SESSION_TTL_SEC", str(90 * 86400)))
 SPAN_TTL_SEC = int(os.getenv("FLUXMETER_SPAN_TTL_SEC", str(86400)))  # 24h — matches SpanSink.java
@@ -54,8 +56,10 @@ def read_usage_bucket(r: redis.Redis, key: str) -> dict[str, Any] | None:
     return data
 
 
-def read_session(r: redis.Redis, session_id: str) -> dict[str, Any] | None:
-    key = f"session:{session_id}"
+def read_session(
+    r: redis.Redis, session_id: str, tenant_id: str | None = None
+) -> dict[str, Any] | None:
+    key = scope_prefix_for_read(r, tenant_id, "session", session_id)
     if r.get(f"{key}:cost_usd") is None and r.get(f"{key}:event_count") is None:
         return None
     data: dict[str, Any] = {"session_id": session_id, "customer_id": r.get(f"{key}:customer_id")}

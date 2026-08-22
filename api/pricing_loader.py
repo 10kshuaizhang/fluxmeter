@@ -43,22 +43,49 @@ class ModelPricing:
         tiers: list[Tier] = []
         for t in raw_tiers:
             up = t.get("up_to_tokens_m")
+            if up is not None and (isinstance(up, bool) or not isinstance(up, int)):
+                raise ValueError("tier up_to_tokens_m must be an integer or null")
+            tier_input = float(t.get("input_per_m", input_p))
+            tier_output = float(t.get("output_per_m", output_p))
+            tier_embedding = float(t.get("embedding_per_m", embed_p))
+            if min(tier_input, tier_output, tier_embedding) < 0:
+                raise ValueError("tier prices must be >= 0")
             tiers.append(
                 Tier(
-                    up_to_tokens_m=int(up) if up is not None else None,
-                    input_per_m=float(t.get("input_per_m", input_p)),
-                    output_per_m=float(t.get("output_per_m", output_p)),
-                    embedding_per_m=float(t.get("embedding_per_m", embed_p)),
+                    up_to_tokens_m=up,
+                    input_per_m=tier_input,
+                    output_per_m=tier_output,
+                    embedding_per_m=tier_embedding,
                 )
             )
         has_tiers = bool(tiers)
         mode = node.get("pricing_mode")
         if not mode:
             mode = "volume" if has_tiers else "flat"
+        if mode not in ("flat", "volume", "graduated"):
+            raise ValueError(f"invalid pricing_mode '{mode}'")
         if mode == "flat" and has_tiers:
             raise ValueError("pricing_mode=flat cannot have tiers")
         if mode in ("volume", "graduated") and not has_tiers:
             raise ValueError(f"pricing_mode={mode} requires tiers")
+        previous = -1
+        for index, tier in enumerate(tiers):
+            if tier.up_to_tokens_m is None:
+                if index != len(tiers) - 1:
+                    raise ValueError("only the last tier may be open-ended")
+                continue
+            if tier.up_to_tokens_m <= previous:
+                raise ValueError("tier up_to_tokens_m must be strictly increasing")
+            previous = tier.up_to_tokens_m
+        if tiers and tiers[-1].up_to_tokens_m is not None:
+            raise ValueError("last tier must have up_to_tokens_m: null")
+        for name, value in (
+            ("input_per_m", input_p),
+            ("output_per_m", output_p),
+            ("embedding_per_m", embed_p),
+        ):
+            if value < 0:
+                raise ValueError(f"{name} must be >= 0")
         return cls(mode, input_p, output_p, embed_p, tuple(tiers))
 
     def flat_tier(self) -> Tier:
@@ -82,8 +109,18 @@ class ModelPricing:
 
 class PricingCatalog:
     def __init__(self, root: dict[str, Any]):
+        if not isinstance(root.get("models"), dict):
+            raise ValueError("Missing field: models")
+        if not isinstance(root.get("defaults"), dict):
+            raise ValueError("Missing field: defaults")
+        if root.get("volume_scope", "customer_model") != "customer_model":
+            raise ValueError(f"Unsupported volume_scope: {root.get('volume_scope')}")
+        if root.get("billing_period", "calendar_month") != "calendar_month":
+            raise ValueError(f"Unsupported billing_period: {root.get('billing_period')}")
         self.version = str(root.get("version", "1"))
         self.cache_read_multiplier = float(root.get("cache_read_multiplier", 0.5))
+        if self.cache_read_multiplier < 0:
+            raise ValueError("cache_read_multiplier must be >= 0")
         self.volume_scope = root.get("volume_scope", "customer_model")
         self.billing_period = root.get("billing_period", "calendar_month")
         defaults_node = root.get("defaults") or {}
@@ -125,6 +162,57 @@ class PricingCatalog:
             return self._cost_graduated(event, pricing, monthly_tokens_before, cache_mult)
         tier = pricing.tier_at_token(monthly_tokens_before)
         return self._cost_at_tier(event, tier, cache_mult)
+
+    def quote_usd(
+        self,
+        model_id: str,
+        *,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        reasoning_tokens: int = 0,
+        cache_write_tokens: int = 0,
+        embedding_tokens: int = 0,
+        monthly_tokens_before: int = 0,
+    ) -> float:
+        """Quote all token categories through the same pricing implementation as billing."""
+        micro = self.calculate_cost_micro(
+            {
+                "modelId": model_id or "unknown",
+                "inputTokens": max(0, input_tokens),
+                "outputTokens": max(0, output_tokens),
+                "cacheReadTokens": max(0, cache_read_tokens),
+                "reasoningTokens": max(0, reasoning_tokens),
+                "cacheWriteTokens": max(0, cache_write_tokens),
+                "embeddingTokens": max(0, embedding_tokens),
+            },
+            monthly_tokens_before=monthly_tokens_before,
+        )
+        return micro / 1_000_000
+
+    def estimate_completion_usd(
+        self,
+        model_id: str,
+        *,
+        max_output_tokens: int | None = None,
+        estimated_input_tokens: int | None = None,
+    ) -> float:
+        """Advisory Gateway hold quote; financial billing still uses actual usage."""
+        input_tokens = (
+            estimated_input_tokens
+            if estimated_input_tokens is not None
+            else int(os.getenv("GATEWAY_DEFAULT_INPUT_TOKENS", "512"))
+        )
+        output_tokens = max_output_tokens if max_output_tokens and max_output_tokens > 0 else 1024
+        return max(
+            self.quote_usd(
+                model_id,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                monthly_tokens_before=0,
+            ),
+            0.000001,
+        )
 
     def _cost_at_tier(self, event: dict[str, Any], tier: Tier, cache_mult: float) -> int:
         cost = 0.0

@@ -74,7 +74,7 @@ public class BudgetEnforcerSink extends RichSinkFunction<UsageAggregate> {
             "for _,rid in ipairs(redis.call('SMEMBERS', KEYS[27])) do\n" +
             " local rk='reservation:'..rid; local reserved=tonumber(redis.call('HGET', rk, 'reserved_usd') or '0'); local held=tonumber(redis.call('GET', KEYS[28]) or '0'); local release=math.min(held, reserved)\n" +
             " if release > 0 then redis.call('INCRBYFLOAT', KEYS[28], -release) end\n" +
-            " local parent=redis.call('HGET', rk, 'parent_span_id') or ''; if parent ~= '' then local sk='span:'..parent..':held_usd'; local sh=tonumber(redis.call('GET', sk) or '0'); if sh > 0 then redis.call('INCRBYFLOAT', sk, -math.min(sh, release)) end end\n" +
+            " local parent=redis.call('HGET', rk, 'parent_span_id') or ''; local sk=redis.call('HGET', rk, 'span_held_key') or ''; if sk == '' and parent ~= '' then sk='span:'..parent..':held_usd' end; if sk ~= '' then local sh=tonumber(redis.call('GET', sk) or '0'); if sh > 0 then redis.call('INCRBYFLOAT', sk, -math.min(sh, release)) end end\n" +
             " redis.call('DEL', rk); redis.call('ZREM', KEYS[29], rid)\n" +
             "end\n" +
             "redis.call('DEL', KEYS[27])\n" +

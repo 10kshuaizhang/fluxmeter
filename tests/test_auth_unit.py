@@ -1,9 +1,33 @@
 """Unit tests for API auth (no docker stack required)."""
 
+import asyncio
+import inspect
+
 import pytest
 from fastapi import HTTPException
 
-from auth import require_customer_access
+import auth
+from auth import require_api_key, require_customer_access
+
+
+def test_optional_anonymous_auth_is_async_and_skips_identity_lookups(monkeypatch):
+    """The benchmark hot path must not enter FastAPI's sync dependency pool."""
+    monkeypatch.setattr(auth, "AUTH_OPTIONAL", True)
+    monkeypatch.setattr(auth, "API_KEY", "")
+    monkeypatch.setattr(auth, "ADMIN_API_KEY", "")
+    monkeypatch.setattr(
+        auth,
+        "resolve_customer_from_key",
+        lambda _key: pytest.fail("anonymous auth performed a customer-key lookup"),
+    )
+    monkeypatch.setattr(
+        auth,
+        "resolve_tenant_from_key",
+        lambda _key: pytest.fail("anonymous auth performed a tenant-key lookup"),
+    )
+
+    assert inspect.iscoroutinefunction(require_api_key)
+    asyncio.run(require_api_key(None))
 
 
 class TestRequireCustomerAccess:

@@ -1,0 +1,9 @@
+FluxMeter Load Test — 20260621-230008
+JAR: build/libs/fluxmeter-2.0.0.jar
+Kafka: localhost:9094 | customers=10000 threads=4
+--- baseline ---
+  global: {"total_events":2540,"total_tokens":182115297,"input_tokens":91414199,"output_tokens":90701098,"total_cost_usd":1491.021603,"last_window_end":1782030720000}
+fluxmeter-taskmanager-1: CPU 2.83% MEM 690.7MiB / 3.819GiB
+fluxmeter-kafka: CPU 2.98% MEM 905.2MiB / 3.819GiB
+fluxmeter-redis: CPU 1.32% MEM 3.863MiB / 1GiB
+Submitting Flink job...

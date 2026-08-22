@@ -190,7 +190,7 @@ Per customer:
 Per span (24h TTL):
   ~5 keys × ~50 bytes = 250 bytes per active span
 
-Per session (90d TTL, lite ingest):
+Per session (90d TTL):
   ~8 keys × ~50 bytes = 400 bytes per active session
 
 Rollup buckets (month ~400d TTL, day ~400d TTL):
@@ -198,16 +198,20 @@ Rollup buckets (month ~400d TTL, day ~400d TTL):
   rollup:{customer}:d:{YYYY-MM-DD}    — hash, ~7 fields
   One month + one day hash per customer with activity in that window
 
-Idempotency keys (1h TTL):
+Window-application identities (sink safety):
   ~100 bytes per window result
   At 10K customers × 9 models × 6 windows/minute = ~540K keys/minute
   = ~54 MB rolling
 
+HTTP event custody (30-day client retry window):
+  tenant-sharded Redis hashes + expiry sorted sets
+  size from measured bytes/identity × unique accepted events/sec × 2,592,000 seconds
+  do not size this from customer count or from the 10-minute Flink safety TTL
+
 Global keys: negligible
 ```
 
-For 100K customers: ~250 MB base + ~54 MB idempotency = ~300 MB.
-For 1M customers: ~2.5 GB + ~540 MB = ~3 GB.
+The older customer-count estimates cover counters and window identities only; they do **not** include the v4.5 HTTP retry registry. Measure `MEMORY USAGE` on representative IDs and payload traffic before production. Sustained high-cardinality ingestion can require a separately scaled Redis Cluster or a distributed KV identity backend. The 100K eps HTTP benchmark is a 30-minute processing-capacity gate, not evidence that one Redis node retains 30 days of unique identities at that rate.
 
 ### Managed alternatives
 - AWS ElastiCache (Redis)

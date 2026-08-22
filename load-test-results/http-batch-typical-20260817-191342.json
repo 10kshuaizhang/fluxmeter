@@ -1,0 +1,34 @@
+{
+  "accepted": 27000,
+  "batch_size": 1000,
+  "completed_requests": 27,
+  "concurrency": 10,
+  "duration_seconds": 10.985,
+  "error_samples": [],
+  "events_per_second": 2457.97,
+  "failed": 0,
+  "host": {
+    "logical_cpu_count": 8,
+    "machine": "x86_64",
+    "platform": "macOS-15.4.1-x86_64-i386-64bit",
+    "python": "3.9.6"
+  },
+  "latency_ms": {
+    "mean": 3206.51,
+    "p50": 3564.09,
+    "p95": 4343.39,
+    "p99": 4463.02
+  },
+  "minimum_one_minute_eps": 2700.0,
+  "mode": "batch",
+  "passed": false,
+  "profile": "typical",
+  "requests_per_second": 2.46,
+  "status_counts": {
+    "202": 27
+  },
+  "target_events_per_second": 10000.0,
+  "tenant_mode": "normal",
+  "traffic_model": "open",
+  "warmup_seconds": 2
+}

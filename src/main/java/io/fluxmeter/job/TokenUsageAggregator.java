@@ -44,6 +44,7 @@ public class TokenUsageAggregator {
     public static void main(String[] args) throws Exception {
         String kafkaBrokers = System.getenv().getOrDefault("KAFKA_BROKERS", "kafka:9092");
         String kafkaTopic = System.getenv().getOrDefault("KAFKA_TOPIC", "token-events");
+        String watermarkTopic = System.getenv().getOrDefault("WATERMARK_TOPIC", "metering-watermarks");
         String redisHost = System.getenv().getOrDefault("REDIS_HOST", "redis");
         int redisPort = Integer.parseInt(System.getenv().getOrDefault("REDIS_PORT", "6379"));
         long windowSeconds = Long.parseLong(System.getenv().getOrDefault("WINDOW_SECONDS", "10"));
@@ -74,7 +75,7 @@ public class TokenUsageAggregator {
         // Kafka source: use committed offsets on restart (exactly-once with checkpointing)
         KafkaSource<TokenEvent> source = KafkaSource.<TokenEvent>builder()
                 .setBootstrapServers(kafkaBrokers)
-                .setTopics(kafkaTopic)
+                .setTopics(kafkaTopic, watermarkTopic)
                 .setGroupId("fluxmeter-aggregator")
                 .setStartingOffsets(checkpointDir.isEmpty()
                         ? OffsetsInitializer.latest()
@@ -86,7 +87,7 @@ public class TokenUsageAggregator {
         WatermarkStrategy<TokenEvent> watermarkStrategy = WatermarkStrategy
                 .<TokenEvent>forBoundedOutOfOrderness(Duration.ofSeconds(5))
                 .withTimestampAssigner((event, ts) -> event.getTimestamp())
-                .withIdleness(Duration.ofSeconds(30));
+                .withIdleness(sourceIdleness());
 
         DataStream<TokenEvent> sourceEvents = env
                 .fromSource(source, watermarkStrategy, "Kafka Token Events");
@@ -149,19 +150,6 @@ public class TokenUsageAggregator {
 
         spanAggregates.addSink(new SpanSink(redisHost, redisPort));
 
-        // --- Global counter: aggregate all windows into a single stream ---
-        // This eliminates the Redis write hotspot (every parallel task was writing
-        // to the same 5 global:* keys). Now: Flink aggregates globally, writes once.
-        DataStream<UsageAggregate> globalStream = aggregates
-                .keyBy(agg -> "global")
-                .reduce((a, b) -> {
-                    a.merge(b);
-                    return a;
-                });
-        // The global stream fires one merged result per checkpoint/window cycle.
-        // In practice this is handled by the per-customer sink's global counter write.
-        // The reduce above is for future use when we separate global writes.
-
         // Main sink with idempotency
         String alertTopic = System.getenv().getOrDefault("ALERT_TOPIC", "budget-alerts");
         boolean budgetEnabled = Boolean.parseBoolean(
@@ -182,6 +170,11 @@ public class TokenUsageAggregator {
             return false;
         }
         return "true".equals(event.getMetadata().get("_heartbeat"));
+    }
+
+    static Duration sourceIdleness() {
+        return Duration.ofSeconds(Long.parseLong(
+                System.getenv().getOrDefault("SOURCE_IDLE_SECONDS", "15")));
     }
 
     /** Acknowledges a readiness probe only after it traverses the Kafka consumer. */

@@ -45,7 +45,7 @@ Demo mode (`FLUXMETER_AUTH_OPTIONAL=true` in `docker-compose.yml`) allows unauth
 
 ### `POST /ingest`
 
-The sole public usage-event entrance. FluxMeter authenticates the request, creates a trusted envelope, and returns `202` only after Kafka acknowledges custody.
+The sole public usage-event entrance. FluxMeter authenticates the request, creates a trusted envelope, and returns `202` only after Kafka acknowledges the record and the tenant-scoped event identity is finalized.
 
 **Auth:** API key or customer-scoped key (must match `customerId`)
 
@@ -74,14 +74,14 @@ The sole public usage-event entrance. FluxMeter authenticates the request, creat
 
 **Required fields:** `customerId`, `modelId`
 
-**Auto-generated if omitted:** `eventId` (UUID), `timestamp` (current time)
+**Auto-generated if omitted:** `eventId` (UUID), `timestamp` (current time). An auto-generated ID is unique only to that HTTP attempt; supply a stable ID to make retries idempotent. FluxMeter SDKs and Gateway do this automatically.
 
 **Response:** `202 Accepted`
 ```json
 {"status": "accepted", "eventId": "2b14b730-4d7a-4985-a92f-c63a6f96d26f"}
 ```
 
-Identical retries with the same `eventId` and payload return `202` with `"idempotent": true` (no republish) for 30 days. Reusing an ID with a different payload returns `409`. Kafka custody still pending returns retryable `503` (`event_pending`). Kafka down returns retryable `503` (`kafka_unavailable`). Suspicious timestamps are acknowledged with `status: quarantined`.
+Identical retries within the same tenant with the same `eventId` and payload return `202` with `"idempotent": true` (no republish) for 30 days. Reusing an ID with a different payload returns `409`. A live claim returns retryable `503` (`event_pending`). An ACK timeout or finalize failure returns retryable `503` (`custody_uncertain`); a late Kafka callback reconciles that state. A definitive broker failure returns `503` (`kafka_unavailable`), Redis identity failure returns `503` (`identity_store_unavailable`), and bounded custody saturation returns `429` (`custody_overloaded`). Suspicious timestamps are acknowledged with `status: quarantined`.
 
 Usage and balance queries are eventually consistent: Flink normally projects accepted events within approximately 10–15 seconds.
 
@@ -103,9 +103,10 @@ Ingest up to 1000 events in a single HTTP call.
 - `202` — all rows accepted/quarantined: `{"status":"accepted","results":[...]}`
 - `207` — mix of success and failure: `{"status":"partial","results":[...]}`
 - `409` — every row conflicted: `{"status":"conflict","results":[...]}`
-- `503` — custody failures (Kafka): `{"status":"failed","results":[...]}` with `Retry-After`
+- `429` — every valid row was overloaded: `{"status":"overloaded","results":[...]}` with `Retry-After`
+- `503` — every valid row had unavailable/uncertain custody, or Redis identity storage failed, with `Retry-After`
 
-Each `results[]` item: `{eventId, status, idempotent?, retryable?}` where `status` is `accepted` | `quarantined` | `conflict` | `failed` | `pending`.
+Each input is validated independently, so a malformed row does not block valid rows. Each `results[]` item is `{eventId, status, idempotent?, retryable?, message?}` where `status` is `accepted` | `quarantined` | `conflict` | `rejected` | `pending` | `uncertain` | `unavailable` | `overloaded`.
 
 **Error:** `400` if batch exceeds 1000 events.
 

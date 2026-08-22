@@ -5,11 +5,10 @@ from __future__ import annotations
 import sys
 
 import pytest
-from fastapi import HTTPException
 
 sys.path.insert(0, "api")
 
-from main import _validate_pricing_body  # noqa: E402
+from pricing_loader import PricingCatalog  # noqa: E402
 
 
 def _minimal_catalog(**overrides):
@@ -23,14 +22,14 @@ def _minimal_catalog(**overrides):
 
 class TestPricingValidation:
     def test_valid_minimal(self):
-        _validate_pricing_body(_minimal_catalog())
+        PricingCatalog(_minimal_catalog())
 
     def test_valid_tiered_example(self):
         import json
         from pathlib import Path
 
         body = json.loads(Path("contrib/pricing/tiered-example.json").read_text())
-        _validate_pricing_body(body)
+        PricingCatalog(body)
 
     def test_rejects_non_monotonic_tiers(self):
         body = _minimal_catalog(
@@ -46,9 +45,8 @@ class TestPricingValidation:
                 }
             }
         )
-        with pytest.raises(HTTPException) as exc:
-            _validate_pricing_body(body)
-        assert exc.value.status_code == 400
+        with pytest.raises(ValueError):
+            PricingCatalog(body)
 
     def test_last_tier_must_be_open_ended(self):
         body = _minimal_catalog(
@@ -64,6 +62,6 @@ class TestPricingValidation:
                 }
             }
         )
-        with pytest.raises(HTTPException) as exc:
-            _validate_pricing_body(body)
-        assert "last tier" in exc.value.detail
+        with pytest.raises(ValueError) as exc:
+            PricingCatalog(body)
+        assert "last tier" in str(exc.value)

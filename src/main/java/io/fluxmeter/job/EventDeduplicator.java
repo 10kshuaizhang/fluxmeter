@@ -11,14 +11,15 @@ import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
 
 /**
- * Deduplicates events by eventId using Flink keyed state with TTL.
+ * Short-lived safety deduplication for the Redis→Kafka custody uncertainty window.
  *
  * If the same eventId arrives twice (SDK retry, Kafka redelivery), the second
- * one is dropped. State expires after the billable replay horizon.
+ * one is dropped. Long-term (30 day) client retry identity belongs to HTTP
+ * Custody; this state only covers acknowledgement/finalize crash windows.
  *
  * Key: eventId
  * State: boolean (seen or not)
- * TTL: EVENT_ID_TTL_SECONDS (30 days by default)
+ * TTL: EVENT_SAFETY_DEDUP_TTL_SECONDS (10 minutes by default)
  */
 public class EventDeduplicator extends KeyedProcessFunction<String, TokenEvent, TokenEvent> {
 
@@ -27,7 +28,7 @@ public class EventDeduplicator extends KeyedProcessFunction<String, TokenEvent, 
 
     public EventDeduplicator() {
         this(Long.parseLong(System.getenv().getOrDefault(
-                "EVENT_ID_TTL_SECONDS", String.valueOf(30L * 24 * 60 * 60))));
+                "EVENT_SAFETY_DEDUP_TTL_SECONDS", "600")));
     }
 
     EventDeduplicator(long ttlSeconds) {

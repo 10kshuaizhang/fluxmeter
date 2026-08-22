@@ -2,12 +2,24 @@
 # Includes ClickHouse Cold Store (ADR-025) — apply DDL via make apply-cold-store-init.
 services:
   api:
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers ${BENCHMARK_API_WORKERS:-12} --no-access-log
     environment:
+      # Throughput gates use a bounded retry window so a 32GB host measures
+      # processing capacity. Production remains 30 days unless explicitly set.
+      EVENT_ID_TTL_SECONDS: "${BENCHMARK_EVENT_ID_TTL_SECONDS:-300}"
+      EVENT_IDENTITY_SHARDS: "${BENCHMARK_EVENT_IDENTITY_SHARDS:-8}"
+      EVENT_IDENTITY_CLEANUP_LIMIT: "${BENCHMARK_EVENT_IDENTITY_CLEANUP_LIMIT:-64}"
       KAFKA_PRODUCER_BATCH_MESSAGES: "50000"
+      KAFKA_PRODUCER_LINGER_MS: "0"
       KAFKA_PRODUCER_QUEUE_MESSAGES: "2000000"
       KAFKA_PRODUCER_QUEUE_KBYTES: "262144"
+      INGEST_MICROBATCH_SIZE: "${INGEST_MICROBATCH_SIZE:-64}"
+      INGEST_MICROBATCH_WAIT_SECONDS: "${INGEST_MICROBATCH_WAIT_SECONDS:-0.001}"
+      INGEST_MICROBATCH_QUEUE_SIZE: "${INGEST_MICROBATCH_QUEUE_SIZE:-20000}"
     mem_limit: 2g
+  redis:
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory 6gb --maxmemory-policy noeviction
+    mem_limit: 8g
   kafka:
     ports: ["9094:9094"]
     environment:
@@ -25,6 +37,11 @@ services:
         state.backend: hashmap
         state.checkpoints.dir: file:///opt/flink/checkpoints
     mem_limit: 6g
+  job-submitter:
+    environment:
+      # The job graph captures this value before shipping the sink to TaskManagers.
+      EVENT_PROJECTION_IDEMPOTENCY_TTL_SECONDS: "${BENCHMARK_EVENT_PROJECTION_IDEMPOTENCY_TTL_SECONDS:-600}"
+      FLINK_PARALLELISM: "${BENCHMARK_FLINK_PARALLELISM:-12}"
   prometheus:
     image: prom/prometheus:v2.51.2
     ports: ["9090:9090"]

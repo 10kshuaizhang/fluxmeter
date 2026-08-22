@@ -20,6 +20,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EventProjectionSinkTest {
 
+    @Test
+    void projectionIdempotencyRetentionMatchesCrashSafetyWindow() {
+        assertEquals(600L, EventProjectionSink.projectionTtlSeconds(null));
+        assertEquals(600L, EventProjectionSink.projectionTtlSeconds(""));
+        assertEquals(900L, EventProjectionSink.projectionTtlSeconds("900"));
+    }
+
     @BeforeEach
     void loadCatalog() throws Exception {
         PricingCatalog.reload(PricingCatalog.loadFromBytes(
@@ -63,10 +70,15 @@ class EventProjectionSinkTest {
             jedis.set("package:" + event.getCustomerId() + ":tokens_remaining", "100");
             jedis.set("budget:" + event.getCustomerId() + ":held_usd", "1.0");
             jedis.hset("reservation:" + event.getReservationId(), "customer_id", event.getCustomerId());
-            jedis.zadd("gateway:reservations:pending", 1, event.getReservationId());
+            // Keep the record outside the live Gateway expiry worker's due range.
+            jedis.zadd("gateway:reservations:pending",
+                    System.currentTimeMillis() / 1000.0 + 3600, event.getReservationId());
 
             assertEquals("OK", EventProjectionSink.apply(jedis, event));
             assertEquals("SKIP", EventProjectionSink.apply(jedis, event));
+
+            long projectionTtl = jedis.ttl(EventProjectionSink.projectionKey(event.getEventId()));
+            assertTrue(projectionTtl > 0 && projectionTtl <= 600);
 
             assertEquals("15", jedis.get("session:" + event.getSessionId() + ":total_tokens"));
             assertEquals("1", jedis.get("session:" + event.getSessionId() + ":event_count"));

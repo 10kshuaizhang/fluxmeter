@@ -28,6 +28,7 @@ services:
         for topic in token-events budget-alerts token-events-dlq token-events-quarantine; do
           /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic "$$topic" --partitions 12 --replication-factor 1
         done
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic metering-watermarks --partitions 1 --replication-factor 1
     restart: "no"
 
   redis:
@@ -38,6 +39,12 @@ services:
     command: redis-server --appendonly yes --appendfsync everysec --maxmemory 384mb --maxmemory-policy noeviction
     volumes: [redis-data:/data]
     mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 2s
+      timeout: 1s
+      retries: 180
+      start_period: 2s
 
   checkpoint-init:
     image: flink:1.18.1-java17
@@ -101,16 +108,24 @@ services:
     build:
       context: .
       dockerfile: flink/Dockerfile
-    depends_on: [kafka-init, jobmanager, taskmanager, redis]
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      jobmanager:
+        condition: service_started
+      taskmanager:
+        condition: service_started
+      redis:
+        condition: service_healthy
     entrypoint: ["/bin/bash", "-c"]
     command:
       - |
         until curl -sf http://jobmanager:8081/overview >/dev/null; do sleep 2; done
-        if curl -sf http://jobmanager:8081/jobs/overview | grep -q '"name":"FluxMeter - Token Usage Aggregator".*"state":"RUNNING"'; then
+        if curl -sf http://jobmanager:8081/jobs/overview | grep -Eq '"name":"FluxMeter - Token Usage Aggregator".*"state":"(RUNNING|RESTARTING|CREATED|INITIALIZING|RECONCILING)"'; then
           echo "FluxMeter job is already running; skipping duplicate submission."
           exit 0
         fi
-        flink run -m jobmanager:8081 -d -p 2 -c io.fluxmeter.job.TokenUsageAggregator /opt/flink/usrlib/fluxmeter.jar
+        flink run -m jobmanager:8081 -d -p "$${FLINK_PARALLELISM:-2}" -c io.fluxmeter.job.TokenUsageAggregator /opt/flink/usrlib/fluxmeter.jar
     environment:
       KAFKA_BROKERS: kafka:9092
       REDIS_HOST: redis
@@ -132,9 +147,17 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
       KAFKA_BROKERS: kafka:9092
+      WATERMARK_HEARTBEAT_ENABLED: "true"
+      WATERMARK_HEARTBEAT_INTERVAL_SECONDS: "5"
       FLUXMETER_AUTH_OPTIONAL: "true"
       BUDGET_FAIL_POLICY: open
-    depends_on: [kafka-init, redis, job-submitter]
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      job-submitter:
+        condition: service_completed_successfully
     mem_limit: 256m
 
   gateway:
@@ -152,7 +175,13 @@ services:
       FLUXMETER_AUTH_OPTIONAL: "true"
       BUDGET_FAIL_POLICY: open
       GATEWAY_UPSTREAM_BASE: https://api.openai.com/v1
-    depends_on: [kafka-init, redis, job-submitter]
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      job-submitter:
+        condition: service_completed_successfully
     mem_limit: 256m
 
   webhook-worker:

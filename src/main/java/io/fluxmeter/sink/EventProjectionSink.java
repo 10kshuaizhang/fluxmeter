@@ -26,7 +26,7 @@ import java.util.Set;
  */
 public class EventProjectionSink extends RichSinkFunction<TokenEvent> {
 
-    private static final long PROJECTION_TTL_SECONDS = 30L * 24 * 60 * 60;
+    private static final long DEFAULT_PROJECTION_TTL_SECONDS = 10L * 60;
     private static final long SESSION_TTL_SECONDS = 90L * 24 * 60 * 60;
     private static final long DIM_TTL_SECONDS = 400L * 24 * 60 * 60;
 
@@ -63,16 +63,29 @@ public class EventProjectionSink extends RichSinkFunction<TokenEvent> {
     private final String host;
     private final int port;
     private final Set<String> allowedDimensions;
+    private final long projectionTtlSeconds;
     private transient JedisPool pool;
 
     public EventProjectionSink(String host, int port) {
-        this(host, port, System.getenv().getOrDefault("FLUXMETER_USAGE_DIMS", "room_id,feature"));
+        this(
+                host,
+                port,
+                System.getenv().getOrDefault("FLUXMETER_USAGE_DIMS", "room_id,feature"),
+                projectionTtlSeconds(System.getenv().get("EVENT_PROJECTION_IDEMPOTENCY_TTL_SECONDS")));
     }
 
     EventProjectionSink(String host, int port, String dimensions) {
+        this(host, port, dimensions, DEFAULT_PROJECTION_TTL_SECONDS);
+    }
+
+    EventProjectionSink(String host, int port, String dimensions, long projectionTtlSeconds) {
         this.host = host;
         this.port = port;
         this.allowedDimensions = new HashSet<>(Arrays.asList(dimensions.split(",")));
+        if (projectionTtlSeconds <= 0) {
+            throw new IllegalArgumentException("projection idempotency TTL must be positive");
+        }
+        this.projectionTtlSeconds = projectionTtlSeconds;
     }
 
     @Override
@@ -83,15 +96,23 @@ public class EventProjectionSink extends RichSinkFunction<TokenEvent> {
     @Override
     public void invoke(TokenEvent event, Context context) {
         try (Jedis jedis = pool.getResource()) {
-            apply(jedis, event, allowedDimensions);
+            apply(jedis, event, allowedDimensions, projectionTtlSeconds);
         }
     }
 
     static String apply(Jedis jedis, TokenEvent event) {
-        return apply(jedis, event, Set.of("room_id", "feature"));
+        return apply(jedis, event, Set.of("room_id", "feature"), DEFAULT_PROJECTION_TTL_SECONDS);
     }
 
     static String apply(Jedis jedis, TokenEvent event, Set<String> allowedDimensions) {
+        return apply(jedis, event, allowedDimensions, DEFAULT_PROJECTION_TTL_SECONDS);
+    }
+
+    static String apply(
+            Jedis jedis,
+            TokenEvent event,
+            Set<String> allowedDimensions,
+            long projectionTtlSeconds) {
         long before = 0;
         if (event.getMetadata() != null) {
             String raw = event.getMetadata().get(UsageAggregateFunction.MONTHLY_VOLUME_BEFORE_KEY);
@@ -108,12 +129,12 @@ public class EventProjectionSink extends RichSinkFunction<TokenEvent> {
                 event.getTenantId(), event.getCustomerId(), event.getModelId(), windowStart);
 
         List<String> keys = new ArrayList<>();
-        keys.add("projection:" + sha256(event.getEventId()));
+        keys.add(projectionKey(event.getEventId()));
         keys.add(event.getSessionId() == null || event.getSessionId().isBlank()
-                ? "noop" : "session:" + event.getSessionId());
+                ? "noop" : TenantKeys.scopePrefix(event.getTenantId(), "session", event.getSessionId()));
         keys.add("rollup:" + event.getCustomerId() + ":model:"
                 + UsageAggregate.normalizeModelId(event.getModelId()) + ":period:" + period);
-        keys.add("package:" + event.getCustomerId() + ":tokens_remaining");
+        keys.add(TenantKeys.packageKey(event.getTenantId(), event.getCustomerId()));
         keys.add(event.getApiKeyId() == null ? "noop" : "apikey:" + event.getApiKeyId() + ":spent:d:" + day);
         keys.add(event.getApiKeyId() == null ? "noop" : "apikey:" + event.getApiKeyId() + ":spent:m:" + period);
         keys.add(event.getReservationId() == null ? "noop" : TenantKeys.windowReservationsKey(windowId));
@@ -145,13 +166,24 @@ public class EventProjectionSink extends RichSinkFunction<TokenEvent> {
                         String.valueOf(accountingTime),
                         String.valueOf(event.getReservedUsd()),
                         String.valueOf(System.currentTimeMillis()),
-                        String.valueOf(PROJECTION_TTL_SECONDS),
+                        String.valueOf(projectionTtlSeconds),
                         String.valueOf(SESSION_TTL_SECONDS),
                         String.valueOf(DIM_TTL_SECONDS)
                         , event.getReservationId() == null ? "" : event.getReservationId()
                 )
         );
         return result == null ? "OK" : result.toString();
+    }
+
+    static long projectionTtlSeconds(String configured) {
+        if (configured == null || configured.isBlank()) {
+            return DEFAULT_PROJECTION_TTL_SECONDS;
+        }
+        return Long.parseLong(configured);
+    }
+
+    static String projectionKey(String eventId) {
+        return "projection:" + sha256(eventId);
     }
 
     private static String sha256(String value) {

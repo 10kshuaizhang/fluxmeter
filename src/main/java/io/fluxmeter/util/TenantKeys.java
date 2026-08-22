@@ -35,6 +35,23 @@ public final class TenantKeys {
         return "global:" + suffix;
     }
 
+    public static String scopePrefix(String tenantId, String kind, String scopeId) {
+        if (!"span".equals(kind) && !"session".equals(kind)) {
+            throw new IllegalArgumentException("scope kind must be span or session");
+        }
+        if (hasTenant(tenantId)) {
+            return "tenant:" + tenantId + ":" + kind + ":" + scopeId;
+        }
+        return kind + ":" + scopeId;
+    }
+
+    public static String packageKey(String tenantId, String customerId) {
+        if (hasTenant(tenantId)) {
+            return "tenant:" + tenantId + ":package:" + customerId + ":tokens_remaining";
+        }
+        return "package:" + customerId + ":tokens_remaining";
+    }
+
     public static String windowId(String tenantId, String customerId, String modelId, long windowStart) {
         if (hasTenant(tenantId)) {
             return tenantId + "|" + customerId + "|" + modelId + "|" + windowStart;

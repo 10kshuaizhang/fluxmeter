@@ -48,4 +48,16 @@ class TenantKeysTest {
     void windowReservationsKey() {
         assertEquals("window:reservations:c|m|1", TenantKeys.windowReservationsKey("c|m|1"));
     }
+
+    @Test
+    void scopePrefixIsTenantScoped() {
+        assertEquals("span:s1", TenantKeys.scopePrefix(null, "span", "s1"));
+        assertEquals("tenant:t1:session:s1", TenantKeys.scopePrefix("t1", "session", "s1"));
+    }
+
+    @Test
+    void packageKeyIsTenantScoped() {
+        assertEquals("package:c1:tokens_remaining", TenantKeys.packageKey(null, "c1"));
+        assertEquals("tenant:t1:package:c1:tokens_remaining", TenantKeys.packageKey("t1", "c1"));
+    }
 }

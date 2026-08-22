@@ -4,7 +4,7 @@ info:
   description: |
     Real-time token usage queries, HTTP ingest, and budget enforcement.
     Implements the FluxMeter open spec — see `spec/schema/` and `spec/openapi/`.
-  version: 4.4.1
+  version: 4.7.0
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -57,9 +57,10 @@ paths:
     post:
       summary: Ingest single token event
       description: |
-        The sole public event entrance. Returns 202 only after Kafka acknowledges custody.
-        Identical retries with the same eventId return 202 with idempotent=true.
-        Pending custody or Kafka outage returns retryable 503.
+        The sole public event entrance. Returns 202 only after Kafka acknowledges the
+        record and the tenant-scoped identity is finalized. Identical retries with a
+        client-supplied eventId return 202 with idempotent=true for 30 days. Omitted
+        eventId values are generated per attempt and therefore are not retry-stable.
       requestBody:
         required: true
         content:
@@ -75,8 +76,10 @@ paths:
                 $ref: "#/components/schemas/IngestResponse"
         "409":
           description: The eventId was previously used with a different payload
+        "429":
+          description: Bounded custody capacity is exhausted; retryable (custody_overloaded)
         "503":
-          description: Kafka custody pending or unavailable; retryable (event_pending / kafka_unavailable)
+          description: Identity storage, pending/uncertain custody, or Kafka is unavailable; retryable
   /ingest/batch:
     post:
       summary: Batch ingest (max 1000)
@@ -110,8 +113,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/IngestBatchResponse"
+        "429":
+          description: Every valid row was overloaded; retryable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestBatchResponse"
         "503":
-          description: Custody failures (failed); retryable
+          description: Every valid row had unavailable/uncertain custody, or identity storage failed; retryable
           content:
             application/json:
               schema:
@@ -986,7 +995,7 @@ components:
       properties:
         status:
           type: string
-          enum: [accepted, partial, conflict, failed]
+          enum: [accepted, partial, conflict, failed, overloaded]
         results:
           type: array
           items:
@@ -997,11 +1006,14 @@ components:
                 type: string
               status:
                 type: string
-                enum: [accepted, quarantined, conflict, failed, pending]
+                enum: [accepted, quarantined, conflict, rejected, pending, uncertain, unavailable, overloaded]
               idempotent:
                 type: boolean
               retryable:
                 type: boolean
+              message:
+                type: string
+                description: Per-item validation failure detail when status is rejected
     GlobalUsage:
       type: object
       properties:

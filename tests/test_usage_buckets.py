@@ -56,6 +56,15 @@ class TestUsageBuckets:
         assert data["event_count"] == 1
         assert abs(data["cost_usd"] - 0.01) < 1e-6
 
+    def test_tenant_session_preferred_over_legacy(self, r):
+        sid = f"sess_{uuid.uuid4().hex[:8]}"
+        r.set(f"session:{sid}:event_count", "1")
+        r.set(f"session:{sid}:total_tokens", "99")
+        r.set(f"tenant:t1:session:{sid}:event_count", "1")
+        r.set(f"tenant:t1:session:{sid}:total_tokens", "7")
+
+        assert read_session(r, sid, "t1")["total_tokens"] == 7
+
     def test_rollup_keys(self):
         assert rollup_month_key("u1", "2026-07") == "rollup:u1:period:2026-07"
         assert rollup_day_key("u1", "2026-07-05") == "rollup:u1:d:2026-07-05"

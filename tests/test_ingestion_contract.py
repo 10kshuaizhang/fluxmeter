@@ -7,6 +7,7 @@ import time
 
 import fakeredis
 import pytest
+import redis
 from fastapi.testclient import TestClient
 
 
@@ -58,7 +59,9 @@ def ingestion_api(monkeypatch):
     monkeypatch.setattr(auth, "_redis", lambda: redis_client)
     monkeypatch.setattr(main, "get_redis", lambda: redis_client)
     monkeypatch.setattr(main, "get_kafka_producer", lambda: producer)
-    return TestClient(main.app), redis_client, producer
+    monkeypatch.setattr(main, "_custody_batcher", None)
+    with TestClient(main.app) as client:
+        yield client, redis_client, producer
 
 
 def test_health_is_mode_free_liveness(ingestion_api):
@@ -68,6 +71,23 @@ def test_health_is_mode_free_liveness(ingestion_api):
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_watermark_heartbeat_uses_dedicated_topic_and_single_publisher(ingestion_api):
+    import main
+
+    _, redis_client, producer = ingestion_api
+
+    assert main.publish_watermark_heartbeat(redis_client, producer) is True
+    assert main.publish_watermark_heartbeat(redis_client, producer) is False
+    assert len(producer.messages) == 1
+    message = producer.messages[0]
+    assert message["topic"] == main.WATERMARK_TOPIC
+    envelope = json.loads(message["value"])
+    assert envelope["payload"]["metadata"] == {
+        "_heartbeat": "true",
+        "_watermark": "true",
+    }
 
 
 def test_ingest_returns_retryable_503_without_kafka_custody(ingestion_api):
@@ -124,6 +144,74 @@ def test_ingest_publishes_versioned_trusted_envelope(ingestion_api, monkeypatch)
     assert envelope["receipt"]["traceId"]
 
 
+def test_single_ingest_uses_shared_custody_batcher(ingestion_api, monkeypatch):
+    import main
+
+    class RecordingBatcher:
+        def __init__(self):
+            self.calls = []
+
+        async def accept(self, event, context):
+            self.calls.append((event, context))
+            return {
+                "status": "accepted",
+                "eventId": event["eventId"],
+                "idempotent": False,
+            }
+
+    batcher = RecordingBatcher()
+    monkeypatch.setattr(main, "get_custody_batcher", lambda: batcher)
+    client, _, producer = ingestion_api
+
+    response = client.post(
+        "/ingest",
+        json={
+            "customerId": "cust_batcher",
+            "modelId": "gpt-4o-mini",
+            "inputTokens": 10,
+            "eventId": "evt-batcher-seam",
+        },
+    )
+
+    assert response.status_code == 202
+    assert len(batcher.calls) == 1
+    assert batcher.calls[0][0]["eventId"] == "evt-batcher-seam"
+    assert batcher.calls[0][1].source == "http"
+    assert producer.messages == []
+
+
+def test_ingest_routes_authenticate_without_fastapi_dependency_graph(
+    ingestion_api, monkeypatch
+):
+    import main
+
+    ingest_routes = {
+        route.path: route
+        for route in main.app.routes
+        if getattr(route, "path", None) in {"/ingest", "/ingest/batch"}
+    }
+    assert ingest_routes["/ingest"].dependant.dependencies == []
+    assert ingest_routes["/ingest/batch"].dependant.dependencies == []
+
+    calls = []
+
+    async def reject(key):
+        calls.append(key)
+        raise main.HTTPException(status_code=401, detail="auth probe")
+
+    monkeypatch.setattr(main, "require_api_key", reject)
+    client, _, producer = ingestion_api
+    response = client.post(
+        "/ingest",
+        headers={"X-API-Key": "probe-key"},
+        json={"customerId": "cust_auth", "modelId": "m", "eventId": "evt-auth"},
+    )
+
+    assert response.status_code == 401
+    assert calls == ["probe-key"]
+    assert producer.messages == []
+
+
 def test_identical_retry_is_accepted_without_republishing(ingestion_api):
     client, _, producer = ingestion_api
     event = {
@@ -160,7 +248,26 @@ def test_event_id_reuse_with_different_payload_is_conflict(ingestion_api):
     assert len(producer.messages) == 1
 
 
-def test_batch_validates_every_event_before_publication(ingestion_api):
+def test_identity_store_failure_is_retryable_503(ingestion_api, monkeypatch):
+    import main
+
+    class RedisFailingBatcher:
+        async def accept(self, *_args, **_kwargs):
+            raise redis.ConnectionError("identity store down")
+
+    client, _, producer = ingestion_api
+    monkeypatch.setattr(main, "get_custody_batcher", lambda: RedisFailingBatcher())
+    response = client.post(
+        "/ingest",
+        json={"customerId": "cust_1", "modelId": "m", "eventId": "evt-redis-down"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "identity_store_unavailable"
+    assert producer.messages == []
+
+
+def test_batch_rejects_invalid_item_without_blocking_valid_event(ingestion_api):
     client, _, producer = ingestion_api
 
     response = client.post(
@@ -176,8 +283,48 @@ def test_batch_validates_every_event_before_publication(ingestion_api):
         ],
     )
 
-    assert response.status_code == 400
-    assert producer.messages == []
+    assert response.status_code == 207
+    assert len(producer.messages) == 1
+    assert response.json()["results"] == [
+        {"eventId": "evt-ok", "status": "accepted", "idempotent": False},
+        {
+            "eventId": "evt-bad",
+            "status": "rejected",
+            "retryable": False,
+            "message": "metadata key 'not_allowed' not in whitelist ['feature', 'room_id']",
+        },
+    ]
+
+
+def test_batch_rejects_schema_invalid_item_without_blocking_valid_event(ingestion_api):
+    client, _, producer = ingestion_api
+    response = client.post(
+        "/ingest/batch",
+        json=[
+            {"customerId": "cust_batch", "modelId": "m", "eventId": "evt-ok-schema"},
+            {"modelId": "m", "eventId": "evt-missing-customer"},
+        ],
+    )
+
+    assert response.status_code == 207
+    assert len(producer.messages) == 1
+    assert [item["status"] for item in response.json()["results"]] == ["accepted", "rejected"]
+
+
+def test_metrics_are_low_cardinality_and_exclude_tenant_ids(ingestion_api, monkeypatch):
+    import main
+
+    client, _, _ = ingestion_api
+    monkeypatch.setattr(main, "resolve_tenant_from_key", lambda _key: "tenant-secret")
+    assert client.post(
+        "/ingest",
+        json={"customerId": "cust_1", "modelId": "m", "eventId": "evt-metrics"},
+    ).status_code == 202
+
+    metrics = client.get("/metrics").text
+    assert "fluxmeter_custody_outcomes_total" in metrics
+    assert "identity_claim" in metrics
+    assert "tenant-secret" not in metrics
 
 
 def test_batch_reports_mixed_kafka_custody(ingestion_api):

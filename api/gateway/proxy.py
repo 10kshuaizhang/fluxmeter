@@ -11,16 +11,11 @@ from typing import Any, AsyncIterator, Optional
 import httpx
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from budget_ops import (
-    refresh_gateway_reservation,
-    register_gateway_reservation,
-    reserve_hold,
-    settle_gateway_reservation,
-)
-from budget_gate import run_budget_check
+from budget import Budget
+from reservation import Reservation
 from gateway.deps import UPSTREAM_API_KEY, UPSTREAM_BASE
 from gateway.ingest import ingest_usage
-from gateway.pricing_estimate import estimate_request_cost
+from pricing_loader import get_catalog
 from gateway.stream_guard import StreamGuard
 
 logger = logging.getLogger(__name__)
@@ -74,17 +69,16 @@ class ProxiedCompletion:
         if isinstance(max_tokens, float):
             max_tokens = int(max_tokens)
 
-        estimated = estimate_request_cost(
-            self.model, max_tokens if isinstance(max_tokens, int) else None
+        estimated = get_catalog().estimate_completion_usd(
+            self.model,
+            max_output_tokens=max_tokens if isinstance(max_tokens, int) else None,
         )
-        gate = run_budget_check(
-            self.r,
+        gate = Budget(self.r, self.tenant_id).check(
             self.customer_id,
             estimated,
             parent_span_id=self.parent_span_id,
             session_id=self.session_id,
             key_id=self.key_id,
-            tenant_id=self.tenant_id,
         )
         if not gate.get("allowed", False):
             return budget_denied_response(gate)
@@ -106,25 +100,16 @@ class ProxiedCompletion:
             )
         headers["Authorization"] = auth
 
-        hold = reserve_hold(
-            self.r,
-            self.customer_id,
-            estimated,
+        self.reservation_id = str(uuid.uuid4())
+        hold = Reservation(self.r, self.tenant_id).open(
+            self.reservation_id,
+            customer_id=self.customer_id,
+            estimated_cost_usd=estimated,
             parent_span_id=self.parent_span_id,
-            tenant_id=self.tenant_id,
         )
         if not hold.get("allowed"):
             return budget_denied_response(hold)
         self.reserved_usd = float(hold.get("reserved_usd") or estimated)
-        self.reservation_id = str(uuid.uuid4())
-        register_gateway_reservation(
-            self.r,
-            self.reservation_id,
-            customer_id=self.customer_id,
-            reserved_usd=self.reserved_usd,
-            parent_span_id=self.parent_span_id,
-            tenant_id=self.tenant_id,
-        )
 
         url = f"{UPSTREAM_BASE}/chat/completions"
         payload = json.dumps(self.body).encode("utf-8")
@@ -133,8 +118,18 @@ class ProxiedCompletion:
             return StreamingResponse(
                 self._stream(url=url, headers=headers, payload=payload),
                 media_type="text/event-stream",
+                headers=self._reservation_headers(),
             )
         return await self._non_stream(url=url, headers=headers, payload=payload)
+
+    def _reservation_headers(self) -> dict[str, str]:
+        """Expose the hold receipt without changing the OpenAI response body."""
+        if not self.reservation_id:
+            return {}
+        return {
+            "X-FluxMeter-Reservation-Id": self.reservation_id,
+            "X-FluxMeter-Reserved-Usd": f"{self.reserved_usd:.6f}",
+        }
 
     def _ingest(
         self,
@@ -165,7 +160,7 @@ class ProxiedCompletion:
             resp = await client.post(url, headers=headers, content=payload)
             if resp.status_code >= 400:
                 if self.reservation_id:
-                    settle_gateway_reservation(self.r, self.reservation_id)
+                    Reservation(self.r, self.tenant_id).settle(self.reservation_id)
                 return JSONResponse(status_code=resp.status_code, content=resp.json())
 
             data = resp.json()
@@ -174,7 +169,11 @@ class ProxiedCompletion:
                 input_tokens=int(usage.get("prompt_tokens") or 0),
                 output_tokens=int(usage.get("completion_tokens") or 0),
             )
-            return JSONResponse(status_code=200, content=data)
+            return JSONResponse(
+                status_code=200,
+                content=data,
+                headers=self._reservation_headers(),
+            )
 
     async def _stream(
         self, *, url: str, headers: dict[str, str], payload: bytes
@@ -191,14 +190,14 @@ class ProxiedCompletion:
                 ) as resp:
                     if resp.status_code >= 400:
                         if self.reservation_id:
-                            settle_gateway_reservation(self.r, self.reservation_id)
+                            Reservation(self.r, self.tenant_id).settle(self.reservation_id)
                             settled_on_error = True
                         body = await resp.aread()
                         yield body
                         return
                     async for chunk in guard.transform(resp.aiter_bytes()):
                         if self.reservation_id and time.monotonic() >= next_refresh:
-                            refresh_gateway_reservation(self.r, self.reservation_id)
+                            Reservation(self.r, self.tenant_id).refresh(self.reservation_id)
                             next_refresh = time.monotonic() + 60
                         yield chunk
         finally:

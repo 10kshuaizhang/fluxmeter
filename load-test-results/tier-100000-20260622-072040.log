@@ -1,0 +1,32 @@
+FluxMeter Load Generator
+  Brokers: localhost:9094
+  Topic: token-events
+  Customers: 10000
+  Threads: 8
+  Target EPS: 100000
+  Starting...
+SLF4J: Failed to load class "org.slf4j.impl.StaticLoggerBinder".
+SLF4J: Defaulting to no-operation (NOP) logger implementation
+SLF4J: See http://www.slf4j.org/codes.html#StaticLoggerBinder for further details.
+  [STATS] 0 events/sec | 0.0 MB/sec | 0 total
+  [STATS] 0 events/sec | 0.0 MB/sec | 0 total
+  [STATS] 0 events/sec | 0.0 MB/sec | 0 total
+  [STATS] 0 events/sec | 0.0 MB/sec | 0 total
+  [STATS] 0 events/sec | 0.0 MB/sec | 0 total
+  [STATS] 40 events/sec | 0.0 MB/sec | 56 total
+  [STATS] 2032 events/sec | 0.9 MB/sec | 2,135 total
+  [STATS] 5736 events/sec | 2.5 MB/sec | 7,946 total
+  [STATS] 10122 events/sec | 4.4 MB/sec | 18,098 total
+  [STATS] 23615 events/sec | 10.3 MB/sec | 41,760 total
+  [STATS] 20579 events/sec | 9.0 MB/sec | 62,462 total
+  [STATS] 32135 events/sec | 14.0 MB/sec | 95,175 total
+  [STATS] 36863 events/sec | 16.1 MB/sec | 132,185 total
+  [STATS] 39394 events/sec | 17.2 MB/sec | 171,618 total
+  [STATS] 46161 events/sec | 20.2 MB/sec | 218,241 total
+  [STATS] 37819 events/sec | 16.5 MB/sec | 259,993 total
+  [STATS] 45265 events/sec | 19.8 MB/sec | 305,484 total
+  [STATS] 46242 events/sec | 20.2 MB/sec | 351,911 total
+  [STATS] 37613 events/sec | 16.4 MB/sec | 389,637 total
+  [STATS] 38053 events/sec | 16.6 MB/sec | 427,842 total
+  [STATS] 38381 events/sec | 16.8 MB/sec | 466,415 total
+  [STATS] 25574 events/sec | 11.2 MB/sec | 492,270 total

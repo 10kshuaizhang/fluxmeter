@@ -48,7 +48,7 @@ public class SpanSink extends RichSinkFunction<SpanAggregate> {
         }
 
         try (Jedis jedis = pool.getResource()) {
-            String key = "span:" + span.getSpanId();
+            String key = TenantKeys.scopePrefix(span.getTenantId(), "span", span.getSpanId());
 
             // Use SET (overwrite), not INCRBY. Session windows can fire multiple
             // times (session merge, late data). Each fire contains the FULL aggregate

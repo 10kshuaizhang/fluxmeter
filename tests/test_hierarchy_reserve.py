@@ -9,7 +9,7 @@ import pytest
 
 sys.path.insert(0, "api")
 
-from budget_ops import reconcile_hold, reserve_hold
+from reservation import Reservation
 
 
 @pytest.fixture
@@ -33,10 +33,10 @@ class TestHierarchyReserve:
         _setup_customer(r, "cust_1", balance=10.0)
         _setup_span_cap(r, "span_parent", max_cost=1.0, spent=0.0)
 
-        first = reserve_hold(r, "cust_1", 0.60, parent_span_id="span_parent")
+        first = Reservation(r).reserve("cust_1", 0.60, parent_span_id="span_parent")
         assert first["allowed"] is True
 
-        second = reserve_hold(r, "cust_1", 0.60, parent_span_id="span_parent")
+        second = Reservation(r).reserve("cust_1", 0.60, parent_span_id="span_parent")
         assert second["allowed"] is False
         assert second["reason"] == "hierarchy_reserve"
         assert second["scope"] == "span"
@@ -45,16 +45,16 @@ class TestHierarchyReserve:
         _setup_customer(r, "cust_1", balance=10.0)
         _setup_span_cap(r, "span_parent", max_cost=1.0)
 
-        reserve_hold(r, "cust_1", 0.60, parent_span_id="span_parent")
-        reconcile_hold(r, "cust_1", 0.60, parent_span_id="span_parent")
+        Reservation(r).reserve("cust_1", 0.60, parent_span_id="span_parent")
+        Reservation(r).reconcile("cust_1", 0.60, parent_span_id="span_parent")
 
-        third = reserve_hold(r, "cust_1", 0.60, parent_span_id="span_parent")
+        third = Reservation(r).reserve("cust_1", 0.60, parent_span_id="span_parent")
         assert third["allowed"] is True
 
     def test_no_parent_span_id_unchanged(self, r):
         _setup_customer(r, "cust_1", balance=5.0)
 
-        result = reserve_hold(r, "cust_1", 1.0)
+        result = Reservation(r).reserve("cust_1", 1.0)
         assert result["allowed"] is True
         assert "span_held_usd" not in result
 
@@ -62,6 +62,6 @@ class TestHierarchyReserve:
         _setup_customer(r, "cust_1", balance=5.0)
         r.set("span:orphan:cost_usd", "0")
 
-        result = reserve_hold(r, "cust_1", 1.0, parent_span_id="orphan")
+        result = Reservation(r).reserve("cust_1", 1.0, parent_span_id="orphan")
         assert result["allowed"] is True
         assert r.get("span:orphan:held_usd") is None

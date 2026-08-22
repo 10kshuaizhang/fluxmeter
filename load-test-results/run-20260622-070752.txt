@@ -1,0 +1,91 @@
+FluxMeter Load Test — 20260622-070752
+JAR: build/libs/fluxmeter-2.0.2.jar
+Kafka: localhost:9094 | customers=10000 threads=8 parallelism=12
+--- baseline ---
+  global: {"total_events":1965046,"total_tokens":4557289933,"input_tokens":2384447561,"output_tokens":1272388847,"total_cost_usd":46654.948028,"last_window_end":1782081270000}
+fluxmeter-taskmanager-1: CPU 0.00% MEM 0B / 0B
+fluxmeter-taskmanager-2: CPU 0.00% MEM 0B / 0B
+fluxmeter-taskmanager-3: CPU 142.53% MEM 887.8MiB / 3.819GiB
+fluxmeter-taskmanager-4: CPU 0.00% MEM 0B / 0B
+fluxmeter-kafka: CPU 518.05% MEM 318.3MiB / 3.819GiB
+fluxmeter-redis: CPU 22.11% MEM 65.03MiB / 3.819GiB
+Flink job: RUNNING
+
+========== TIER 10000 eps × 25s ==========
+  target_eps: 10000
+  avg_eps:    5930
+  peak_eps:   25511
+  total_sent: 116045
+  log:        /Users/apple/Downloads/fluxmeter/load-test-results/tier-10000-20260622-070752.log
+--- after 10000 eps ---
+  global: {"total_events":1965046,"total_tokens":4557289933,"input_tokens":2384447561,"output_tokens":1272388847,"total_cost_usd":46654.948028,"last_window_end":1782081270000}
+fluxmeter-taskmanager-1: CPU 0.00% MEM 0B / 0B
+fluxmeter-taskmanager-2: CPU 0.00% MEM 0B / 0B
+fluxmeter-taskmanager-3: CPU 18.77% MEM 867MiB / 3.819GiB
+fluxmeter-taskmanager-4: CPU 0.00% MEM 0B / 0B
+fluxmeter-kafka: CPU 225.74% MEM 346.4MiB / 3.819GiB
+fluxmeter-redis: CPU 39.35% MEM 37.06MiB / 3.819GiB
+
+========== TIER 50000 eps × 25s ==========
+  target_eps: 50000
+  avg_eps:    34002
+  peak_eps:   105289
+  total_sent: 757318
+  log:        /Users/apple/Downloads/fluxmeter/load-test-results/tier-50000-20260622-070752.log
+--- after 50000 eps ---
+  global: {"total_events":1965046,"total_tokens":4557289933,"input_tokens":2384447561,"output_tokens":1272388847,"total_cost_usd":46654.948028,"last_window_end":1782081270000}
+fluxmeter-taskmanager-1: CPU 0.00% MEM 0B / 0B
+fluxmeter-taskmanager-2: CPU 0.00% MEM 0B / 0B
+fluxmeter-taskmanager-3: CPU 38.92% MEM 869.9MiB / 3.819GiB
+fluxmeter-taskmanager-4: CPU 0.00% MEM 0B / 0B
+fluxmeter-kafka: CPU 428.18% MEM 354.5MiB / 3.819GiB
+fluxmeter-redis: CPU 25.72% MEM 36.91MiB / 3.819GiB
+
+========== TIER 100000 eps × 25s ==========
+  target_eps: 100000
+  avg_eps:    13458
+  peak_eps:   26289
+  total_sent: 297002
+  log:        /Users/apple/Downloads/fluxmeter/load-test-results/tier-100000-20260622-070752.log
+--- after 100000 eps ---
+  global: {"total_events":1965046,"total_tokens":4557289933,"input_tokens":2384447561,"output_tokens":1272388847,"total_cost_usd":46654.948028,"last_window_end":1782081270000}
+fluxmeter-taskmanager-1: CPU 0.00% MEM 0B / 0B
+fluxmeter-taskmanager-2: CPU 0.00% MEM 0B / 0B
+fluxmeter-taskmanager-3: CPU 19.37% MEM 868MiB / 3.819GiB
+fluxmeter-taskmanager-4: CPU 0.00% MEM 0B / 0B
+fluxmeter-kafka: CPU 253.76% MEM 353.2MiB / 3.819GiB
+fluxmeter-redis: CPU 23.06% MEM 39.9MiB / 3.819GiB
+
+========== TIER 500000 eps × 25s ==========
+  target_eps: 500000
+  avg_eps:    7624
+  peak_eps:   19741
+  total_sent: 164798
+  log:        /Users/apple/Downloads/fluxmeter/load-test-results/tier-500000-20260622-070752.log
+--- after 500000 eps ---
+  global: {"total_events":1965046,"total_tokens":4557289933,"input_tokens":2384447561,"output_tokens":1272388847,"total_cost_usd":46654.948028,"last_window_end":1782081270000}
+fluxmeter-taskmanager-1: CPU 0.00% MEM 0B / 0B
+fluxmeter-taskmanager-2: CPU 0.00% MEM 0B / 0B
+fluxmeter-taskmanager-3: CPU 340.72% MEM 898.4MiB / 3.819GiB
+fluxmeter-taskmanager-4: CPU 0.00% MEM 0B / 0B
+fluxmeter-kafka: CPU 352.01% MEM 419.8MiB / 3.819GiB
+fluxmeter-redis: CPU 139.33% MEM 71.55MiB / 3.819GiB
+
+========== TIER 1000000 eps × 25s ==========
+  target_eps: 1000000
+  avg_eps:    22486
+  peak_eps:   67156
+  total_sent: 473879
+  log:        /Users/apple/Downloads/fluxmeter/load-test-results/tier-1000000-20260622-070752.log
+--- after 1000000 eps ---
+  global: {"total_events":1965046,"total_tokens":4557289933,"input_tokens":2384447561,"output_tokens":1272388847,"total_cost_usd":46654.948028,"last_window_end":1782081270000}
+fluxmeter-taskmanager-1: CPU 0.00% MEM 0B / 0B
+fluxmeter-taskmanager-2: CPU 0.00% MEM 0B / 0B
+fluxmeter-taskmanager-3: CPU 192.33% MEM 893.5MiB / 3.819GiB
+fluxmeter-taskmanager-4: CPU 0.00% MEM 0B / 0B
+fluxmeter-kafka: CPU 254.62% MEM 408.7MiB / 3.819GiB
+fluxmeter-redis: CPU 14.52% MEM 72.26MiB / 3.819GiB
+
+========== DONE ==========
+Full log: /Users/apple/Downloads/fluxmeter/load-test-results/run-20260622-070752.log
+Summary:  /Users/apple/Downloads/fluxmeter/load-test-results/run-20260622-070752.txt

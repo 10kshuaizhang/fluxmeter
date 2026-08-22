@@ -72,7 +72,7 @@ def _seed_intelligence_data(r, customer_id: str, period: str, baseline: str) -> 
 def self_check_metering() -> None:
     """Custody accept path with fake Redis + fake Kafka producer."""
     import fakeredis
-    from ingestion import accept
+    from ingestion import CustodyConfig, CustodyContext, TokenEventCustody
     from pricing_loader import PricingCatalog, reload_catalog
 
     class _Prod:
@@ -95,18 +95,20 @@ def self_check_metering() -> None:
         "parentSpanId": "span_demo",
         "eventId": str(uuid.uuid4()),
     }
-    result = accept(
+    custody = TokenEventCustody(
         r,
         _Prod(),
-        event,
-        tenant_id=None,
-        api_key_id=None,
-        topic="token-events",
-        quarantine_topic="token-events-quarantine",
-        timeout_seconds=1.0,
+        CustodyConfig(
+            topic="token-events",
+            quarantine_topic="token-events-quarantine",
+            timeout_seconds=1.0,
+        ),
     )
+    context = CustodyContext(tenant_id=None, api_key_id=None)
+    result = custody.accept(event, context)
     assert result["status"] == "accepted", result
-    assert r.get(f"ingest:event:{event['eventId']}").startswith("accepted:")
+    replay = custody.accept(event, context)
+    assert replay["status"] == "accepted" and replay["idempotent"] is True
     print("ok  metering: Custody accept claims event identity")
 
 
@@ -130,9 +132,11 @@ def self_check_intel() -> None:
 
 
 def self_check_gateway() -> None:
-    from gateway.pricing_estimate import estimate_request_cost
+    from pricing_loader import PricingCatalog
 
-    cost = estimate_request_cost("gpt-4o-mini", 256)
+    cost = PricingCatalog.load_from_file().estimate_completion_usd(
+        "gpt-4o-mini", max_output_tokens=256
+    )
     assert cost > 0
     print("ok  gateway: catalog-backed estimate")
 

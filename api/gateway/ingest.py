@@ -9,7 +9,7 @@ import redis
 
 from gateway.deps import KAFKA_ACK_TIMEOUT_SECONDS, KAFKA_TOPIC, get_kafka_producer
 from gateway.outbox import publish_envelope
-from ingestion import accept
+from ingestion import CustodyConfig, CustodyContext, TokenEventCustody
 
 
 def ingest_usage(
@@ -46,21 +46,27 @@ def ingest_usage(
     if event_id:
         event_dict["eventId"] = event_id
 
-    result = accept(
+    custody = TokenEventCustody(
         r,
         get_kafka_producer(),
+        CustodyConfig(
+            topic=KAFKA_TOPIC,
+            quarantine_topic=KAFKA_TOPIC,
+            timeout_seconds=KAFKA_ACK_TIMEOUT_SECONDS,
+        ),
+    )
+    result = custody.accept(
         event_dict,
-        tenant_id=tenant_id,
-        api_key_id=api_key_id,
-        topic=KAFKA_TOPIC,
-        quarantine_topic=KAFKA_TOPIC,
-        timeout_seconds=KAFKA_ACK_TIMEOUT_SECONDS,
-        on_kafka_down="buffer",
-        source="gateway",
-        reservation_id=reservation_id,
-        reserved_usd=reserved_usd,
-        buffer_publish=lambda redis_client, producer, topic, envelope, timeout: publish_envelope(
-            redis_client, producer, topic, envelope, timeout
+        CustodyContext(
+            tenant_id=tenant_id,
+            api_key_id=api_key_id,
+            source="gateway",
+            reservation_id=reservation_id,
+            reserved_usd=reserved_usd,
+            on_kafka_down="buffer",
+            buffer_publish=lambda redis_client, producer, topic, envelope, timeout: publish_envelope(
+                redis_client, producer, topic, envelope, timeout
+            ),
         ),
     )
     status = result["status"]

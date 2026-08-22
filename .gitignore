@@ -1,0 +1,11 @@
+.DS_Store
+.env*
+!.env.example
+.cursor/
+.gradle/
+**/__pycache__/
+*.py[cod]
+build/
+flink-checkpoints/
+=2.21.0
+

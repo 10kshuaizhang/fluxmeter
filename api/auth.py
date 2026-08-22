@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -203,13 +204,23 @@ def check_api_key_budget(
     return None
 
 
-def require_api_key(x_api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
+def _is_scoped_api_key(x_api_key: str | None) -> bool:
+    """Resolve Redis-backed customer and tenant keys off the event loop."""
+    return bool(
+        resolve_customer_from_key(x_api_key)
+        or resolve_tenant_from_key(x_api_key)
+    )
+
+
+async def require_api_key(
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> None:
     """Read/query/ingest — global, customer, or control-plane tenant key."""
     if is_global_api_key(x_api_key):
         return
-    if resolve_customer_from_key(x_api_key):
+    if not x_api_key and AUTH_OPTIONAL and not API_KEY and not ADMIN_API_KEY:
         return
-    if resolve_tenant_from_key(x_api_key):
+    if await asyncio.to_thread(_is_scoped_api_key, x_api_key):
         return
     if AUTH_OPTIONAL and not API_KEY and not ADMIN_API_KEY:
         return

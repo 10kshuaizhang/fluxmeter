@@ -2,8 +2,8 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 4.4.1 · Python SDK **2.0.0**
-**Current phase:** Pillar B Intelligence (**complete** · 3.0–3.1) · Phase G Gateway (**done**) · Metering (**maintained**) · Phase 7+ (**demand-gated**)  
+**Current version:** 4.8.2 · Python SDK **2.0.0**
+**Current phase:** Metering custody/performance hardening (**active**) · Pillar B Intelligence (**complete/demand-gated**) · Phase G Gateway (**done**)
 **Design status:** APPROVED (2026-06-16) · Intelligence pivot APPROVED (2026-07-11)  
 **Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md) · pivot: [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md)
 
@@ -42,7 +42,11 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 | Item | Status |
 |------|--------|
-| Single HTTP→Kafka→Flink correctness regression | Ongoing — clean Docker E2E 27/27 passed in 4.0.1; HTTP throughput gates remain open |
+| Single HTTP→Kafka→Flink correctness regression | Done — Tencent Kafka pause preserved no-false-202/idempotency; targeted identity expiry fixed Redis backlog starvation; heartbeat watermarks materialized silent windows in 17s; TaskManager restart recovered 14/14 tasks with exact Redis 2/56 and two audit rows |
+| HTTP custody contract | Done — tenant-scoped compact identity, ACK+finalize `202`, uncertain late reconciliation, bounded backpressure, per-item batch outcomes |
+| Four deep metering modules | Done — Custody/Pricing/Reservation/Budget interfaces; shallow helpers removed; atomic Gateway Reservation open |
+| Reserve → meter → kill → audit proof | Done — `make demo-proof`; live Gateway/Kafka/Flink/Redis/ClickHouse assertions, no provider key |
+| Public HTTP throughput evidence | Partial — the 35-minute independent-host Custody run accepted 18,063,140 events at 10,034.90 eps, p50 36ms / p99 173ms, with zero rejection/transport error. It passed the 50/200ms SLO but the strict verdict failed on 26,949 generator drops. Fixing benchmark Job parallelism from 2 to 12 raised a full-stack 60-second sample to 7,772 eps and left only 333 lag; a split-Redis A/B peaked at 9,197 eps but missed latency. The 100K batch stage reached 32,567 eps, so sustained full-pipeline gates remain open |
 | Pricing catalog + exporter maintenance | Ongoing |
 | Python SDK + JS npm publish | Partial — HTTP-only 2.0.0 packages ready for release |
 | Phase G Gateway proxy (side track, non-blocking) | Done — `gateway_app.py` + `:8080` + docs/gateway.md |
@@ -131,7 +135,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | 1 | Code review (critical findings) | Done | Budget race (Lua), null filter, cacheWrite pricing, negative topup |
 | 2 | Exactly-once + checkpointing | Done | CHECKPOINT_DIR env, committed offsets, externalized state |
 | 3 | Sink idempotency | Done | Redis SET NX per window ID, 1h TTL |
-| 4 | Late event handling | Done | No allowedLateness (avoids SET NX conflict); sideOutputLateData → Kafka DLQ; watermark 5s OOO + 30s idleness |
+| 4 | Late event handling | Done | No allowedLateness (avoids SET NX conflict); sideOutputLateData → Kafka DLQ; 5s OOO + 15s source idleness + dedicated non-billable watermark heartbeat |
 | 5 | Agent span cost attribution | Done | parentSpanId, session windows, SpanSink, API |
 
 ---
@@ -181,19 +185,19 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 | Criterion | Target | Status |
 |-----------|--------|--------|
-| Throughput | 500K+ eps sustained; 1M+ target | **Done** — 500K indefinite, 1M for 30-40s bursts |
-| Aggregation latency | p99 < 500ms Kafka → Redis | **Done** — sub-second (10s window) |
+| Throughput | HTTP 10K single / 100K batch sustained | **Partial** — 30-minute Custody throughput crossed 10K at p50 36ms / p99 173ms, but 0.149% generator offers dropped and downstream lag reached 13.66M. With the benchmark corrected to p12, full-stack 60s single reached 7,772 eps with near-zero end lag; split Redis peaked at 9,197 eps. Batch reached 32,567 eps. Neither sustained full-pipeline gate is passed |
+| Event-to-billing latency | p99 < 20s accepted HTTP → Redis | **Done (steady state)** — 200/200 v4.8.2 events materialized on the retained p12 stack; p50 466ms, p99 897ms, max 910ms. Backlog recovery is reported separately and is not represented as steady-state latency |
 | Demo GIF | Terminal recording | **Done** — 1.3MB GIF via VHS |
 | Python SDK | 3-line integration | **Done** — `meter.track_openai(...)` |
 | Multi-provider schema | OpenAI + Anthropic + Google | **Done** — 9 models, per-category pricing |
 | Budget enforcement | Real-time balance deduction + alerts | **Done** — atomic Lua, BUDGET_LOW + EXHAUSTED |
 | Query API | REST endpoints for usage + budget + spans | **Done** — period/day/session + span; FastAPI :8000/docs |
-| Exactly-once | No double-counting on replay | **Done** — checkpointing + SET NX idempotency |
+| Effectively-once | No double billing across retry/replay | **Done** — tenant retry identity + short Flink safety dedup + sink SET NX; Kafka pause and TaskManager restart fault probes preserved exact counts |
 | Agent span attribution | Cost rollup per agent run | **Done** — session windows + SpanSink |
-| Zero data loss | Events survive any single-component failure | **Done** — WAL + AOF + acks=all + dedup |
+| Zero accepted-event loss | Events with `202` survive fault injection | **Done** — Tencent Kafka pause/recovery, Redis freeze/retry, and TaskManager restart probes retained accepted events without double billing |
 | Pre-request guardrail | <10ms budget check before LLM call | **Done** — GET /budget/{id}/check |
 | Rate limiting | Per-customer requests/minute cap | **Done** — max_rpm config, sliding window |
-| Load test 1M eps | Sustained throughput at scale | **Done** — 1M eps, 437 MB/s, TMs stable |
+| Internal 1M benchmark | Engine-only burst, never an HTTP claim | Historical — retained as regression context, not a current release gate |
 | Streaming mid-response | Budget safety + observability during stream | **Done** — reserve/reconcile + SDK heartbeat wrapper |
 | Retroactive re-rating | Adjust costs after price change | **Done** — differential adjustment (preview + apply) |
 
@@ -212,6 +216,18 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 ---
 
 ## Recent Activity
+
+- **2026-08-22** — **v4.8.2 formal cloud follow-up**: revised the single-event Custody SLO to p50 ≤50ms / p99 ≤200ms (25/100ms stretch) and raised generator slots to 4,000. The 5m+30m run accepted 18,063,140 events at 10,034.90 eps with p50 36ms / p99 173ms and no rejection/transport error, but 26,949 generator offers dropped and full-pipeline lag reached 13.66M. Diagnosed Redis OOM as a second 30-day one-key-per-event projection registry; bounded it to the 600-second Flink crash-safety horizon, drained all accepted events, removed only benchmark projection markers, and verified a live 576-second TTL. Corrected the benchmark's hidden `-p 2` submission to configurable p12: the full-stack sample improved from 7,369 to 7,772 eps and ended with only 333 lag, while a temporary split-Redis A/B peaked at 9,197 eps but still missed latency and was removed. Batch reached 32,567 eps, so sustained pipeline gates remain open. Final p12 steady-state accepted-to-Redis projection latency passed at p99 897ms across 200/200 events. Known-cost billing and ClickHouse A1–A7 passed; added Redis-loaded startup gating after live AOF recovery exposed a permanent Flink failure mode.
+- **2026-08-22** — **v4.8.1 ingress/checkpoint hardening**: made optional anonymous authentication an async no-Redis fast path, moved scoped identity reads off the event loop, removed FastAPI dependency-graph work from the two ingest routes, and registered the intelligence router after ingress. The final independent-host short diagnostic offered 10.05K eps and accepted all 301,502 events at 10,034.95 eps with no drops/errors; p50 29ms / p99 134ms still failed the latency gate, so no 35-minute claim was made. Removed an unused global `keyBy("global").reduce(...)` branch whose state alone reached 465 MiB and triggered checkpoint failure; the replacement job had 12 rather than 14 tasks and its initial checkpoint fell from about 503 MiB to 21.99 MiB. RocksDB and dedicated-Custody-Redis experiments were reverted after worsening latency.
+- **2026-08-22** — **independent-host v4.8.0 gate**: added an 8C16G same-VPC Java load host and swept 10–14 API workers plus 1–5ms batch windows. Best safe short run: 9,814.66 accepted eps at 12 workers / 2ms, p50 49ms, p99 151ms, zero rejection/transport error. A dedicated Custody Redis was explicitly disproved (9,710.71 eps) and removed; 13 workers also regressed. Final restored profile remained healthy and measured 9,740.31 eps / p99 142ms. The 35-minute gate was correctly skipped because the deterministic short gate still misses throughput and latency requirements.
+- **2026-08-22** — **v4.8.0 Custody microbatch + Java HTTP gate**: single `/ingest` requests now enter a bounded 64-item, 1ms cross-request batcher inside the Custody module; tenant contexts never mix and 202 still follows Kafka ACK plus identity finalize. Replaced the single-event Python/httpx gate with a Java 17 open-loop runner that counts offered/completed/accepted/rejected/dropped traffic and fails on throughput or latency. Tencent 16C32G safe tuning reached 7,812.72 eps on 8 API workers (p50 192ms, p99 372ms), up 3.10x from the 2,522.73 eps Java baseline; a cleanup-disabled diagnostic reached 8,711.62 eps but was reverted. The co-located generator used 3.3–5.2 CPU cores, so publication-grade 10K evidence still requires a separate same-VPC load host.
+- **2026-08-22** — **v4.7.2 fault-liveness fixes**: custody claims now expire the requested identity directly even behind >205K older shard members. Flink consumes a dedicated one-partition non-billable heartbeat topic so 15-second-idle business partitions cannot pin event-time windows; a cloud single-event/no-follow-up probe materialized exactly 1 event / 26 tokens in 17 seconds. The final TaskManager restart rerun restored 14/14 tasks and materialized the exact 2-event/56-token aggregate 17 seconds after the post-recovery event, with exactly two ClickHouse audit rows. Added focused Python/Java regressions and retained standard late-event routing semantics.
+- **2026-08-22** — **v4.7.1 honest Linux benchmark harness**: distributed single-event offered load across multiple generator processes, replaced unbounded latency samples with mergeable millisecond histograms, added a benchmark-vs-production custody capacity model, and bounded the benchmark identity window to 5 minutes with a 6 GiB Redis data limit. Corrected Tencent 16C32G single short gate: 1,318.85 eps, p50 402ms, p99 3018ms. Batch staircase placed the p99<500ms boundary near 30K eps (29,586 eps / p99 423ms); 35K degraded to p99 894ms, and the safe 100K smoke delivered 25,645 eps / p99 5.7s. Production retention projections remain multi-TiB; both formal release gates stay open.
+- **2026-08-22** — **Tencent fault injection**: Kafka pause passed (`503 custody_uncertain` → idempotent `202`, one audit row). Redis freeze failed retry liveness because a pending event ranked behind 203,581 expired shard identities while cleanup removes only 64/request. TaskManager restart restored checkpoint 83 and preserved both audit events, but the recovered event-time window did not materialize during 150 seconds of idle traffic; a later event advanced the watermark and produced the exact 2-event/56-token aggregate.
+- **2026-08-22** — **v4.7.0 executable metering proof**: added deterministic `make demo-proof` path through Gateway → Custody → Kafka → Flink → Redis plus ClickHouse cold audit; Gateway now returns Reservation headers and an SSE metering receipt. Live Mac run held $0.000078, killed at 301 output tokens / $0.000181, settled to $0 held / $0.000819 balance, and matched the raw audit row. Verification: 104 API/core + 17 SDK Python tests, JS build, 52 Java tests, spec checks, and JAR passed.
+- **2026-08-22** — **v4.6.0 deep modules**: replaced shallow Custody/Pricing/Reservation/Budget call graphs with four interfaces; fixed tenant cache/RPM leakage, hierarchy held-cost omission, pricing validation drift, and Gateway orphan-hold crash window; added shared Python/Java tenant scope keys and ADR-026. Python regression 115 passed (3 host-Redis skips) plus Redis-backed 5/5; clean Java suite and shadow JAR passed.
+
+- **2026-08-17** — **v4.5.0 metering hardening**: compact tenant-sharded 30-day custody identity; ACK+finalize `202`; pending/uncertain state machine with late reconciliation; async bounded Kafka dispatcher; per-item batch validation/backpressure; 10-minute Flink safety dedup; open-loop HTTP gate artifacts. Python regression 97 passed and Java tests passed. Mac diagnostics did not pass 10K/100K; Linux release evidence remains pending.
 
 - **2026-08-16** — **v4.4.1**: README + OpenAPI + api-reference synced to live routes/Custody (docs-only).
 
