@@ -2,9 +2,9 @@
 
 Forward-looking plan for the FluxMeter project. **Website:** [fluxmeter.dev](https://fluxmeter.dev). For **what shipped**, see [changLog.md](changLog.md). For **milestone checklists**, see [progress.md](progress.md). For **architecture intent**, see [docs/DESIGN.md](docs/DESIGN.md). For **industry calibration**, see [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md). For **pivot rationale**, see [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md).
 
-**Current version:** 4.7.2 (engine/API) · 2.0.0 (Python SDK) · JS SDK HTTP package ready
+**Current version:** 4.8.3 (engine/API) · 2.0.0 (Python SDK) · JS SDK HTTP package ready
 **Active phase:** **Metering path proof** — reserve→meter→kill→audit demo and Kafka/Redis/Flink fault fixes shipped; HTTP throughput gates and production retention sizing remain active · Pillar B Intelligence complete/demand-gated
-**Last updated:** 2026-08-22
+**Last updated:** 2026-08-23
 
 ---
 

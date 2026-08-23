@@ -6,61 +6,86 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ```bash
 ./gradlew shadowJar          # Build fat JAR (output: build/libs/fluxmeter-<version>.jar)
-make demo                    # Lite demo (default): Redis + API + Grafana
-make demo-full               # Full demo: build + start Flink stack + submit job + load generator
-make start                   # Start lite infrastructure (Redis, API, Grafana)
-make start-full              # Start full infrastructure (Kafka, Flink, Redis, Grafana)
-make submit-job              # Submit the Flink job to the running cluster (full mode)
-make generate                # Run the load generator locally (needs Java 17, full mode)
-make load-test               # Staged load test (10K→1M eps, full mode)
+make demo                    # Only architecture: HTTP + Kafka + Flink + Redis + Gateway + Grafana
+make start                   # Build and start the base stack; Flink job submits automatically
+make start-benchmark         # Scaled overlay + ClickHouse cold store + trusted Kafka port
+make demo-proof              # Deterministic reserve → meter → kill → audit (no provider key)
+make demo-gateway            # Gateway mock self-check (no live OpenAI)
+make generate                # Trusted internal load generator (benchmark profile)
+make load-test               # Staged internal engine load test (10K→1M eps)
+make http-load-test          # Formal public HTTP gates (single + batch)
 make test-e2e                # Integration + v2 E2E tests
-make test-lite               # Lite production pytest suite
+make test-unit               # Python, SDK, JavaScript, and Java unit tests
+make test-java               # Java unit tests only
+make test-cold-store         # ADR-025 ClickHouse cold-store acceptance (benchmark up)
+make validate-spec           # OpenAPI / schema validation
 make stop                    # Stop all containers
 make clean                   # Stop containers + clean build artifacts
 ```
 
+There is **no Lite path**. HTTP → Kafka → Flink → Redis is the only supported architecture (ADR-024).
+
 ## Architecture
 
-FluxMeter is a streaming metering engine for AI token billing, built on Apache Flink.
+FluxMeter is a streaming metering and budget-enforcement engine for AI token billing, built on Apache Flink.
 
 **Data flow:**
 ```
-LoadGenerator -> Kafka (token-events topic, 12 partitions)
-    -> Flink TokenUsageAggregator (keyed by customer_id|model_id, 1-min tumbling window)
-    -> RedisSink (pipelined writes of aggregated counters)
-    -> Grafana (polls Redis for dashboard)
+Application / SDK / Gateway
+  → HTTP API (Custody: identity claim → Kafka ACK + finalize → 202)
+  → Kafka (token-events, 12 partitions; private in base profile)
+  → Flink TokenUsageAggregator (keyed by customer_id|model_id, 10-sec tumbling window)
+  → RedisSink / BudgetEnforcerSink (pipelined aggregates + atomic budget deduction)
+  → Query API + Grafana
+ClickHouse cold store (benchmark overlay only; audit copy, not billing truth)
 ```
 
 **Key design decisions:**
-- Java 17 core engine for maximum Flink performance (no PyFlink serialization overhead)
-- Window aggregation before Redis sink (~167 writes/sec for 10K customers, not 1M raw events/sec)
-- Flat per-token pricing hardcoded in `UsageAggregate.calculateCost()` (v0.1 simplification)
-- Events keyed by composite `customer_id|model_id` string for per-customer-per-model aggregation
-- Checkpointing every 30s with hashmap state backend
+- HTTP is the only customer event boundary; Kafka is internal transport (ADR-024)
+- Four deep modules: Custody / Pricing / Reservation / Budget (ADR-026)
+- Java 17 Flink engine for aggregation and billing truth; FastAPI for ingest, query, Gateway, Intelligence
+- Shared JSON pricing catalog (tiered / hybrid); Flink `PricingCatalog` is billing truth
+- Events keyed by composite `customer_id|model_id` (tenant-scoped where present)
+- Checkpointing every 30s; Flink per-event projection idempotency TTL defaults to 10 minutes (not a second 30-day registry)
+- Pre-request budget check `<10ms` (cache → Redis → fail policy); post-window deduction ~10–15s
 
 **Infrastructure (docker-compose):**
-- Kafka: KRaft mode (no ZooKeeper), single broker, 12 partitions
-- Flink: 1 JobManager + 2 TaskManagers (4 slots each = 8 total parallelism)
-- Redis: aggregated counters store (global + per-customer + per-model)
-- Grafana: dashboard on port 3000 (admin/fluxmeter)
+- Kafka: KRaft mode (no ZooKeeper), single broker, 12 partitions, **private in base**; operator port only via `start-benchmark`
+- Flink: 1 JobManager + 1 TaskManager — base parallelism/slots **2**; benchmark overlay **12**
+- Redis: custody identity, budgets, projections, query rollups, Gateway outbox
+- API `:8000` + Gateway `:8080` + webhook-worker
+- Grafana `:3000` (admin/fluxmeter)
+- ClickHouse: cold-store audit on benchmark overlay (ADR-025)
 
 ## Project Layout
 
-- `src/main/java/io/fluxmeter/model/` - Data models (TokenEvent schema, UsageAggregate with cost calc)
-- `src/main/java/io/fluxmeter/job/` - Flink job entry point and window function
-- `src/main/java/io/fluxmeter/sink/` - Redis sink with connection pooling and pipelining
-- `src/main/java/io/fluxmeter/generator/` - Multi-threaded Kafka load generator with rate limiting
-- `docker-compose.yml` - Full infrastructure stack
-- `grafana/provisioning/` - Auto-configured Grafana datasources
+| Path | Purpose |
+|------|---------|
+| `api/` | FastAPI: Custody ingest, budget/reserve, usage query, Intelligence, Gateway |
+| `src/main/java/io/fluxmeter/` | Flink engine: `job/`, `model/`, `pricing/`, `sink/`, `generator/` |
+| `sdk/python/`, `sdk/js/` | HTTP SDKs (`fluxmeter` / `@fluxmeter/client`) |
+| `spec/` | Event schema, OpenAPI, semantic conventions |
+| `contrib/` | Provider mappings, pricing, connectors |
+| `demos/` | Gateway / path-activation / proof demos |
+| `baseline/` | ClickHouse baseline comparison |
+| `services/control-plane/` | Control-plane / SaaS helpers |
+| `docs/` | Design, ADRs, API, gateway, intelligence, runbooks |
+| `tests/` | Python integration / unit / E2E |
+| `docker-compose.yml` | Base stack |
+| `docker-compose.benchmark.yml` | Scaled + ClickHouse overlay |
+| `grafana/provisioning/` | Auto-configured Grafana datasources |
 
 ## Roadmap Context
 
-This is Weekend 1 (performance demo). Planned additions:
-- Weekend 2: Python SDK (`fluxmeter-client` on PyPI) + FastAPI query endpoint
-- Weekend 3-4: Real-time budget enforcement (kill signals via Kafka control topic)
-- Later: Multi-provider normalization, tiered pricing, credits/prepaid drawdown
+**Current version:** engine/API **4.8.3** · Python SDK **2.0.0**  
+**Active phase:** Metering custody / performance hardening (HTTP throughput gates still open)  
+**Done:** Pillar B Intelligence · Phase G Gateway P1 · four deep modules · cold store
 
-Design doc: [docs/DESIGN.md](docs/DESIGN.md)
+Dual-pillar product:
+- **Pillar A — Metering & Guardrail:** HTTP custody, Flink billing, check/reserve/kill, export
+- **Pillar B — Monetization Intelligence:** root cause, unit economics, simulation (demand-gated maintenance)
+
+See [ROADMAP.md](ROADMAP.md), [progress.md](progress.md), [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Project Tracking (required)
 
@@ -87,9 +112,9 @@ Every meaningful change must update the root tracking files. Do this in the same
 
 ### Version bumps (`changLog.md` + `build.gradle`)
 
-- **PATCH** (0.1.x): bug fixes, small improvements, docs-only releases
-- **MINOR** (0.x.0): new features within the current phase (e.g. ClickHouse baseline, Grafana dashboard)
-- **MAJOR** (x.0.0): breaking API/schema changes or phase transitions (e.g. Python SDK launch)
+- **PATCH** (4.8.x): bug fixes, small improvements, docs-only releases
+- **MINOR** (4.x.0): new features within the current phase
+- **MAJOR** (x.0.0): breaking API/schema changes or phase transitions
 
 After bumping, sync `progress.md` header (`Current version:`) and `build.gradle` `version`.
 
@@ -98,7 +123,7 @@ After bumping, sync `progress.md` header (`Current version:`) and `build.gradle`
 Add a new section at the top (below the header), newest first:
 
 ```markdown
-## [0.1.2] — YYYY-MM-DD
+## [4.8.3] — YYYY-MM-DD
 
 ### Added / Changed / Fixed / Removed
 - Concise bullet per change
@@ -116,11 +141,10 @@ Add a new section at the top (below the header), newest first:
 
 ### Example workflow
 
-After implementing the ClickHouse baseline:
-1. Add `baseline/` code and docker-compose service
-2. Bump `build.gradle` to `0.2.0`, add `[0.2.0]` entry to `changLog.md`
-3. Mark checklist row #7 Done in `progress.md`, update Recent Activity
-4. If a success criterion was measured, update that table too
+After a docs-only agent-guide sync:
+1. Align `AGENTS.md` / `CLAUDE.md` with `Makefile` + README architecture
+2. Bump `build.gradle` PATCH, add `[4.8.x]` entry to `changLog.md`
+3. Append a Recent Activity line in `progress.md`
 
 ## Agent skills
 
@@ -134,4 +158,6 @@ Canonical roles map 1:1 to tracker labels (`needs-triage`, `needs-info`, `ready-
 
 ### Domain docs
 
-Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+Single-context: root [`CONTEXT.md`](CONTEXT.md) + [`docs/adr/`](docs/adr/). See `docs/agents/domain.md`.
+
+Key ADRs: **024** (single HTTP→Kafka→Flink path), **025** (ClickHouse cold store), **026** (four deep metering modules).

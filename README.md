@@ -2,13 +2,13 @@
 
 **Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Docs:** [fluxmeter.dev/docs](https://fluxmeter.dev/docs) · **Blog:** [Agent cost control](https://fluxmeter.dev/blog/stop-runaway-agent-costs)
 
-Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request. All public usage events enter through HTTP; `202` means Kafka acknowledged the event and FluxMeter finalized its tenant-scoped retry identity before Flink performs billing and aggregation. **v4.8.2** bounds Flink projection idempotency to its crash-safety horizon instead of retaining a second 30-day event registry.
+Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request. All public usage events enter through HTTP; `202` means Kafka acknowledged the event and FluxMeter finalized its tenant-scoped retry identity before Flink performs billing and aggregation. **v4.8.3** keeps Flink projection idempotency bounded to its crash-safety horizon instead of retaining a second 30-day event registry.
 
 **When to use FluxMeter:** prepaid token wallets, agent loop cost control, self-hosted LLM metering, export to Stripe/Lago/Orb/Metronome.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v4.8.2** · **Open spec + HTTP SDKs** · **<10ms budget check** · **Multi-provider**
+**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v4.8.3** · **Open spec + HTTP SDKs** · **<10ms budget check** · **Multi-provider**
 
 **Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [Docs](https://github.com/10kshuaizhang/fluxmeter/tree/main/docs) · [API reference](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
 
