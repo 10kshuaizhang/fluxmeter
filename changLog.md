@@ -10,6 +10,7 @@ Format: `[version] — date — summary`
 
 ### Changed
 - Aligned `AGENTS.md` and `CLAUDE.md` with the only supported HTTP→Kafka→Flink architecture, current Makefile targets, OpenCore layout, and dual-pillar roadmap (v4.8.x metering hardening).
+- Synced README / ROADMAP current-version stamps to 4.8.3.
 
 ### Notes
 - Docs-only agent-guide sync; no runtime behavior change. Removed stale Lite/full dual-path and Weekend 1–4 guidance.
