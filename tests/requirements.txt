@@ -5,3 +5,5 @@ fastapi>=0.110.0
 redis>=5.0.0
 fakeredis>=2.21.0
 lupa>=2.0
+PyYAML>=6.0
+jsonschema>=4.0

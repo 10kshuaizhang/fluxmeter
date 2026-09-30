@@ -1,6 +1,8 @@
 .PHONY: build demo demo-proof demo-gateway demo-record start start-saas start-benchmark stop stop-saas clean generate benchmark correctness-bench validate-spec load-test load-test-quick http-load-test http-load-test-single http-load-test-batch test-e2e test-unit test-java test-cold-store apply-cold-store-init
 
-JAR = $(shell ls -t build/libs/fluxmeter-*.jar 2>/dev/null | head -1)
+ENGINE_VERSION := $(shell sed -n "s/^version = '\(.*\)'/\1/p" build.gradle)
+JAR = build/libs/fluxmeter-$(ENGINE_VERSION).jar
+PYTHON ?= python3
 
 # Build the Flink metering engine embedded in the runtime image.
 build:
@@ -8,9 +10,10 @@ build:
 
 # One-command demo for the only architecture.
 demo: start
+	$(PYTHON) demos/quickstart.py
 	@echo ""
 	@echo "==================================="
-	@echo " FluxMeter 4.7 — HTTP → Kafka → Flink → Redis"
+	@echo " FluxMeter $(ENGINE_VERSION) — HTTP → Kafka → Flink → Redis"
 	@echo "==================================="
 	@echo " API:           http://localhost:8000/docs"
 	@echo " Intelligence:  http://localhost:8000/docs#/intelligence"
@@ -26,6 +29,11 @@ demo: start
 	@echo "     -d '{\"model\":\"gpt-4o-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}'"
 	@echo "==================================="
 
+# Repeat the no-provider-key usage proof against an already running stack.
+.PHONY: demo-verify
+demo-verify:
+	$(PYTHON) demos/quickstart.py
+
 # Re-record demo.gif from demo.tape (brew install vhs)
 demo-record:
 	vhs demo.tape
@@ -38,7 +46,7 @@ demo-gateway:
 demo-proof: build
 	docker compose -f docker-compose.yml -f docker-compose.benchmark.yml -f docker-compose.proof.yml up -d --build
 	./scripts/apply-cold-store-init.sh
-	@set -e; trap 'docker compose -f docker-compose.yml -f docker-compose.benchmark.yml up -d --no-deps --force-recreate gateway >/dev/null' EXIT; python -u demos/reserve_meter_kill_audit_demo.py
+	@set -e; trap 'docker compose -f docker-compose.yml -f docker-compose.benchmark.yml up -d --no-deps --force-recreate gateway >/dev/null' EXIT; $(PYTHON) -u demos/reserve_meter_kill_audit_demo.py
 
 # Build and start Kafka, Flink, Redis, API, Gateway, webhook worker, and Grafana.
 start: build
@@ -79,7 +87,7 @@ test-unit:
 		tests/test_rerate_tier.py tests/test_phase2_billing.py tests/test_gateway.py \
 		tests/test_ingestion_contract.py tests/test_reservation_expiry.py \
 		tests/test_webhook_worker.py tests/test_deep_modules.py tests/test_proof_demo.py \
-		tests/test_custody_unit.py -v --timeout=60
+		tests/test_custody_unit.py tests/test_quickstart.py -v --timeout=60
 	PYTHONPATH=sdk/python pytest sdk/python/tests -q
 	cd sdk/js && npm run build
 	./gradlew test -q

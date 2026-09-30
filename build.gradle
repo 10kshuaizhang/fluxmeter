@@ -5,11 +5,16 @@ plugins {
 }
 
 group = 'io.fluxmeter'
-version = '4.8.3'
+version = '4.8.4'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
+}
+
+// Source files are UTF-8 regardless of the build host's locale.
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
 }
 
 repositories {
@@ -73,6 +78,10 @@ shadowJar {
 }
 
 tasks.named('jar') {
+    // Keep the thin application JAR distinct from the deployable Shadow JAR.
+    // Sharing a filename makes distribution tasks consume shadowJar's output
+    // without a task dependency and fails Gradle's build validation.
+    archiveClassifier = 'plain'
     manifest {
         attributes 'Main-Class': 'io.fluxmeter.job.TokenUsageAggregator'
     }

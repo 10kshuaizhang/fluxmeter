@@ -469,3 +469,39 @@ def test_all_conflict_batch_is_not_reported_as_retryable_kafka_failure(ingestion
 
     assert response.status_code == 409
     assert "Retry-After" not in response.headers
+
+
+@pytest.mark.parametrize("scenario, expected_http, expected_status", [
+    ("success", 202, "accepted"),
+    ("all_rejected", 207, "rejected"),
+    ("partial_validation", 207, "partial"),
+    ("broker_failure", 503, "failed"),
+    ("mixed_failures", 503, "failed"),
+])
+def test_batch_wire_response_conforms_to_published_schema(
+    ingestion_api, scenario, expected_http, expected_status
+):
+    from pathlib import Path
+    import jsonschema
+    import yaml
+
+    client, _, producer = ingestion_api
+    valid = {"customerId": "schema-customer", "modelId": "m", "eventId": "schema-event"}
+    invalid = {"customerId": "schema-customer"}  # missing modelId
+    rows = [valid]
+    if scenario == "all_rejected":
+        rows = [invalid]
+    elif scenario in {"partial_validation", "mixed_failures"}:
+        rows = [valid, invalid]
+    if scenario in {"broker_failure", "mixed_failures"}:
+        producer.error = RuntimeError("broker unavailable")
+    response = client.post("/ingest/batch", json=rows)
+    assert response.status_code == expected_http
+    assert response.json()["status"] == expected_status
+    spec = yaml.safe_load((Path(__file__).resolve().parents[1] / "spec/openapi/openapi.yaml").read_text())
+    jsonschema.validate(response.json(), spec["components"]["schemas"]["IngestBatchResponse"])
+    if scenario in {"broker_failure", "mixed_failures"}:
+        assert response.json()["results"][0]["status"] == "failed"
+        assert response.json()["results"][0]["retryable"] is True
+    if scenario == "mixed_failures":
+        assert response.json()["results"][1]["retryable"] is False

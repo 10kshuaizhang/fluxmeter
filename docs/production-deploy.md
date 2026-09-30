@@ -1,81 +1,101 @@
 # Production Deployment Guide
 
-This guide covers deploying FluxMeter to production on Kubernetes. The docker-compose setup is for development only.
+Engine/API **4.8.4**. Use [the local trial](quickstart.md) first. The base Compose
+stack and its production overlay are a single-host reference, not an HA deployment.
+The [Helm chart](../deploy/helm/README.md) deploys the API only; Kafka, Redis,
+Flink, and any optional Gateway/webhook worker must be provisioned separately.
 
-**Overview:** [fluxmeter.dev](https://fluxmeter.dev) · **Helm:** [deploy/helm/README.md](../deploy/helm/README.md)
+## One accounting path
 
-## Architecture (Production)
+Applications / SDK / optional Gateway → HTTP API (Custody) → private Kafka →
+Flink accounting → Redis projections → Usage API. Redis also stores admission
+state, retry identities, reservations, and the Gateway outbox. ClickHouse is an
+optional audit copy, not billing truth.
 
-```
-[Client apps]
-        ↓
-[Gateway (optional, OpenAI-compatible proxy — meter + limit + kill)]
-        ↓
-[SDK / HTTP Ingest]
-        ↓
-[Kafka Cluster (3 brokers, RF=3)]
-        ↓
-[Flink on K8s (JobManager + N TaskManagers)]
-        ↓
-[Redis Cluster (3 primary + 3 replica)]
-        ↓
-[API (2+ replicas behind load balancer)]
-```
+`202` means Kafka acknowledgement **and identity finalization**, not completed
+billing. Queries are eventually consistent. Monitor settlement lag as well as
+HTTP throughput. See [API reference](api-reference.md).
 
-Gateway docs: [gateway.md](gateway.md). Deploy with the same API image and `uvicorn gateway_app:app --port 8080`.
+## Build the images you deploy
 
----
-
-## 1. Kafka
-
-### Requirements
-- 3+ brokers (minimum for RF=3)
-- `min.insync.replicas=2`
-- Retention: 7 days minimum (for replay/debugging), 30 days recommended (for re-rating)
-
-### Topic Configuration
+From the repository root (Java 17 and Docker required):
 
 ```bash
-# token-events: main event stream
-kafka-topics.sh --create --topic token-events \
-  --partitions 24 \
-  --replication-factor 3 \
-  --config min.insync.replicas=2 \
-  --config retention.ms=2592000000  # 30 days
-
-# budget-alerts: budget enforcement signals
-kafka-topics.sh --create --topic budget-alerts \
-  --partitions 6 \
-  --replication-factor 3 \
-  --config retention.ms=604800000  # 7 days
-
-# token-events-dlq: dead letter queue for late/failed events
-kafka-topics.sh --create --topic token-events-dlq \
-  --partitions 6 \
-  --replication-factor 3 \
-  --config retention.ms=2592000000  # 30 days
+./gradlew clean build shadowJar
+# Deployable JAR: build/libs/fluxmeter-4.8.4.jar
+# Docker staging copy: build/docker/fluxmeter.jar
+# fluxmeter-4.8.4-plain.jar is the thin application artifact, not the Flink job.
+docker build -f api/Dockerfile -t your-registry/fluxmeter-api:4.8.4 .
+docker build -f api/Dockerfile.webhook -t your-registry/fluxmeter-webhook:4.8.4 .
+docker build -f flink/Dockerfile -t your-registry/fluxmeter-flink:4.8.4 .
 ```
 
-### Partition count
+Replace `your-registry` with your registry, push the built images there, and pin
+immutable digests for rollout. These tags describe artifacts **you build**; they
+are not a claim that public images or SDK packages have been published.
+Use the actual `api/Dockerfile`: it includes all API modules, the pricing catalog,
+and the canonical OpenAPI document. Copying `main.py` alone is insufficient.
 
-Rule of thumb: `partitions = max(target_throughput_eps / 50000, flink_parallelism * 2)`
+## Kafka
 
-- 100K eps → 12 partitions
-- 500K eps → 24 partitions
-- 1M+ eps → 48 partitions
+Keep broker access private. Provision at least three brokers for replication
+factor 3 with `min.insync.replicas=2`. Create the topics used by the base stack:
 
-### Managed alternatives
-- AWS MSK
-- Confluent Cloud
-- Redpanda Cloud
+```bash
+for topic in token-events budget-alerts token-events-dlq token-events-quarantine; do
+  kafka-topics.sh --bootstrap-server kafka-bootstrap:9092 --create --if-not-exists \
+    --topic "$topic" --partitions 12 --replication-factor 3 \
+    --config min.insync.replicas=2 --config retention.ms=2592000000
+done
+kafka-topics.sh --bootstrap-server kafka-bootstrap:9092 --create --if-not-exists \
+  --topic metering-watermarks --partitions 1 --replication-factor 3 \
+  --config min.insync.replicas=2
+```
 
----
+Twelve partitions is a starting configuration, not a capacity guarantee. Match
+parallelism to measured workload and partition count. Plan retention and storage
+for your replay policy; verify broker connectivity from all server components.
+Managed brokers requiring TLS/SASL need verified client configuration in each
+component; setting `KAFKA_BROKERS` alone does not configure authentication.
 
-## 2. Flink
+## Redis
 
-### Kubernetes deployment (Flink Operator)
+Current Python clients use `redis.Redis`; Java sinks use `JedisPool` with
+multi-key operations. Use a compatible **single writable endpoint**. Redis
+Cluster sharding is not a drop-in supported configuration; do not infer cluster
+support from a customer-count threshold. Test any managed failover endpoint and
+its authentication against both client implementations.
 
-Use the [Flink Kubernetes Operator](https://nightlies.apache.org/flink/flink-kubernetes-operator-docs-stable/).
+```conf
+appendonly yes
+appendfsync everysec
+maxmemory 8gb
+maxmemory-policy noeviction
+```
+
+Choose memory from measurements, not this illustrative limit. `noeviction`
+prevents silent eviction of billing state; memory exhaustion still stops writes.
+AOF `everysec` has a durability tradeoff and is not a zero-loss guarantee. Test
+backup/restore and failover.
+
+The 30-day HTTP retry identity registry can dominate memory:
+
+```
+identity memory ≈ measured bytes/identity × unique accepted events/sec × 2,592,000
+```
+
+Add counters, rollups, outbox, reservations, replication, and operational headroom.
+Flink's default 600-second projection deduplication is a separate crash-safety
+window; it is not the client retry window. Measure `MEMORY USAGE` using realistic
+IDs and payload traffic before selecting memory or retention.
+
+## Flink (Kubernetes Operator example)
+
+Install a compatible Flink Kubernetes Operator and provide the service account,
+checkpoint storage credentials, and network access. The entry point reads
+**environment variables**, not `--KAFKA_BROKERS=...` CLI arguments. The same
+pricing catalog must reach the API and Flink; the repository Dockerfiles include
+`config/pricing.json`.
 
 ```yaml
 apiVersion: flink.apache.org/v1beta1
@@ -83,18 +103,37 @@ kind: FlinkDeployment
 metadata:
   name: fluxmeter
 spec:
-  image: flink:1.18.1-java17
+  image: your-registry/fluxmeter-flink:4.8.4
   flinkVersion: v1_18
+  serviceAccount: flink
   flinkConfiguration:
     state.backend: rocksdb
+    state.backend.incremental: "true"
     state.checkpoints.dir: s3://your-bucket/fluxmeter/checkpoints
     state.savepoints.dir: s3://your-bucket/fluxmeter/savepoints
-    execution.checkpointing.interval: "30000"
-    execution.checkpointing.min-pause: "10000"
-    restart-strategy: exponential-delay
-    restart-strategy.exponential-delay.initial-backoff: "1s"
-    restart-strategy.exponential-delay.max-backoff: "5min"
-  serviceAccount: flink
+    taskmanager.numberOfTaskSlots: "2"
+  podTemplate:
+    spec:
+      containers:
+        - name: flink-main-container
+          env:
+            - name: KAFKA_BROKERS
+              value: kafka-bootstrap:9092
+            - name: REDIS_HOST
+              value: redis-primary
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fluxmeter-secrets
+                  key: redis-password
+            - name: CHECKPOINT_DIR
+              value: s3://your-bucket/fluxmeter/checkpoints
+            - name: PRICING_FILE
+              value: /opt/flink/usrlib/pricing.json
+            - name: ENABLE_BUILT_IN_PLUGINS
+              value: flink-s3-fs-hadoop-1.18.1.jar
   jobManager:
     resource:
       memory: "2048m"
@@ -103,137 +142,21 @@ spec:
     resource:
       memory: "4096m"
       cpu: 2
-    replicas: 4
   job:
-    jarURI: s3://your-bucket/fluxmeter/fluxmeter-2.6.1.jar
+    jarURI: local:///opt/flink/usrlib/fluxmeter.jar
     entryClass: io.fluxmeter.job.TokenUsageAggregator
-    parallelism: 8
-    args:
-      - "--KAFKA_BROKERS=kafka-bootstrap:9092"
-      - "--REDIS_HOST=redis-master"
-      - "--CHECKPOINT_DIR=s3://your-bucket/fluxmeter/checkpoints"
+    parallelism: 2
+    upgradeMode: savepoint
 ```
 
-### Key settings
+Enable the S3 filesystem plugin and provision bucket permissions before using
+this example; storage credentials and Operator installation are environment
+specific. Resource settings are illustrative. The entry point currently sets
+30-second checkpoints when `CHECKPOINT_DIR` is nonempty and a fixed-delay restart
+strategy (10 attempts, 5 seconds); a contradictory YAML restart strategy will
+not override that code. Verify checkpoint completion and a restore before rollout.
 
-| Setting | Development | Production |
-|---------|-------------|------------|
-| State backend | hashmap (in-memory) | rocksdb (disk-backed) |
-| Checkpoints | disabled or local | S3/GCS every 30s |
-| Parallelism | 2 | 8-16 (match Kafka partitions) |
-| TM memory | 4GB | 4-8GB |
-| TM count | 2 | 4-8 |
-| Restart strategy | fixed-delay (10, 5s) | exponential (1s → 5min) |
-
-### State backend: RocksDB
-
-RocksDB stores state on local disk (SSD), not JVM heap. This eliminates OOM at high key cardinality and enables incremental checkpoints.
-
-```yaml
-flinkConfiguration:
-  state.backend: rocksdb
-  state.backend.rocksdb.localdir: /tmp/rocksdb
-  state.backend.incremental: "true"
-```
-
-### Monitoring
-
-Flink exposes Prometheus metrics. Key metrics to alert on:
-
-| Metric | Alert threshold |
-|--------|----------------|
-| `flink_jobmanager_job_uptime` | < 60s (job restarting) |
-| `flink_taskmanager_job_task_numRecordsInPerSecond` | < expected (backpressure) |
-| `flink_jobmanager_job_numberOfFailedCheckpoints` | > 3 consecutive |
-| `flink_taskmanager_Status_JVM_Memory_Heap_Used` | > 80% of max |
-
----
-
-## 3. Redis
-
-### Requirements
-- Redis 7+ with AOF persistence
-- Cluster mode for >100K customers
-- Memory: ~1KB per customer key set × number of customers
-
-### Redis Cluster (3 primary + 3 replica)
-
-```bash
-# Minimum 6 nodes for production Redis Cluster
-redis-cli --cluster create \
-  redis-1:6379 redis-2:6379 redis-3:6379 \
-  redis-4:6379 redis-5:6379 redis-6:6379 \
-  --cluster-replicas 1
-```
-
-### Configuration
-
-```conf
-# redis.conf
-appendonly yes
-appendfsync everysec
-maxmemory 8gb
-maxmemory-policy noeviction
-```
-
-`noeviction` is critical — FluxMeter keys are billing data. Never silently drop them.
-
-### Key space sizing
-
-```
-Per customer:
-  ~17 keys (lifetime counters + buf:* rollup buffer + model keys)
-  ~50 bytes per key value
-  × models used (~5 average)
-  = ~4 KB per customer (lifetime + buf; buf cleared each rollup)
-
-Per span (24h TTL):
-  ~5 keys × ~50 bytes = 250 bytes per active span
-
-Per session (90d TTL):
-  ~8 keys × ~50 bytes = 400 bytes per active session
-
-Rollup buckets (month ~400d TTL, day ~400d TTL):
-  rollup:{customer}:period:{YYYY-MM}  — hash, ~7 fields
-  rollup:{customer}:d:{YYYY-MM-DD}    — hash, ~7 fields
-  One month + one day hash per customer with activity in that window
-
-Window-application identities (sink safety):
-  ~100 bytes per window result
-  At 10K customers × 9 models × 6 windows/minute = ~540K keys/minute
-  = ~54 MB rolling
-
-HTTP event custody (30-day client retry window):
-  tenant-sharded Redis hashes + expiry sorted sets
-  size from measured bytes/identity × unique accepted events/sec × 2,592,000 seconds
-  do not size this from customer count or from the 10-minute Flink safety TTL
-
-Global keys: negligible
-```
-
-The older customer-count estimates cover counters and window identities only; they do **not** include the v4.5 HTTP retry registry. Measure `MEMORY USAGE` on representative IDs and payload traffic before production. Sustained high-cardinality ingestion can require a separately scaled Redis Cluster or a distributed KV identity backend. The 100K eps HTTP benchmark is a 30-minute processing-capacity gate, not evidence that one Redis node retains 30 days of unique identities at that rate.
-
-### Managed alternatives
-- AWS ElastiCache (Redis)
-- GCP Memorystore
-- Redis Cloud
-
----
-
-## 4. API
-
-### Dockerfile (production)
-
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY main.py .
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
-```
-
-### Kubernetes deployment
+## API and readiness
 
 ```yaml
 apiVersion: apps/v1
@@ -241,34 +164,52 @@ kind: Deployment
 metadata:
   name: fluxmeter-api
 spec:
-  replicas: 3
+  replicas: 2
   selector:
     matchLabels:
       app: fluxmeter-api
   template:
+    metadata:
+      labels:
+        app: fluxmeter-api
     spec:
       containers:
         - name: api
-          image: your-registry/fluxmeter-api:2.6.1
+          image: your-registry/fluxmeter-api:4.8.4
           ports:
             - containerPort: 8000
           env:
             - name: REDIS_HOST
-              value: redis-master
+              value: redis-primary
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fluxmeter-secrets
+                  key: redis-password
             - name: KAFKA_BROKERS
               value: kafka-bootstrap:9092
-          resources:
-            requests:
-              memory: "256Mi"
-              cpu: "250m"
-            limits:
-              memory: "512Mi"
-              cpu: "1000m"
+            - name: FLUXMETER_AUTH_OPTIONAL
+              value: "false"
+            - name: BUDGET_FAIL_POLICY
+              value: closed
+            - name: WATERMARK_HEARTBEAT_ENABLED
+              value: "true"
+            - name: FLUXMETER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fluxmeter-secrets
+                  key: api-key
+            - name: FLUXMETER_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fluxmeter-secrets
+                  key: admin-key
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: 8000
-            initialDelaySeconds: 5
+            timeoutSeconds: 15
+            periodSeconds: 20
           livenessProbe:
             httpGet:
               path: /health
@@ -284,119 +225,73 @@ spec:
     app: fluxmeter-api
   ports:
     - port: 8000
-  type: ClusterIP
+      targetPort: 8000
 ```
 
-### API authentication
+Create `fluxmeter-secrets` with `api-key`, `admin-key`, and `redis-password` before
+applying. `/health` is process liveness; `/ready` checks Redis, Kafka, and consumption
+of a causal Flink probe. Set probe timeouts above configured Kafka ACK + Flink
+probe timeouts; dependency failure should remove traffic, not trigger restart
+loops. Watermark heartbeats let low-traffic event-time windows close.
 
-Built-in auth via `X-API-Key` header (see `api/auth.py`):
+Run the optional Gateway with the API image and
+`uvicorn gateway_app:app --host 0.0.0.0 --port 8080`; configure its provider access
+and outbox as described in [gateway.md](gateway.md). Deploy the webhook image
+separately if using alerts. Both need the correct Kafka/Redis endpoints and secrets.
 
-| Env var | Purpose |
-|---------|---------|
-| `FLUXMETER_API_KEY` | Read + ingest endpoints |
-| `FLUXMETER_ADMIN_KEY` | Budget mutations, rerate, topup, reserve |
-| `FLUXMETER_AUTH_OPTIONAL=true` | Demo only — skip auth when keys unset |
-
-Production deploy:
+For a single-host evaluation of the production security overlay:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up
-# Requires .env: REDIS_PASSWORD (used by API + Flink sinks), FLUXMETER_API_KEY,
-# FLUXMETER_ADMIN_KEY, GRAFANA_ADMIN_PASSWORD, CLICKHOUSE_PASSWORD
+./gradlew shadowJar
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Required environment: REDIS_PASSWORD, FLUXMETER_API_KEY,
+# FLUXMETER_ADMIN_KEY, GRAFANA_ADMIN_PASSWORD.
 ```
 
-For Kubernetes, inject the same env vars via secrets. Optional upgrades: OAuth2/JWT, API gateway, service mesh.
+The overlay retains single-node services and base host-port mappings. Restrict
+those ports to the intended network; it does not provide HA or a public ingress.
 
----
-
-## 5. SDK Configuration (Production)
+## SDK and control behavior
 
 ```python
+import os
 from fluxmeter import FluxMeter
 
 meter = FluxMeter(
     api_url="https://metering.example.com",
-    api_key="${FLUXMETER_API_KEY}",
+    api_key=os.environ["FLUXMETER_API_KEY"],
     environment="production",
 )
 ```
 
-Applications need access only to the HTTP API. Keep Kafka private and configure broker credentials on the API, Flink cluster, webhook worker, and trusted operator tools.
+SDKs use HTTP only; they have no Kafka SASL settings or local WAL in the 2.x line.
+Handle typed delivery errors and stable-ID retries. The Python wrapper warns and
+supports `on_metering_error`; see [SDK docs](../sdk/python/README.md).
+A check creates no hold. Redis failure can use a recent cached decision before
+fail policy; streaming token estimates are not a zero-overspend guarantee.
 
----
+## Capacity and rollout gates
 
-## 6. Observability
+There is no validated 100K sustained full-pipeline capacity, linear-scaling, or
+$1,550/month claim. Existing [benchmark evidence](load-testing.md) distinguishes:
 
-### Health check endpoint
+| Recorded scope | Result | Limit |
+| --- | --- | --- |
+| 5m warmup + 30m HTTP Custody measurement | 10,034.90 events/s; p99 173ms | 0.149% generator offers dropped; downstream lag accumulated |
+| Corrected p12 full stack, 60s sample | 7,772.28 events/s; p99 1,472ms; end lag 333 | Short sample, not sustained acceptance |
+| Batch sample | 32,567.14 events/s; p99 3,959ms | Below the 100K gate |
+| Historical 1M | Internal Kafka/Flink burst | Not HTTP sustained capacity |
 
-```bash
-# Basic health (API + Redis connectivity)
-GET /health → {"status": "ok"}
+These are repository records, not new measurements for this release. Size using
+representative sustained traffic, settlement lag, checkpoint recovery, identity
+retention, and current infrastructure quotes. Track the remaining gates in
+[Issue #3 status](issue-3-status.md).
 
-# For comprehensive monitoring, check:
-# 1. API health
-curl http://fluxmeter-api:8000/health
+Before rollout, verify:
 
-# 2. Flink job running
-curl http://flink-jobmanager:8081/jobs/overview | jq '.jobs[] | select(.state=="RUNNING")'
-
-# 3. Kafka consumer lag
-kafka-consumer-groups.sh --bootstrap-server kafka:9092 \
-  --describe --group fluxmeter-aggregator
-
-# 4. Redis connectivity
-redis-cli ping
-```
-
-### Alerting rules
-
-| Alert | Condition | Severity |
-|-------|-----------|----------|
-| Flink job down | No RUNNING job for > 2 min | Critical |
-| Kafka consumer lag | Lag > 100K events for > 5 min | High |
-| Redis unreachable | /health returns 500 | Critical |
-| Checkpoint failing | > 3 consecutive failures | High |
-| API latency | p99 > 100ms on /budget/check | Medium |
-
----
-
-## 7. Capacity Planning
-
-### Throughput to infrastructure mapping
-
-| Events/sec | Kafka partitions | Flink parallelism | TMs (4GB each) | Redis memory |
-|-----------|-----------------|-------------------|-----------------|-------------|
-| 10K | 12 | 4 | 2 | 1 GB |
-| 100K | 24 | 8 | 4 | 2 GB |
-| 500K | 24 | 12 | 6 | 4 GB |
-| 1M | 48 | 16 | 8 | 8 GB |
-
-### Cost estimate (AWS, us-east-1)
-
-| Component | Sizing | Monthly cost |
-|-----------|--------|--------------|
-| MSK (Kafka) | 3× m5.large, 1TB storage | ~$600 |
-| EKS (Flink) | 4× m5.xlarge spot | ~$400 |
-| ElastiCache (Redis) | r6g.large cluster (6 nodes) | ~$500 |
-| ECS/EKS (API) | 3× 0.5 vCPU / 1GB | ~$50 |
-| S3 (checkpoints) | ~100 GB | ~$3 |
-| **Total** | | **~$1,550/month** |
-
-For 100K events/sec sustained. Scales linearly.
-
----
-
-## 8. Deployment Checklist
-
-Before going live:
-
-- [ ] Kafka: RF=3, min.insync.replicas=2, 30-day retention
-- [ ] Flink: RocksDB state backend, S3 checkpoints, exponential restart
-- [ ] Redis: AOF enabled, noeviction policy, cluster mode if >100K customers
-- [ ] API: 3+ replicas, health checks, authentication middleware
-- [ ] SDK: WAL on persistent storage, SASL_SSL to Kafka
-- [ ] Monitoring: Flink job uptime, consumer lag, checkpoint health, API latency
-- [ ] Alerting: PagerDuty/Opsgenie for critical alerts
-- [ ] Backup: Redis RDB snapshot daily, Kafka topic mirroring to DR region
-- [ ] Load test: run at 2× expected peak for 1 hour before launch
-- [ ] Budget enforcement: verify /budget/check returns <10ms at load
+- Authentication and customer isolation; private Kafka/Redis endpoints.
+- `/ready` failure on unavailable Redis/Kafka or stalled Flink; recovery after restart.
+- A unique HTTP event appears with exact expected tokens and cost in the Usage API.
+- Stable-ID retry, quarantine handling, reservation lifecycle, and delivery-error recovery.
+- Flink checkpoint restore, Redis backup/restore, retention, memory, and consumer lag.
+- Workload-specific HTTP and settlement SLOs at representative peak load; no assumed check latency.

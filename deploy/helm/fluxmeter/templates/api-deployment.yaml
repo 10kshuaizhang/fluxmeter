@@ -26,6 +26,15 @@ spec:
               value: {{ .Values.redis.port | quote }}
             - name: KAFKA_BROKERS
               value: {{ .Values.kafka.brokers | quote }}
+            - name: WATERMARK_HEARTBEAT_ENABLED
+              value: "true"
+            {{- if .Values.redis.existingSecret }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.existingSecret }}
+                  key: redis-password
+            {{- end }}
             - name: FLUXMETER_AUTH_OPTIONAL
               value: {{ .Values.api.env.FLUXMETER_AUTH_OPTIONAL | quote }}
             - name: BUDGET_FAIL_POLICY
@@ -47,5 +56,7 @@ spec:
             initialDelaySeconds: 10
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: {{ .Values.api.port }}
+            timeoutSeconds: 15
+            periodSeconds: 20

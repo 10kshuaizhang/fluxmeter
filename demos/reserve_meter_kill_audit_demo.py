@@ -122,7 +122,7 @@ def clickhouse_row(client: httpx.Client, clickhouse: str, customer_id: str) -> d
 
 def run(api: str, gateway: str, clickhouse: str, mock_port: int) -> None:
     customer_id = f"proof_{uuid.uuid4().hex[:10]}"
-    with MockUpstream(mock_port), httpx.Client(timeout=15.0) as client:
+    with MockUpstream(mock_port), httpx.Client(timeout=15.0, trust_env=False) as client:
         wait_for("API readiness", lambda: client.get(f"{api}/ready"), lambda r: r.status_code == 200)
         wait_for("Gateway readiness", lambda: client.get(f"{gateway}/health"), lambda r: r.status_code == 200)
         wait_for("ClickHouse readiness", lambda: client.get(f"{clickhouse}/ping"), lambda r: r.text.strip() == "Ok.")

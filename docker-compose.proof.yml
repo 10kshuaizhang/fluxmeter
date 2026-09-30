@@ -2,6 +2,30 @@
 # upstream on the host; every metering action still traverses Gateway → Custody
 # → Kafka → Flink → Redis and the independent ClickHouse audit consumer.
 services:
+  # This is a correctness proof, not a capacity benchmark. Keep the same data
+  # path while using base-stack sizing so it fits a local Docker VM.
+  api:
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1 --no-access-log
+    mem_limit: 512m
+  redis:
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory 384mb --maxmemory-policy noeviction
+    mem_limit: 512m
+  kafka:
+    mem_limit: 768m
+  taskmanager:
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        taskmanager.memory.process.size: 1024m
+        state.backend: hashmap
+        state.checkpoints.dir: file:///opt/flink/checkpoints
+    mem_limit: 1152m
+  job-submitter:
+    environment:
+      FLINK_PARALLELISM: "2"
+  clickhouse:
+    mem_limit: 2g
   gateway:
     environment:
       GATEWAY_UPSTREAM_BASE: http://host.docker.internal:18080/v1

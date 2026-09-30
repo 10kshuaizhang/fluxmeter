@@ -2,13 +2,13 @@
 
 **Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Docs:** [fluxmeter.dev/docs](https://fluxmeter.dev/docs) · **Blog:** [Agent cost control](https://fluxmeter.dev/blog/stop-runaway-agent-costs)
 
-Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request. All public usage events enter through HTTP; `202` means Kafka acknowledged the event and FluxMeter finalized its tenant-scoped retry identity before Flink performs billing and aggregation. **v4.8.3** keeps Flink projection idempotency bounded to its crash-safety horizon instead of retaining a second 30-day event registry.
+Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request. All public usage events enter through HTTP; `202` means Kafka acknowledged the event and FluxMeter finalized its tenant-scoped retry identity before Flink performs billing and aggregation. **v4.8.4** aligns the first trial, API contract, deployment examples, and capacity claims. Flink projection idempotency stays bounded to its crash-safety horizon rather than a second 30-day event registry.
 
 **When to use FluxMeter:** prepaid token wallets, agent loop cost control, self-hosted LLM metering, export to Stripe/Lago/Orb/Metronome.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v4.8.3** · **Open spec + HTTP SDKs** · **<10ms budget check** · **Multi-provider**
+**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v4.8.4** · **Open spec + HTTP SDKs** · **Synchronous budget admission** · **Multi-provider**
 
 **Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [Docs](https://github.com/10kshuaizhang/fluxmeter/tree/main/docs) · [API reference](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
 
@@ -20,7 +20,7 @@ Open-source, self-hostable **real-time AI token metering and budget enforcement*
 - **Platform teams** that need real-time cost visibility across OpenAI, Anthropic, and Google models
 - **Anyone who's been burned** by a runaway agent loop spending $500 in 30 seconds before the billing system noticed
 
-If your customers prepay for tokens and you need to cut them off the instant they run out — not 30 seconds later — FluxMeter does that.
+Use checks and reservations to reduce overspend risk before requests, then reconcile actual usage through Flink. A check alone creates no hold: concurrent requests, stale fallback data, and estimated streaming tokens mean this is not a zero-overspend guarantee.
 
 ## Repository layout (OpenCore)
 
@@ -36,7 +36,7 @@ The runtime is organized around four deep modules: **Custody** accepts retry-saf
 
 ## Budget Enforcement (the core feature)
 
-Set a prepaid balance. FluxMeter enforces it in <10ms per request:
+Set a prepaid balance and check admission before a request. Check latency depends on load, Redis, and network conditions; measure it in your deployment:
 
 ```bash
 # Set $50 budget, alert at $5 remaining, max 100 requests/minute
@@ -55,10 +55,12 @@ curl "localhost:8000/budget/cust_123/check?estimated_cost_usd=0.05"
 
 | Layer | Latency | What it does |
 |-------|---------|--------------|
-| Pre-request check | <10ms | `GET /budget/{id}/check` — blocks request before tokens are burned |
-| Post-window deduction | 10-15s | Flink aggregates → atomic Lua deduction → Kafka kill signal |
+| Pre-request check | Synchronous; deployment-dependent | `GET /budget/{id}/check` — admission decision only; the caller must honor denial; no funds are held |
+| Reservation | Synchronous Redis operation | `POST /budget/{id}/reserve` holds an estimated amount before upstream work |
+| Streaming guard | Per chunk | May stop a stream using estimated tokens when provider usage is unavailable |
+| Final settlement | Normally ~10–15s; longer under lag | Flink prices actual reported usage, deducts balance, and reconciles Gateway reservations |
 
-The pre-request check uses a three-layer resilience stack (in-process cache → Redis → configurable fail policy) so it never blocks your agent's hot path, even during Redis outages.
+The check reads Redis first. On Redis failure it may use a recent in-process cache entry, then applies the configured fail policy when no usable cache remains. A cached decision can be stale, including when the configured policy is closed. Stream guards use character-based estimates if provider token usage is missing; final billed usage and the estimate can differ.
 
 ## Quick Start
 
@@ -67,9 +69,13 @@ Start the only supported architecture:
 ```bash
 git clone https://github.com/10kshuaizhang/fluxmeter.git
 cd fluxmeter
-make demo          # API + Gateway + Kafka + Flink + Redis + Grafana
-make demo-proof    # deterministic reserve → meter → kill → audit; no provider key
+make demo          # start stack, wait for /ready, ingest and verify customer usage
+make demo-verify   # repeat the usage proof on the running stack; new IDs each run
+# Optional deeper control + audit proof (starts the benchmark overlay):
+make demo-proof
 ```
+
+`make demo` requires Java 17, Docker Compose, and Python 3.10+. It fails unless the public API shows one unique event, 1,200 input + 400 output tokens, and $0.00042 at the default gpt-4o-mini catalog rates. It polls readiness and projections with a bounded timeout; `202` alone is not settlement. No model-provider key is required. See the [complete local trial and troubleshooting](docs/quickstart.md).
 
 `make demo-proof` starts the benchmark audit overlay, serves a local OpenAI-compatible stream, and fails unless it observes the temporary hold, metered token/cost receipt, mid-stream termination, Flink settlement, and matching ClickHouse raw event.
 
@@ -103,12 +109,14 @@ from openai import OpenAI
 from fluxmeter import FluxMeter, wrap, BudgetExceededError
 
 meter = FluxMeter(api_url="http://localhost:8000")
-client = wrap(OpenAI(), meter, customer_id="cust_123", fail_open=True)
+client = wrap(OpenAI(), meter, customer_id="cust_123", fail_open=False)
 try:
     client.chat.completions.create(model="gpt-4o-mini", messages=[...])
 except BudgetExceededError:
     ...  # never hit the provider
 ```
+
+The wrapper logs a warning if post-call metering fails; use `on_metering_error` to route failures to your recovery/alerting path. `fail_open` controls admission failures, not metering delivery. See the [Python SDK](sdk/python/README.md).
 
 **JavaScript SDK** (HTTP):
 ```typescript
@@ -139,7 +147,7 @@ Kafka is an internal transport. Customer SDKs do not accept broker configuration
 | `GET /usage/session/{id}` | Session/project aggregated cost |
 | `GET /usage/customer/{id}/model/{model}` | Per-model detail |
 | `GET /usage/span/{id}` | Agent span cost (total cost of an agent run) |
-| `GET /budget/{id}/check` | Pre-request allow/deny (<10ms, uses `balance - held`) |
+| `GET /budget/{id}/check` | Pre-request allow/deny (no hold; uses `balance - held`) |
 | `POST /budget/{id}` | Set balance + threshold + rate limit |
 | `POST /budget/{id}/topup` | Add credits |
 | `POST /budget/{id}/reserve` | Hold estimate for streaming (does not deduct balance) |
@@ -194,7 +202,7 @@ curl localhost:8000/usage/session/sess_456
 - Atomic budget deduction via Redis Lua script
 - Microdollar precision (long) — no float accumulation errors
 - Sink idempotency (SHA-256 + SET NX) — no double-billing on replay
-- Three-layer budget check (cache → Redis → fail policy) — never blocks
+- Budget check: Redis → recent cache on failure → configured fail policy
 - Auditable ClickHouse cold store (ADR-025) on `make start-benchmark` — not billing truth
 
 ## Event Schema
@@ -212,7 +220,6 @@ Each event = one LLM API call:
   "reasoningTokens": 0,
   "parentSpanId": "span_agent_42",
   "sessionId": "sess_123",
-  "timestamp": 1718534400000,
   "latencyMs": 1340
 }
 ```
@@ -223,7 +230,7 @@ Each event = one LLM API call:
 
 ## Durability
 
-No single-component failure loses billing data:
+Custody, replay and recovery protections have configuration and retention boundaries. They are not an unconditional no-data-loss guarantee:
 
 | Failure | Protection |
 |---------|-----------|
@@ -238,11 +245,6 @@ No single-component failure loses billing data:
 ## Performance
 
 FluxMeter measures the public HTTP custody boundary separately from the trusted internal Kafka/Flink generator. See [docs/load-testing.md](docs/load-testing.md).
-
-| Environment | 10K eps | 50K eps | 500K+ target |
-|-------------|---------|---------|--------------|
-| **Local docker-compose** (1 TM, 4 slots) | ~9K avg / ~18K peak | ~49K avg / ~92K peak | ~40–45K avg (Redis/Flink bound) |
-| **Historical internal engine runs** (not HTTP ingress) | Stable | Stable | 500K indefinite; 1M bursts |
 
 The public gates are 10K single-event eps (p50 ≤50ms, p99 ≤200ms; 25/100ms stretch) and 100K batch-event eps (1,000 items, p99 ≤500ms), each after 5 minutes warmup for a 30-minute measurement. They are **not yet passed as full-pipeline sustained claims**. A v4.8.2 35-minute Custody run accepted 18,063,140 events at 10,034.90 eps with p50 36ms / p99 173ms and no rejection or transport error, but the 2,000-slot generator dropped 0.149% of offers and the co-located Flink/Redis pipeline accumulated lag. Correcting benchmark Flink parallelism from 2 to 12 raised the full-stack 60-second sample to 7,772 eps with near-zero end lag; a split-Redis A/B peaked at 9,197 eps but missed latency. The 100K batch stage reached 32,567 eps. Historical 1M figures are internal burst benchmarks, not public HTTP or a current sustained claim.
 
@@ -259,12 +261,13 @@ Kubernetes + RocksDB + S3 checkpoints: [docs/production-deploy.md](docs/producti
 
 Helm chart: [deploy/helm/README.md](deploy/helm/README.md)
 
-Estimated cost: ~$1,550/month for 100K events/sec on AWS.
+There is no validated 100K sustained-capacity or monthly hosting-cost promise. Size from representative end-to-end measurements, retry-identity retention, and current provider pricing.
 
 ## Makefile
 
 ```bash
-make demo        # Build and start the only architecture
+make demo        # Build, start, and verify customer tokens and cost
+make demo-verify # Repeat the no-provider-key usage proof
 make demo-record # Re-record demo.gif (requires vhs)
 make demo-gateway  # Gateway mock self-check only
 make start       # Start API, Gateway, Kafka, Flink, Redis, workers, Grafana
@@ -301,7 +304,7 @@ See **[ROADMAP.md](ROADMAP.md)** for the full plan. Highlights:
 
 - Docker & Docker Compose
 - Java 17 (building the engine)
-- Python 3.9+ (SDK and API)
+- Python 3.10+ (local API/tests); container image uses Python 3.11
 
 ## License
 

@@ -59,7 +59,7 @@ from ingestion import (
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="4.8.2",
+    version="4.8.4",
 )
 
 logger = logging.getLogger(__name__)

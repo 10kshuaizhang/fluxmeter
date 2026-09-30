@@ -1,10 +1,10 @@
 image:
   api:
-    repository: fluxmeter/api
-    tag: "2.6.1"
+    repository: your-registry/fluxmeter-api
+    tag: "4.8.4"
   webhookWorker:
-    repository: fluxmeter/webhook-worker
-    tag: "2.6.1"
+    repository: your-registry/fluxmeter-webhook
+    tag: "4.8.4"
 
 api:
   replicas: 2
@@ -14,6 +14,8 @@ api:
     BUDGET_FAIL_POLICY: "closed"
 
 redis:
+  # Secret must contain redis-password when Redis authentication is enabled.
+  existingSecret: ""
   host: redis
   port: 6379
 
