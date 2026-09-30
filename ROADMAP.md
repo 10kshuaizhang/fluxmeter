@@ -2,7 +2,7 @@
 
 Forward-looking plan for the FluxMeter project. **Website:** [fluxmeter.dev](https://fluxmeter.dev). For **what shipped**, see [changLog.md](changLog.md). For **milestone checklists**, see [progress.md](progress.md). For **architecture intent**, see [docs/DESIGN.md](docs/DESIGN.md). For **industry calibration**, see [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md). For **pivot rationale**, see [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md).
 
-**Current version:** 4.8.3 (engine/API) · 2.0.0 (Python SDK) · JS SDK HTTP package ready
+**Current version:** 4.8.4 (engine/API) · 2.0.1 (Python SDK) · JS SDK HTTP package ready
 **Active phase:** **Metering path proof** — reserve→meter→kill→audit demo and Kafka/Redis/Flink fault fixes shipped; HTTP throughput gates and production retention sizing remain active · Pillar B Intelligence complete/demand-gated
 **Last updated:** 2026-08-23
 
@@ -106,7 +106,7 @@ Langfuse · Helicone · LangSmith               Finout · Vantage · (sparse ded
 | **Financial core** | Shipped | `check`, `reserve`/`reconcile`, prepaid USD + token packages, tiered pricing, re-rate |
 | **Path activation** | Shipped | `wrap()`, Kafka webhook worker, hierarchy caps, kill demo |
 | **Invoice exporters** | Shipped | Stripe / Metronome / Orb (2.8.0) |
-| **Open spec + SDKs** | Shipped | v4 HTTP contract; Python/JS HTTP-only 2.0.0 packages |
+| **Open spec + SDKs** | Shipped | v4 HTTP contract; Python 2.0.1 / JS 2.0.0 HTTP-only packages |
 | **SaaS scaffold** | Shipped | Control plane `:8001`; demand-gated for full RBAC |
 | **Production ops** | Partial | Helm, DR runbook, Prometheus profile, reconciliation job |
 | **Gateway proxy** | Shipped | OpenAI-compatible proxy `:8080`; check + kill + proxy-only ingest (3.2.0) |

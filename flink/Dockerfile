@@ -1,8 +1,10 @@
 FROM flink:1.18.1-java17
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
-    && curl -fsSL -o /opt/flink/lib/flink-metrics-prometheus-1.18.1.jar \
-       https://repo.maven.apache.org/maven2/org/apache/flink/flink-metrics-prometheus/1.18.1/flink-metrics-prometheus-1.18.1.jar \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+# The pinned Flink image already includes curl and its matching Prometheus JAR.
+# Reuse that artifact instead of downloading OS indexes and the same JAR again.
+RUN cp /opt/flink/plugins/metrics-prometheus/flink-metrics-prometheus-1.18.1.jar /opt/flink/lib/
 USER flink
 COPY --chown=flink:flink build/docker/fluxmeter.jar /opt/flink/usrlib/fluxmeter.jar
+
+COPY --chown=flink:flink config/pricing.json /opt/flink/usrlib/pricing.json
+ENV PRICING_FILE=/opt/flink/usrlib/pricing.json

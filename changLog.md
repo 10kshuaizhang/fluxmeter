@@ -6,6 +6,27 @@ Format: `[version] — date — summary`
 
 ---
 
+## [4.8.4] — 2026-09-30
+
+### Fixed
+- Reuse curl and the matching Prometheus JAR shipped in the pinned Flink image, removing redundant apt/Maven downloads during image builds.
+- Bypass system proxies for the loopback quickstart and local proof; retain HTTP status when startup errors have no JSON body.
+- Local Docker proof uses explicit Python 3 and base-stack resource sizing rather than the benchmark profile's 12-worker/5GB TaskManager defaults.
+- Give the thin JAR its own `plain` classifier so Gradle distributions do not consume Shadow output implicitly; CI builds from clean state with UTF-8 source encoding; a Docker job runs the first-trial proof.
+- Make `make demo` assert readiness, unique-event custody, and exact customer tokens/cost; simplify the recording to the same proof.
+- Align batch OpenAPI/reference statuses with `failed` and top-level `rejected`; explain quarantine, stable-ID retries, and eventual settlement.
+- Align engine/API/OpenAPI/Helm versions, environment-based Flink examples, readiness probes, image build instructions, and pricing catalog packaging.
+- Authenticate the production Redis healthcheck and preserve its memory/noeviction settings.
+
+### Changed
+- Document checks vs holds, cache fallback and streaming estimates without zero-overspend or unconditional latency claims; remove unverified sustained-capacity/monthly-cost promises.
+- Python SDK 2.0.1 warns on wrapper metering/reconciliation errors and offers `on_metering_error` while preserving provider responses. JS SDK stays 2.0.0; package publication is separate.
+- Record remaining Issue #3 acceptance gaps without changing the current per-row batch behavior or marking performance gates complete.
+
+### Notes
+- Local Docker `make demo`, repeat customer usage verification and reserve → meter → kill → settle → audit proof passed; no capacity benchmark rerun.
+- No new load-test claim. See `docs/outreach-validation.md` for checks and environment limitations.
+
 ## [4.8.3] — 2026-08-23
 
 ### Changed

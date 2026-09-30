@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 ./gradlew shadowJar          # Build fat JAR (output: build/libs/fluxmeter-<version>.jar)
-make demo                    # Only architecture: HTTP + Kafka + Flink + Redis + Gateway + Grafana
+make demo                    # Starts and verifies customer usage: HTTP + Kafka + Flink + Redis + Gateway + Grafana
 make start                   # Build and start the base stack; Flink job submits automatically
 make start-benchmark         # Scaled overlay + ClickHouse cold store + trusted Kafka port
 make demo-proof              # Deterministic reserve → meter → kill → audit (no provider key)
@@ -47,7 +47,7 @@ ClickHouse cold store (benchmark overlay only; audit copy, not billing truth)
 - Shared JSON pricing catalog (tiered / hybrid); Flink `PricingCatalog` is billing truth
 - Events keyed by composite `customer_id|model_id` (tenant-scoped where present)
 - Checkpointing every 30s; Flink per-event projection idempotency TTL defaults to 10 minutes (not a second 30-day registry)
-- Pre-request budget check `<10ms` (cache → Redis → fail policy); post-window deduction ~10–15s
+- Synchronous pre-request budget check (Redis → recent cache on failure → fail policy; no latency guarantee); post-window deduction ~10–15s
 
 **Infrastructure (docker-compose):**
 - Kafka: KRaft mode (no ZooKeeper), single broker, 12 partitions, **private in base**; operator port only via `start-benchmark`
@@ -77,7 +77,7 @@ ClickHouse cold store (benchmark overlay only; audit copy, not billing truth)
 
 ## Roadmap Context
 
-**Current version:** engine/API **4.8.3** · Python SDK **2.0.0**  
+**Current version:** engine/API **4.8.4** · Python SDK **2.0.1**
 **Active phase:** Metering custody / performance hardening (HTTP throughput gates still open)  
 **Done:** Pillar B Intelligence · Phase G Gateway P1 · four deep modules · cold store
 
@@ -123,7 +123,7 @@ After bumping, sync `progress.md` header (`Current version:`) and `build.gradle`
 Add a new section at the top (below the header), newest first:
 
 ```markdown
-## [4.8.3] — YYYY-MM-DD
+## [4.8.4] — YYYY-MM-DD
 
 ### Added / Changed / Fixed / Removed
 - Concise bullet per change

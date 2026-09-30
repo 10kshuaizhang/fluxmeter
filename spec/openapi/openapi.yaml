@@ -4,7 +4,7 @@ info:
   description: |
     Real-time token usage queries, HTTP ingest, and budget enforcement.
     Implements the FluxMeter open spec — see `spec/schema/` and `spec/openapi/`.
-  version: 4.7.0
+  version: 4.8.4
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -35,7 +35,7 @@ paths:
   /ready:
     get:
       summary: Dependency readiness check
-      description: Verifies Redis, Kafka, and a fresh Flink consumer heartbeat.
+      description: Verifies Redis, Kafka acknowledgement, and Flink consumption of a causal readiness probe.
       security: []
       responses:
         "200":
@@ -61,6 +61,9 @@ paths:
         record and the tenant-scoped identity is finalized. Identical retries with a
         client-supplied eventId return 202 with idempotent=true for 30 days. Omitted
         eventId values are generated per attempt and therefore are not retry-stable.
+        202 is custody, not settlement. Usage projections are eventually consistent.
+        Omit timestamp for current server time. Events outside the default 24-hour
+        age / 5-minute future bound are quarantined, not billed as normal usage.
       requestBody:
         required: true
         content:
@@ -83,6 +86,12 @@ paths:
   /ingest/batch:
     post:
       summary: Batch ingest (max 1000)
+      description: |
+        Validates rows independently; valid rows may be published despite rejected rows.
+        This is not atomic whole-batch validation. Results preserve input order.
+        Internal unavailable/uncertain custody is reported as failed on this endpoint.
+        Inspect per-item retryable; retry only retryable items using unchanged IDs/payload.
+        202 includes quarantined rows and does not mean billing has settled.
       requestBody:
         required: true
         content:
@@ -100,13 +109,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/IngestBatchResponse"
         "207":
-          description: Mixed per-event outcomes (partial)
+          description: Mixed success/failure (partial), or all rows rejected (rejected)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/IngestBatchResponse"
         "400":
-          description: Invalid event or batch larger than 1000
+          description: Batch larger than 1000
         "409":
           description: Every row conflicted
           content:
@@ -114,13 +123,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/IngestBatchResponse"
         "429":
-          description: Every valid row was overloaded; retryable
+          description: Every row was overloaded; retryable
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/IngestBatchResponse"
         "503":
-          description: Every valid row had unavailable/uncertain custody, or identity storage failed; retryable
+          description: No accepted rows; mixed failure classes or custody/storage failure. Inspect per-item retryable.
           content:
             application/json:
               schema:
@@ -506,7 +515,7 @@ paths:
                 $ref: "#/components/schemas/CustomerBudget"
   /budget/{customer_id}/check:
     get:
-      summary: Pre-request budget guardrail (<10ms)
+      summary: Pre-request admission check (no reservation)
       parameters:
         - name: customer_id
           in: path
@@ -995,7 +1004,7 @@ components:
       properties:
         status:
           type: string
-          enum: [accepted, partial, conflict, failed, overloaded]
+          enum: [accepted, partial, conflict, rejected, failed, overloaded]
         results:
           type: array
           items:
@@ -1006,7 +1015,7 @@ components:
                 type: string
               status:
                 type: string
-                enum: [accepted, quarantined, conflict, rejected, pending, uncertain, unavailable, overloaded]
+                enum: [accepted, quarantined, conflict, rejected, pending, failed, overloaded]
               idempotent:
                 type: boolean
               retryable:

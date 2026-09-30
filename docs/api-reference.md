@@ -61,14 +61,13 @@ The sole public usage-event entrance. FluxMeter authenticates the request, creat
   "cacheWriteTokens": 0,
   "reasoningTokens": 0,
   "embeddingTokens": 0,
-  "eventId": "optional-uuid",
+  "eventId": "example-completion-001",
   "requestId": "chatcmpl-abc123",
   "spanId": "span_7f3a",
   "parentSpanId": "span_parent_42",
   "sessionId": "sess_123",
   "latencyMs": 1340,
-  "environment": "production",
-  "timestamp": 1718534400000
+  "environment": "production"
 }
 ```
 
@@ -78,12 +77,12 @@ The sole public usage-event entrance. FluxMeter authenticates the request, creat
 
 **Response:** `202 Accepted`
 ```json
-{"status": "accepted", "eventId": "2b14b730-4d7a-4985-a92f-c63a6f96d26f"}
+{"status": "accepted", "eventId": "example-completion-001"}
 ```
 
 Identical retries within the same tenant with the same `eventId` and payload return `202` with `"idempotent": true` (no republish) for 30 days. Reusing an ID with a different payload returns `409`. A live claim returns retryable `503` (`event_pending`). An ACK timeout or finalize failure returns retryable `503` (`custody_uncertain`); a late Kafka callback reconciles that state. A definitive broker failure returns `503` (`kafka_unavailable`), Redis identity failure returns `503` (`identity_store_unavailable`), and bounded custody saturation returns `429` (`custody_overloaded`). Suspicious timestamps are acknowledged with `status: quarantined`.
 
-Usage and balance queries are eventually consistent: Flink normally projects accepted events within approximately 10–15 seconds.
+**202 is custody, not settlement.** Usage and balance queries are eventually consistent: Flink normally projects accepted events within approximately 10–15 seconds, and longer under lag. A `quarantined` event is acknowledged into the quarantine topic and is **not** normal billable usage; investigate it before any authorized replay. By default, event timestamps more than 24 hours old or 5 minutes ahead are quarantined. Omit `timestamp` for a first trial; the server supplies current time. Use a new `eventId` for a new event and the same ID/payload for retries. The example ID above is illustrative; [the executable trial](quickstart.md) generates unique IDs.
 
 ---
 
@@ -101,12 +100,15 @@ Ingest up to 1000 events in a single HTTP call.
 
 **Responses:**
 - `202` — all rows accepted/quarantined: `{"status":"accepted","results":[...]}`
+- `207` — all rows rejected: `{"status":"rejected","results":[...]}`
 - `207` — mix of success and failure: `{"status":"partial","results":[...]}`
 - `409` — every row conflicted: `{"status":"conflict","results":[...]}`
-- `429` — every valid row was overloaded: `{"status":"overloaded","results":[...]}` with `Retry-After`
-- `503` — every valid row had unavailable/uncertain custody, or Redis identity storage failed, with `Retry-After`
+- `429` — every row was overloaded: `{"status":"overloaded","results":[...]}` with `Retry-After`
+- `503` — no accepted/quarantined rows and failures are not exclusively conflict, rejection, or overload: `{"status":"failed","results":[...]}` with `Retry-After`. This includes mixed rejected/conflict/retryable failures.
 
-Each input is validated independently, so a malformed row does not block valid rows. Each `results[]` item is `{eventId, status, idempotent?, retryable?, message?}` where `status` is `accepted` | `quarantined` | `conflict` | `rejected` | `pending` | `uncertain` | `unavailable` | `overloaded`.
+Each input is validated independently, so a malformed row does not block valid rows. Each `results[]` item is `{eventId, status, idempotent?, retryable?, message?}` where `status` is `accepted` | `quarantined` | `conflict` | `rejected` | `pending` | `failed` | `overloaded`. The HTTP batch boundary maps internal `unavailable` and `uncertain` outcomes to `failed`; neither is a batch wire status. Inspect each item’s `retryable` flag, not only the HTTP status. Retry retryable items with the same event IDs and unchanged payload; do not blindly resubmit rejected or conflicting items. Empty arrays return `202` with an empty `results`.
+
+This is **not atomic whole-batch validation**: valid rows can enter custody when another row is rejected. The original Issue #3 whole-batch requirement remains unresolved; see [the acceptance status](issue-3-status.md).
 
 **Error:** `400` if batch exceeds 1000 events.
 
@@ -378,7 +380,7 @@ Add credits to a customer's balance.
 
 ### `GET /budget/{customer_id}/check`
 
-Pre-request guardrail gate. Call BEFORE every LLM request. Returns in <10ms.
+Pre-request admission check. Call BEFORE every LLM request and honor the result. It creates no reservation; latency depends on load and dependencies. On Redis failure, a recent cache entry may be used before the fail policy applies. Use reservations for estimated holds; checks and estimated streaming guards do not guarantee zero overspend.
 
 Uses **effective balance** = `balance_usd - held_usd`. Active streaming reserves reduce what new calls can spend.
 

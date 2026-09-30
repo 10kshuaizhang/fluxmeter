@@ -13,7 +13,7 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +49,19 @@ def wrap(
     session_id: Optional[str] = None,
     cost_per_output_token: float = 1e-5,
     cost_per_input_token: float = 2.5e-6,
+    on_metering_error: Optional[Callable[[Exception], None]] = None,
 ):
     """Patch ``client.chat.completions.create`` with check → call → track.
 
     ``fail_open=True`` (default): if the check API is unreachable, allow the LLM
     call (revenue-preserving). Budget denials (``allowed=False`` with a real
     reason) still raise ``BudgetExceededError``.
+
+    Post-call metering failures emit a warning and optionally invoke
+    ``on_metering_error(error)``. The provider response remains available;
+    callback failures are logged and do not replace it. ``fail_open`` only
+    controls admission, not delivery. Use the callback to alert or recover
+    the failed event, not to repeat the provider call.
     """
     completions = client.chat.completions
     original = completions.create
@@ -100,6 +107,7 @@ def wrap(
                 cost_per_input_token=cost_per_input_token,
                 parent_span_id=parent_span_id,
                 session_id=session_id,
+                on_metering_error=on_metering_error,
             )
 
         try:
@@ -110,11 +118,23 @@ def wrap(
                 parent_span_id=parent_span_id,
             )
         except Exception as e:
-            logger.debug("track_openai failed: %s", e)
+            _report_metering_error(e, on_metering_error)
         return result
 
     completions.create = create  # type: ignore[method-assign]
     return client
+
+
+def _report_metering_error(error, callback):
+    # Avoid logging request/response bodies or credentials from exception text.
+    logger.warning("FluxMeter metering failed (%s); provider work may be unmetered",
+                   type(error).__name__)
+    if callback is not None:
+        try:
+            callback(error)
+        except Exception as callback_error:
+            logger.warning("FluxMeter on_metering_error callback failed (%s)",
+                           type(callback_error).__name__)
 
 
 def _safe_check(
@@ -155,6 +175,7 @@ class _KillableStream:
         cost_per_input_token: float,
         parent_span_id: Optional[str],
         session_id: Optional[str],
+        on_metering_error: Optional[Callable[[Exception], None]] = None,
     ):
         self._stream = iter(stream)
         self._meter = meter
@@ -165,6 +186,7 @@ class _KillableStream:
         self._cost_in = cost_per_input_token
         self._parent_span_id = parent_span_id
         self._session_id = session_id
+        self._on_metering_error = on_metering_error
         self._output_tokens = 0
         self._input_tokens = 0
         self._chunks = 0
@@ -214,7 +236,7 @@ class _KillableStream:
             try:
                 self._meter.reconcile(self._customer_id, reserved)
             except Exception as e:
-                logger.debug("reconcile failed: %s", e)
+                _report_metering_error(e, self._on_metering_error)
         if self._output_tokens > 0 or self._input_tokens > 0:
             try:
                 self._meter.track(
@@ -227,4 +249,4 @@ class _KillableStream:
                     metadata={"_stream_killed": "true"} if killed else None,
                 )
             except Exception as e:
-                logger.debug("track failed: %s", e)
+                _report_metering_error(e, self._on_metering_error)

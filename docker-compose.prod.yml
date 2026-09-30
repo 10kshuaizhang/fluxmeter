@@ -1,7 +1,9 @@
 # Production security/resource overlay for the single base architecture.
 services:
   redis:
-    command: redis-server --appendonly yes --appendfsync everysec --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required}
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory 384mb --maxmemory-policy noeviction --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD required}
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD required}
   jobmanager:
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
