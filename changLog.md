@@ -6,6 +6,11 @@ Format: `[version] — date — summary`
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- Correct the strategic positioning guide's unsupported budget-check latency promise and distinguish checks, reservations, and estimated stream cutoff. Documentation correction only; engine and SDK versions are unchanged.
+
 ## [4.8.4] — 2026-09-30
 
 ### Fixed

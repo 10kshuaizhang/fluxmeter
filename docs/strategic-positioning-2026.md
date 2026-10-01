@@ -79,7 +79,7 @@ Invoice tools show what was billed. Observability tools show what ran. Few produ
 **Moat sources:**
 
 1. **Data continuity** — high-throughput metering feeds Intelligence on identical rollups; no warehouse required.
-2. **Hot-path enforcement** — sub-10ms pre-request check + mid-stream kill; invoice platforms are post-hoc.
+2. **Request-time controls** — pre-request budget checks and estimated mid-stream cutoff complement invoice workflows. Checks do not create a hold; use reservations where a hold is required. Latency and cutoff accuracy depend on deployment conditions and available provider usage data.
 3. **Billing domain depth** — Zuora-grade usage/export patterns; complement Metronome/Orb/Stripe recipes.
 4. **Open-core** — spec + SDKs are the product surface; engine is reference implementation (Apache 2.0).
 
