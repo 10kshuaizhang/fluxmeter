@@ -9,6 +9,7 @@ Format: `[version] — date — summary`
 ## [Unreleased]
 
 ### Fixed
+- Java CI no longer fails the whole Gradle workflow when GitHub Dependency graph submission is disabled or otherwise errors; `build` and `local-trial` remain required. Engine and SDK versions are unchanged.
 - Correct the strategic positioning guide's unsupported budget-check latency promise and distinguish checks, reservations, and estimated stream cutoff. Documentation correction only; engine and SDK versions are unchanged.
 
 ## [4.8.4] — 2026-09-30
