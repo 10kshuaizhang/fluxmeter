@@ -71,9 +71,12 @@ jobs:
       if: always()
       run: make stop
 
+  # Best-effort Dependabot graph upload. A disabled Dependency graph (or a
+  # submission API error) must not fail the workflow when build/local-trial pass.
+  # Enable Dependency graph in repo settings if you want alerts.
   dependency-submission:
-
     runs-on: ubuntu-latest
+    continue-on-failure: true
     permissions:
       contents: write
 
@@ -89,3 +92,5 @@ jobs:
     # See: https://github.com/gradle/actions/blob/main/dependency-submission/README.md
     - name: Generate and submit dependency graph
       uses: gradle/actions/dependency-submission@af1da67850ed9a4cedd57bfd976089dd991e2582 # v4.0.0
+      with:
+        dependency-graph-continue-on-failure: true

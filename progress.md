@@ -217,6 +217,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-11-02** — Java CI `dependency-submission` now continues on Dependency graph disablement or submit failure (`continue-on-failure` + `dependency-graph-continue-on-failure`), so a green `build` / `local-trial` is no longer blocked. Engine version unchanged.
 - **2026-10-01** — Corrected the strategic positioning guide's unverified latency claim so the canonical source can pass the website deployment gate; clarified checks versus holds and estimated stream cutoff.
 
 - **2026-09-30** — **v4.8.4 outreach preparation**: separated thin/Shadow JAR outputs, added a unique-event customer-usage trial to `make demo`, corrected batch wire schemas and timestamp examples, refreshed production/Helm configuration and image catalog packaging, and added Python wrapper warnings/error callbacks (SDK 2.0.1). Removed unconditional latency/capacity/cost claims. Issue #3 whole-batch validation and sustained HTTP gates remain open; see `docs/issue-3-status.md`. Validation results are recorded in `docs/outreach-validation.md`.
