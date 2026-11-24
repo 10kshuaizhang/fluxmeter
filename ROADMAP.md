@@ -4,7 +4,7 @@ Forward-looking plan for the FluxMeter project. **Website:** [fluxmeter.dev](htt
 
 **Current version:** 4.8.5 (engine/API) · 2.0.2 (Python SDK) · JS SDK HTTP package ready (not on npm)
 **Active phase:** **Metering path proof** — reserve→meter→kill→audit demo and Kafka/Redis/Flink fault fixes shipped; HTTP throughput gates and production retention sizing remain active · Pillar B Intelligence complete/demand-gated
-**Last updated:** 2026-08-23
+**Last updated:** 2026-11-24
 
 ---
 

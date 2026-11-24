@@ -71,11 +71,14 @@ git clone https://github.com/10kshuaizhang/fluxmeter.git
 cd fluxmeter
 make demo          # start stack, wait for /ready, ingest and verify customer usage
 make demo-verify   # repeat the usage proof on the running stack; new IDs each run
+make demo-runaway  # same stack, no provider key: unguarded loop vs Gateway 402 stop
 # Optional deeper control + audit proof (starts the benchmark overlay):
 make demo-proof
 ```
 
 `make demo` requires Java 17, Docker Compose, and Python 3.10+. It fails unless the public API shows one unique event, 1,200 input + 400 output tokens, and $0.00042 at the default gpt-4o-mini catalog rates. It polls readiness and projections with a bounded timeout; `202` alone is not settlement. No model-provider key is required. See the [complete local trial and troubleshooting](docs/quickstart.md).
+
+`make demo-runaway` needs that warm stack. It runs the same runaway agent against a local mock twice — once with no FluxMeter, once through the Gateway — and prints calls, spend, budget, overspend/debt, and time to stop. No provider key. Record it with `vhs demo-runaway.tape`.
 
 `make demo-proof` starts the benchmark audit overlay, serves a local OpenAI-compatible stream, and fails unless it observes the temporary hold, metered token/cost receipt, mid-stream termination, Flink settlement, and matching ClickHouse raw event.
 
@@ -281,6 +284,7 @@ There is no validated 100K sustained-capacity or monthly hosting-cost promise. S
 ```bash
 make demo        # Build, start, and verify customer tokens and cost
 make demo-verify # Repeat the no-provider-key usage proof
+make demo-runaway # Runaway agent vs Gateway 402 (warm stack, mock upstream)
 make demo-record # Re-record demo.gif (requires vhs)
 make demo-gateway  # Gateway mock self-check only
 make start       # Start API, Gateway, Kafka, Flink, Redis, workers, Grafana

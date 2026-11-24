@@ -11,6 +11,7 @@ make start                   # Build and start the base stack; Flink job submits
 make start-benchmark         # Scaled overlay + ClickHouse cold store + trusted Kafka port
 make demo-proof              # Deterministic reserve → meter → kill → audit (no provider key)
 make demo-gateway            # Gateway mock self-check (no live OpenAI)
+make demo-runaway            # Runaway agent A/B via Gateway mock (no provider key)
 make generate                # Trusted internal load generator (benchmark profile)
 make load-test               # Staged internal engine load test (10K→1M eps)
 make http-load-test          # Formal public HTTP gates (single + batch)

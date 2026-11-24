@@ -30,6 +30,9 @@ longer. Readiness, custody, and projection each have a default 180-second bound.
 # Repeat against the running stack without rebuilding:
 make demo-verify
 
+# Same warm stack, no provider key: unguarded runaway loop vs Gateway 402 stop
+make demo-runaway
+
 # Optional authenticated endpoint (use an ingest/read key that can access the
 # generated customers; an existing customer-scoped key will not match):
 export FLUXMETER_API_KEY='your-ingest-read-key'
@@ -66,5 +69,6 @@ make demo-proof PYTHON=.venv-proof/bin/python
 It starts the audit overlay at local proof sizing (one API worker and two Flink
 slots) and a local mock provider. It is a deeper control test, not a throughput benchmark. The main
 terminal recording (`make demo-record`) uses the simple trial and has no manually
-seeded Intelligence data. Intelligence examples elsewhere are synthetic analytics
+seeded Intelligence data. `make demo-runaway` on the same warm stack is the
+unguarded-vs-Gateway stop comparison (`vhs demo-runaway.tape`). Intelligence examples elsewhere are synthetic analytics
 fixtures and are not evidence of this metering path.
