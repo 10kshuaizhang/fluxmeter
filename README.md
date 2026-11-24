@@ -31,6 +31,7 @@ Use checks and reservations to reduce overspend risk before requests, then recon
 | **Community** | [`contrib/`](contrib/) | Provider mappings, pricing, connectors |
 | **Engine** | [`src/`](src/) | Flink reference implementation (aggregation, budget enforcement) |
 | **Demo** | `make demo` | HTTP→Kafka→Flink→Redis |
+| **Examples** | [`examples/`](examples/) | Self-contained SDK snippets (PyPI `fluxmeter>=2.0.2`, not this tree) |
 
 The runtime is organized around four deep modules: **Custody** accepts retry-safe events, **Pricing** validates and quotes token categories, **Reservation** owns temporary holds, and **Budget** authorizes spend. HTTP routes, the Gateway, Redis, and Kafka implementations adapt to those interfaces rather than duplicating their state machines. See [ADR-026](docs/adr/en/026-four-deep-metering-modules.md).
 
@@ -72,6 +73,8 @@ cd fluxmeter
 make demo          # start stack, wait for /ready, ingest and verify customer usage
 make demo-verify   # repeat the usage proof on the running stack; new IDs each run
 make demo-runaway  # same stack, no provider key: unguarded loop vs Gateway 402 stop
+# SDK wrap() runaway (blog reproduction, local mock, no provider key):
+# pip install "fluxmeter>=2.0.2" openai && python examples/wrap_runaway.py
 # Optional deeper control + audit proof (starts the benchmark overlay):
 make demo-proof
 ```

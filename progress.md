@@ -46,7 +46,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | HTTP custody contract | Done — tenant-scoped compact identity, ACK+finalize `202`, uncertain late reconciliation, bounded backpressure, per-item batch outcomes |
 | Four deep metering modules | Done — Custody/Pricing/Reservation/Budget interfaces; shallow helpers removed; atomic Gateway Reservation open |
 | Reserve → meter → kill → audit proof | Done — `make demo-proof`; live Gateway/Kafka/Flink/Redis/ClickHouse assertions, no provider key |
-| Runaway wow demo (DX P0-3) | Done — `make demo-runaway`; unguarded mock vs Gateway 402, no provider key, side-by-side spend/debt/stop |
+| Runaway wow demo (DX P0-3) | Done — `make demo-runaway`; unguarded mock vs Gateway 402, no provider key, side-by-side spend/debt/stop. Blog SDK path: `examples/wrap_runaway.py` (`wrap(OpenAI())`, local mock, script-owned budget) |
 | Public HTTP throughput evidence | Partial — the 35-minute independent-host Custody run accepted 18,063,140 events at 10,034.90 eps, p50 36ms / p99 173ms, with zero rejection/transport error. It passed the 50/200ms SLO but the strict verdict failed on 26,949 generator drops. Fixing benchmark Job parallelism from 2 to 12 raised a full-stack 60-second sample to 7,772 eps and left only 333 lag; a split-Redis A/B peaked at 9,197 eps but missed latency. The 100K batch stage reached 32,567 eps, so sustained full-pipeline gates remain open |
 | Pricing catalog + exporter maintenance | Ongoing |
 | Python SDK + JS npm publish | Partial — Python **2.0.2** sdist/wheel built and `twine check` passed locally; **not uploaded to PyPI** (index still 1.5.0 until a token/Trusted Publisher publish). JS `@fluxmeter/client` is pack-ready 2.0.0 and **not on npm**; docs now say local path install instead of a 404 `npm install` |
@@ -218,6 +218,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-11-24** — Added `examples/wrap_runaway.py` (blog SDK runaway reproduction): local mock OpenAI, script sets a $0.30 budget, depends on PyPI `fluxmeter>=2.0.2` + `openai`. Engine and SDK code unchanged.
 - **2026-11-24** — Java CI `gradle.yml` used invalid job key `continue-on-failure` (PR #6), so every `main` run failed at workflow parse with 0s duration. Replaced with `continue-on-error`; `dependency-graph-continue-on-failure` is unchanged. Engine version unchanged.
 - **2026-11-24** — **v4.8.5 runaway wow demo**: `make demo-runaway` runs the same $0.30 / $0.03-per-call agent loop twice on a warm stack with a local mock (no provider key) — unguarded vs FluxMeter Gateway — and prints calls, spend, budget, overspend/debt, and time to stop. Optional `demo-runaway.tape`. Uses the Gateway path.
 - **2026-11-24** — **v4.8.5 DX P0-2 install path** (rebased onto P0-1): removed 404 `npm install @fluxmeter/client` from README/SDK docs in favor of a local path; fixed `docs/gateway.md` budget JSON and `/usage/customer/{id}` curls; Python SDK **2.0.2** long description uses deployment-dependent check wording (`twine check`, no PyPI upload). `pip install "fluxmeter>=2.0.2"`; `DeliveryError` requires >=2.0.2.
