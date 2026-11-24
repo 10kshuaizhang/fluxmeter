@@ -1,4 +1,4 @@
-.PHONY: build demo demo-proof demo-gateway demo-record start start-saas start-benchmark stop stop-saas clean generate benchmark correctness-bench validate-spec load-test load-test-quick http-load-test http-load-test-single http-load-test-batch test-e2e test-unit test-java test-cold-store apply-cold-store-init
+.PHONY: build demo demo-proof demo-gateway demo-runaway demo-runaway-record demo-record start start-saas start-benchmark stop stop-saas clean generate benchmark correctness-bench validate-spec load-test load-test-quick http-load-test http-load-test-single http-load-test-batch test-e2e test-unit test-java test-cold-store apply-cold-store-init
 
 ENGINE_VERSION := $(shell sed -n "s/^version = '\(.*\)'/\1/p" build.gradle)
 JAR = build/libs/fluxmeter-$(ENGINE_VERSION).jar
@@ -22,6 +22,7 @@ demo: start
 	@echo ""
 	@echo " Flink UI:      http://localhost:8081"
 	@echo " Record demo.gif: make demo-record  (requires vhs)"
+	@echo " Runaway A/B:     make demo-runaway  (Gateway vs unguarded mock, no provider key)"
 	@echo ""
 	@echo " Gateway example:"
 	@echo "   curl localhost:8080/v1/chat/completions \\"
@@ -41,6 +42,21 @@ demo-record:
 # Gateway mock self-check (no live OpenAI)
 demo-gateway:
 	PYTHONPATH=api python demos/gateway_demo.py
+
+# Runaway agent A/B on a warm stack: unguarded mock vs Gateway 402 (no provider key).
+# Recreates Gateway against the local mock; restores the default upstream on exit.
+demo-runaway:
+	@docker compose ps --status running --services 2>/dev/null | grep -qx gateway || { \
+		echo "Start the stack first: make demo   (or make start)"; \
+		exit 1; \
+	}
+	docker compose -f docker-compose.yml -f docker-compose.runaway.yml up -d --no-deps --force-recreate gateway
+	@set -e; trap 'docker compose up -d --no-deps --force-recreate gateway >/dev/null' EXIT; \
+		$(PYTHON) -u demos/runaway_demo.py
+
+# Re-record demo-runaway.gif from demo-runaway.tape (brew install vhs)
+demo-runaway-record:
+	vhs demo-runaway.tape
 
 # Deterministic reserve → meter → kill → audit proof (no provider key).
 demo-proof: build
@@ -87,7 +103,7 @@ test-unit:
 		tests/test_rerate_tier.py tests/test_phase2_billing.py tests/test_gateway.py \
 		tests/test_ingestion_contract.py tests/test_reservation_expiry.py \
 		tests/test_webhook_worker.py tests/test_deep_modules.py tests/test_proof_demo.py \
-		tests/test_custody_unit.py tests/test_quickstart.py -v --timeout=60
+		tests/test_custody_unit.py tests/test_quickstart.py tests/test_runaway_demo.py -v --timeout=60
 	PYTHONPATH=sdk/python pytest sdk/python/tests -q
 	cd sdk/js && npm run build
 	./gradlew test -q

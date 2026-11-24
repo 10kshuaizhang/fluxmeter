@@ -20,10 +20,12 @@ Format: `[version] — date — summary`
 
 ### Added
 - Runaway-agent regression: wrap unit tests plus HTTP reserve/ingest/reconcile hold tests (mock upstream, no provider key).
+- `make demo-runaway`: sub-60s runaway-agent A/B on a warm stack (unguarded mock vs FluxMeter Gateway 402) with no provider key. Prints side-by-side calls, spend, budget, overspend/debt, and time to stop; optional `demo-runaway.tape` for a terminal GIF.
 
 ### Notes
 - Python SDK **2.0.2**. Engine/API **4.8.5**. JS SDK remains 2.0.0 and unpublished on npm.
 - Local `make demo` wrap runaway ($0.30 budget, $0.03 estimate, mock OpenAI): tight loop admitted 9 calls / $0.27 / debt $0.00 / first deny 0.1s; 1 call/sec admitted 9 / $0.27 / debt $0.00 / first deny 9.1s.
+- `make demo-runaway` requires `make demo` / `make start` first. Recreates Gateway against a local mock (`docker-compose.runaway.yml`, `GATEWAY_DEFAULT_INPUT_TOKENS=4000` so the hold matches gpt-4o 4000/2000 = $0.03) and restores the default upstream on exit. Uses the Gateway path.
 - Publish 2.0.2 with `python3 -m twine upload dist/*` from `sdk/python` (token: `TWINE_USERNAME=__token__` / `TWINE_PASSWORD=pypi-...`) or GitHub Actions Trusted Publisher on `.github/workflows/pypi-publish.yml`. Do not upload from this change.
 
 ## [4.8.4] — 2026-09-30

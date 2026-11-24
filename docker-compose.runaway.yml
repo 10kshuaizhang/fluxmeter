@@ -1,0 +1,11 @@
+# Runaway wow-demo overlay. The runner serves a mock OpenAI-compatible
+# upstream on the host; Gateway still reserve → proxy → Custody → Kafka → Flink.
+# Hold quotes match the mock usage (4000 in + 2000 out on gpt-4o = $0.03).
+services:
+  gateway:
+    environment:
+      GATEWAY_UPSTREAM_BASE: http://host.docker.internal:19090/v1
+      GATEWAY_UPSTREAM_API_KEY: sk-runaway
+      GATEWAY_DEFAULT_INPUT_TOKENS: "4000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
