@@ -43,6 +43,10 @@ class TokenEvent:
     environment: Optional[str] = None
     metadata: Optional[dict[str, str]] = None
 
+    # Named hold so Flink can release after settlement
+    reservation_id: Optional[str] = None
+    reserved_usd: float = 0.0
+
     def to_dict(self) -> dict:
         """Serialize to dict with camelCase keys (matches Java consumer)."""
         d = {
@@ -71,6 +75,9 @@ class TokenEvent:
             d["environment"] = self.environment
         if self.metadata:
             d["metadata"] = self.metadata
+        if self.reservation_id:
+            d["reservationId"] = self.reservation_id
+            d["reservedUsd"] = self.reserved_usd
         return d
 
     @property

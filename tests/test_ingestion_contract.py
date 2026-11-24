@@ -144,6 +144,95 @@ def test_ingest_publishes_versioned_trusted_envelope(ingestion_api, monkeypatch)
     assert envelope["receipt"]["traceId"]
 
 
+def test_ingest_attaches_reservation_to_envelope_and_strips_payload(ingestion_api):
+    client, redis_client, producer = ingestion_api
+    redis_client.set("budget:cust_hold:balance_usd", "0.30")
+    redis_client.set("budget:cust_hold:held_usd", "0")
+
+    reserve = client.post(
+        "/budget/cust_hold/reserve",
+        params={"estimated_cost_usd": 0.05},
+    )
+    assert reserve.status_code == 200
+    hold = reserve.json()
+    assert hold["allowed"] is True
+    reservation_id = hold["reservation_id"]
+    assert reservation_id
+    assert hold["held_usd"] == pytest.approx(0.05)
+
+    response = client.post(
+        "/ingest",
+        json={
+            "customerId": "cust_hold",
+            "modelId": "gpt-4o-mini",
+            "inputTokens": 10,
+            "outputTokens": 5,
+            "reservationId": reservation_id,
+            "reservedUsd": 0.05,
+        },
+    )
+    assert response.status_code == 202
+    envelope = json.loads(producer.messages[0]["value"])
+    assert envelope["reservation"] == {
+        "reservationId": reservation_id,
+        "reservedUsd": 0.05,
+    }
+    assert "reservationId" not in envelope["payload"]
+    assert envelope["payload"]["eventId"] == f"res:{reservation_id}"
+    assert redis_client.hget(f"reservation:{reservation_id}", "ingested") == "1"
+
+    premature = client.post(
+        "/budget/cust_hold/reconcile",
+        params={"reserved_usd": 0.05, "reservation_id": reservation_id},
+    )
+    assert premature.status_code == 200
+    assert premature.json()["released_usd"] == pytest.approx(0.0)
+    assert float(redis_client.get("budget:cust_hold:held_usd")) == pytest.approx(0.05)
+
+
+def test_http_reserve_runaway_stops_at_budget_without_early_release(ingestion_api):
+    client, redis_client, _ = ingestion_api
+    redis_client.set("budget:runaway:balance_usd", "0.30")
+    redis_client.set("budget:runaway:held_usd", "0")
+
+    admitted = 0
+    first_deny = None
+    for i in range(50):
+        hold = client.post(
+            "/budget/runaway/reserve",
+            params={"estimated_cost_usd": 0.03},
+        ).json()
+        if not hold.get("allowed"):
+            first_deny = hold
+            break
+        ingest = client.post(
+            "/ingest",
+            json={
+                "customerId": "runaway",
+                "modelId": "gpt-4o",
+                "inputTokens": 4000,
+                "outputTokens": 2000,
+                "reservationId": hold["reservation_id"],
+                "reservedUsd": 0.03,
+            },
+        )
+        assert ingest.status_code == 202
+        client.post(
+            "/budget/runaway/reconcile",
+            params={
+                "reserved_usd": 0.03,
+                "reservation_id": hold["reservation_id"],
+            },
+        )
+        admitted += 1
+
+    assert first_deny is not None
+    assert first_deny["reason"] == "insufficient_balance"
+    assert 9 <= admitted <= 10
+    assert admitted * 0.03 <= 0.30 + 1e-9
+    assert float(redis_client.get("budget:runaway:held_usd")) <= 0.30 + 1e-9
+
+
 def test_single_ingest_uses_shared_custody_batcher(ingestion_api, monkeypatch):
     import main
 

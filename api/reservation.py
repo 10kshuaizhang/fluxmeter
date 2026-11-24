@@ -177,21 +177,26 @@ class Reservation:
                 payload.update(scope="span", scope_id=parent_span_id)
             return payload
         if code == 2:
+            snapshot = self._snapshot(customer_id, 0.0, estimated_cost_usd)
             return {
                 "allowed": True,
                 "reason": "existing",
                 "reservation_id": reservation_id,
                 "reserved_usd": estimated_cost_usd,
+                "balance_usd": snapshot["balance_usd"],
+                "held_usd": snapshot["held_usd"],
+                "effective_balance_usd": snapshot["balance_usd"] - snapshot["held_usd"],
                 "idempotent": True,
             }
+        snapshot = self._snapshot(customer_id, 0.0, estimated_cost_usd)
         return {
             "allowed": True,
             "reason": "reserved",
             "reservation_id": reservation_id,
             "reserved_usd": estimated_cost_usd,
-            "balance_usd": float(result[2]),
-            "held_usd": float(result[3]),
-            "effective_balance_usd": float(result[2]) - float(result[3]),
+            "balance_usd": snapshot["balance_usd"],
+            "held_usd": snapshot["held_usd"],
+            "effective_balance_usd": snapshot["balance_usd"] - snapshot["held_usd"],
             "idempotent": False,
         }
 
@@ -235,13 +240,36 @@ class Reservation:
             payload.update(scope="span", scope_id=parent_span_id)
         return payload
 
+    def mark_ingested(self, reservation_id: str) -> bool:
+        """Record that usage for this hold was accepted by Custody.
+
+        Flink then deducts actual cost and releases the hold. Client
+        ``reconcile`` of an ingested reservation is a no-op so a post-ingest
+        release cannot open a spend window before settlement.
+        """
+        key = self._key(reservation_id)
+        if not self._redis.exists(key):
+            return False
+        self._redis.hset(key, "ingested", "1")
+        return True
+
     def reconcile(
         self,
         customer_id: str,
         reserved_usd: float,
         *,
         parent_span_id: str | None = None,
+        reservation_id: str | None = None,
     ) -> dict[str, Any]:
+        if reservation_id:
+            return self._reconcile_named(
+                reservation_id, reserved_usd, parent_span_id=parent_span_id
+            )
+        named = self._release_uningested_named(customer_id, reserved_usd)
+        if named is not None:
+            if parent_span_id:
+                named["parent_span_id"] = parent_span_id
+            return named
         budget_key = budget_prefix_for_read(self._redis, self.tenant_id, customer_id)
         span_key = self._scope("span", parent_span_id) if parent_span_id else None
         result = self._redis.eval(
@@ -259,6 +287,65 @@ class Reservation:
             "reserved_usd": reserved_usd,
             **({"parent_span_id": parent_span_id} if parent_span_id else {}),
         }
+
+    def _snapshot(self, customer_id: str, released_usd: float, reserved_usd: float) -> dict[str, Any]:
+        budget_key = budget_prefix_for_read(self._redis, self.tenant_id, customer_id)
+        return {
+            "balance_usd": float(self._redis.get(f"{budget_key}:balance_usd") or 0),
+            "held_usd": float(self._redis.get(f"{budget_key}:held_usd") or 0),
+            "released_usd": float(released_usd),
+            "reserved_usd": reserved_usd,
+        }
+
+    def _reconcile_named(
+        self,
+        reservation_id: str,
+        reserved_usd: float,
+        *,
+        parent_span_id: str | None = None,
+    ) -> dict[str, Any]:
+        record = self._redis.hgetall(self._key(reservation_id))
+        customer_id = record.get("customer_id") or ""
+        if record.get("ingested") == "1":
+            payload = self._snapshot(customer_id, 0.0, reserved_usd)
+            payload["deferred"] = True
+            if parent_span_id:
+                payload["parent_span_id"] = parent_span_id
+            return payload
+        released = self.settle(reservation_id) if record else 0.0
+        payload = self._snapshot(customer_id, released, reserved_usd)
+        if parent_span_id:
+            payload["parent_span_id"] = parent_span_id
+        return payload
+
+    def _release_uningested_named(
+        self, customer_id: str, reserved_usd: float
+    ) -> dict[str, Any] | None:
+        remaining = max(0.0, reserved_usd)
+        released_total = 0.0
+        saw_ingested = False
+        pending = self._redis.zrange(PENDING_KEY, 0, -1) or []
+        expected_tenant = self.tenant_id or ""
+        for rid in pending:
+            record = self._redis.hgetall(self._key(rid))
+            if record.get("customer_id") != customer_id:
+                continue
+            if (record.get("tenant_id") or "") != expected_tenant:
+                continue
+            if record.get("ingested") == "1":
+                saw_ingested = True
+                continue
+            released = self.settle(rid)
+            released_total += released
+            remaining -= released
+            if remaining <= 1e-12:
+                break
+        if released_total > 0 or saw_ingested:
+            payload = self._snapshot(customer_id, released_total, reserved_usd)
+            if saw_ingested and released_total <= 0:
+                payload["deferred"] = True
+            return payload
+        return None
 
     def refresh(self, reservation_id: str, *, expires_at: float | None = None) -> bool:
         if not self._redis.exists(self._key(reservation_id)):

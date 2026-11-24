@@ -1,4 +1,4 @@
-"""Wrap OpenAI-compatible clients with pre-call check + post-call track.
+"""Wrap OpenAI-compatible clients with pre-call reserve + post-call track.
 
 Usage::
 
@@ -51,11 +51,17 @@ def wrap(
     cost_per_input_token: float = 2.5e-6,
     on_metering_error: Optional[Callable[[Exception], None]] = None,
 ):
-    """Patch ``client.chat.completions.create`` with check → call → track.
+    """Patch ``client.chat.completions.create`` with reserve → call → track.
 
-    ``fail_open=True`` (default): if the check API is unreachable, allow the LLM
-    call (revenue-preserving). Budget denials (``allowed=False`` with a real
-    reason) still raise ``BudgetExceededError``.
+    ``fail_open=True`` (default): if the check/reserve API is unreachable, allow
+    the LLM call (revenue-preserving). Budget denials (``allowed=False`` with a
+    real reason) still raise ``BudgetExceededError``.
+
+    Non-streaming and streaming calls both open a hold before the provider is
+    hit. After a successful call, ``track`` attaches the reservation so Flink
+    can deduct actual usage and release the hold. Do not call ``reconcile``
+    immediately after ``/ingest``: that would drop the hold before settlement.
+    Unused holds (provider failure, empty stream) are released immediately.
 
     Post-call metering failures emit a warning and optionally invoke
     ``on_metering_error(error)``. The provider response remains available;
@@ -78,23 +84,26 @@ def wrap(
         if not gate.get("allowed", False):
             raise BudgetExceededError(gate)
 
-        stream = bool(kwargs.get("stream"))
-        reserved = 0.0
-        if stream and getattr(meter, "_api_url", None):
-            try:
-                hold = meter.reserve(customer_id, estimated_cost_usd)
-                if hold.get("allowed"):
-                    reserved = float(hold.get("reserved_usd") or estimated_cost_usd)
-                elif not fail_open:
-                    raise BudgetExceededError(hold)
-            except BudgetExceededError:
-                raise
-            except Exception as e:
-                if not fail_open:
-                    raise
-                logger.debug("reserve failed (fail_open): %s", e)
+        reserved, reservation_id = _open_hold(
+            meter,
+            customer_id,
+            estimated_cost_usd,
+            fail_open=fail_open,
+            parent_span_id=parent_span_id,
+        )
 
-        result = original(*args, **kwargs)
+        stream = bool(kwargs.get("stream"))
+        try:
+            result = original(*args, **kwargs)
+        except Exception:
+            _release_unused_hold(
+                meter,
+                customer_id,
+                reserved,
+                reservation_id,
+                parent_span_id=parent_span_id,
+            )
+            raise
 
         if stream:
             return _KillableStream(
@@ -103,6 +112,7 @@ def wrap(
                 customer_id=customer_id,
                 model_id=kwargs.get("model") or (args[0] if args else "unknown"),
                 reserved_usd=reserved or estimated_cost_usd,
+                reservation_id=reservation_id,
                 cost_per_output_token=cost_per_output_token,
                 cost_per_input_token=cost_per_input_token,
                 parent_span_id=parent_span_id,
@@ -116,6 +126,8 @@ def wrap(
                 result,
                 session_id=session_id,
                 parent_span_id=parent_span_id,
+                reservation_id=reservation_id,
+                reserved_usd=reserved,
             )
         except Exception as e:
             _report_metering_error(e, on_metering_error)
@@ -160,6 +172,57 @@ def _safe_check(
         return {"allowed": False, "reason": "check_unavailable", "source": "policy"}
 
 
+def _open_hold(
+    meter,
+    customer_id: str,
+    estimated_cost_usd: float,
+    *,
+    fail_open: bool,
+    parent_span_id: Optional[str],
+) -> tuple[float, Optional[str]]:
+    if not getattr(meter, "_api_url", None):
+        return 0.0, None
+    try:
+        kwargs = {}
+        if parent_span_id:
+            kwargs["parent_span_id"] = parent_span_id
+        hold = meter.reserve(customer_id, estimated_cost_usd, **kwargs)
+        if hold.get("allowed"):
+            reserved = float(hold.get("reserved_usd") or estimated_cost_usd)
+            reservation_id = hold.get("reservation_id")
+            return reserved, str(reservation_id) if reservation_id else None
+        if not fail_open:
+            raise BudgetExceededError(hold)
+    except BudgetExceededError:
+        raise
+    except Exception as e:
+        if not fail_open:
+            raise
+        logger.debug("reserve failed (fail_open): %s", e)
+    return 0.0, None
+
+
+def _release_unused_hold(
+    meter,
+    customer_id: str,
+    reserved_usd: float,
+    reservation_id: Optional[str],
+    *,
+    parent_span_id: Optional[str],
+) -> None:
+    if reserved_usd <= 0 and not reservation_id:
+        return
+    try:
+        kwargs = {}
+        if parent_span_id:
+            kwargs["parent_span_id"] = parent_span_id
+        if reservation_id:
+            kwargs["reservation_id"] = reservation_id
+        meter.reconcile(customer_id, reserved_usd, **kwargs)
+    except Exception as e:
+        logger.debug("unused hold release failed: %s", e)
+
+
 class _KillableStream:
     """OpenAI stream iterator that aborts when estimated spend exceeds reserve."""
 
@@ -171,6 +234,7 @@ class _KillableStream:
         customer_id: str,
         model_id: str,
         reserved_usd: float,
+        reservation_id: Optional[str],
         cost_per_output_token: float,
         cost_per_input_token: float,
         parent_span_id: Optional[str],
@@ -182,6 +246,7 @@ class _KillableStream:
         self._customer_id = customer_id
         self._model_id = model_id
         self._reserved_usd = reserved_usd
+        self._reservation_id = reservation_id
         self._cost_out = cost_per_output_token
         self._cost_in = cost_per_input_token
         self._parent_span_id = parent_span_id
@@ -231,12 +296,6 @@ class _KillableStream:
         if self._closed:
             return
         self._closed = True
-        reserved = self._reserved_usd
-        if reserved > 0 and getattr(self._meter, "_api_url", None):
-            try:
-                self._meter.reconcile(self._customer_id, reserved)
-            except Exception as e:
-                _report_metering_error(e, self._on_metering_error)
         if self._output_tokens > 0 or self._input_tokens > 0:
             try:
                 self._meter.track(
@@ -246,7 +305,17 @@ class _KillableStream:
                     output_tokens=self._output_tokens,
                     parent_span_id=self._parent_span_id,
                     session_id=self._session_id,
+                    reservation_id=self._reservation_id,
+                    reserved_usd=self._reserved_usd,
                     metadata={"_stream_killed": "true"} if killed else None,
                 )
             except Exception as e:
                 _report_metering_error(e, self._on_metering_error)
+            return
+        _release_unused_hold(
+            self._meter,
+            self._customer_id,
+            self._reserved_usd,
+            self._reservation_id,
+            parent_span_id=self._parent_span_id,
+        )

@@ -295,6 +295,8 @@ class TokenEventCustody:
             quarantine_topic=self._config.quarantine_topic,
             timeout_seconds=self._config.timeout_seconds,
             source=ctx.source,
+            reservation_id=ctx.reservation_id,
+            reserved_usd=ctx.reserved_usd,
             max_age_seconds=self._config.max_age_seconds,
             max_future_seconds=self._config.max_future_seconds,
         )
@@ -985,13 +987,19 @@ def _accept_many_impl(
     quarantine_topic: str,
     timeout_seconds: float,
     source: str = "http",
+    reservation_id: str | None = None,
+    reserved_usd: float = 0.0,
     max_age_seconds: int = EVENT_MAX_AGE_SECONDS,
     max_future_seconds: int = EVENT_MAX_FUTURE_SECONDS,
 ) -> list[dict[str, Any]]:
     """Batch custody with the same per-event semantics as accept()."""
     prepared: list[tuple[dict, str]] = []
     for event_dict in events:
-        prepared.append(_prepare_payload(event_dict, tenant_id=tenant_id))
+        prepared.append(
+            _prepare_payload(
+                event_dict, tenant_id=tenant_id, reservation_id=reservation_id
+            )
+        )
 
     results: list[dict | None] = [None] * len(prepared)
     unique: list[tuple[int, dict, str]] = []
@@ -1056,6 +1064,8 @@ def _accept_many_impl(
             api_key_id=api_key_id,
             received_at=received_at,
             source=source,
+            reservation_id=reservation_id,
+            reserved_usd=reserved_usd,
         )
         if suspicious:
             envelope["quarantine"] = {"reason": "event_time_out_of_range"}

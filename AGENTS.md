@@ -77,7 +77,7 @@ ClickHouse cold store (benchmark overlay only; audit copy, not billing truth)
 
 ## Roadmap Context
 
-**Current version:** engine/API **4.8.4** · Python SDK **2.0.1**
+**Current version:** engine/API **4.8.5** · Python SDK **2.0.2**
 **Active phase:** Metering custody / performance hardening (HTTP throughput gates still open)  
 **Done:** Pillar B Intelligence · Phase G Gateway P1 · four deep modules · cold store
 

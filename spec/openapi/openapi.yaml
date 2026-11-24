@@ -4,7 +4,7 @@ info:
   description: |
     Real-time token usage queries, HTTP ingest, and budget enforcement.
     Implements the FluxMeter open spec — see `spec/schema/` and `spec/openapi/`.
-  version: 4.8.4
+  version: 4.8.5
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0
@@ -560,7 +560,11 @@ paths:
           description: Topup applied
   /budget/{customer_id}/reserve:
     post:
-      summary: Pessimistic pre-deduction for streaming
+      summary: Open a named hold before an LLM call
+      description: |
+        Increases held_usd only. Returns reservation_id. Pass that id on the
+        following POST /ingest so Flink can deduct actual usage and release the
+        hold when the window closes. Do not reconcile immediately after ingest.
       parameters:
         - name: customer_id
           in: path
@@ -574,10 +578,14 @@ paths:
             type: number
       responses:
         "200":
-          description: Reserve result
+          description: Reserve result including reservation_id
   /budget/{customer_id}/reconcile:
     post:
-      summary: Reconcile after streaming completes
+      summary: Release an unused hold
+      description: |
+        Aborts a hold that was never ingested. After POST /ingest with
+        reservationId, Flink releases the hold at settlement; this endpoint
+        does not drop held_usd early.
       parameters:
         - name: customer_id
           in: path
@@ -594,9 +602,14 @@ paths:
           required: true
           schema:
             type: number
+        - name: reservation_id
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         "200":
-          description: Reconciled
+          description: Released unused hold, or deferred if Flink still owns it
   /budget/{customer_id}/cap:
     post:
       summary: Set span or session spend cap

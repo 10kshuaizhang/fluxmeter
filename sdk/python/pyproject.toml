@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fluxmeter"
-version = "2.0.1"
+version = "2.0.2"
 description = "Real-time AI token metering and pre-request budget enforcement. Self-hostable, synchronous admission checks, Apache 2.0."
 readme = "README.md"
 license = "Apache-2.0"

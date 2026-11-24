@@ -5,7 +5,7 @@ from fluxmeter.event import TokenEvent
 from fluxmeter.streaming import StreamingWrapper
 from fluxmeter.wrap import BudgetExceededError, StreamKilledError, wrap
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 __all__ = [
     "FluxMeter",
     "DeliveryError",

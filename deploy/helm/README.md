@@ -15,7 +15,7 @@ kubectl create secret generic fluxmeter-secrets \
 helm install fluxmeter ./deploy/helm/fluxmeter \
   -f deploy/helm/fluxmeter/values.yaml \
   --set image.api.repository=your-registry/fluxmeter-api \
-  --set image.api.tag=4.8.4 \
+  --set image.api.tag=4.8.5 \
   --set redis.host=redis-primary \
   --set redis.existingSecret=fluxmeter-secrets \
   --set kafka.brokers=kafka-bootstrap:9092

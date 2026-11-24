@@ -1,10 +1,10 @@
 image:
   api:
     repository: your-registry/fluxmeter-api
-    tag: "4.8.4"
+    tag: "4.8.5"
   webhookWorker:
     repository: your-registry/fluxmeter-webhook
-    tag: "4.8.4"
+    tag: "4.8.5"
 
 api:
   replicas: 2

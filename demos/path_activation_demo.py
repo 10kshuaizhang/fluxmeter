@@ -48,7 +48,11 @@ def self_check_stream_kill() -> None:
     meter = MagicMock()
     meter._api_url = "http://x"
     meter.check.return_value = {"allowed": True}
-    meter.reserve.return_value = {"allowed": True, "reserved_usd": 0.00001}
+    meter.reserve.return_value = {
+        "allowed": True,
+        "reserved_usd": 0.00001,
+        "reservation_id": "res-demo",
+    }
 
     chunk = SimpleNamespace(
         choices=[SimpleNamespace(delta=SimpleNamespace(content="x" * 80))],
@@ -77,7 +81,9 @@ def self_check_stream_kill() -> None:
     except StreamKilledError:
         killed = True
     assert killed, "expected StreamKilledError"
-    meter.reconcile.assert_called()
+    meter.track.assert_called()
+    assert meter.track.call_args.kwargs["reservation_id"] == "res-demo"
+    meter.reconcile.assert_not_called()
     print("ok  mid-stream kill when est cost exceeds reserve")
 
 

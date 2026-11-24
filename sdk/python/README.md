@@ -43,7 +43,7 @@ See the [API reference](../../../docs/api-reference.md) and [v4 migration guide]
 
 ## OpenAI wrapper: observe metering failures
 
-Python SDK **2.0.1** is versioned separately from engine/API **4.8.4** and JS SDK
+Python SDK **2.0.2** is versioned separately from engine/API **4.8.5** and JS SDK
 **2.0.0**. Repository version does not confirm package-index publication.
 
 ```python
@@ -62,10 +62,12 @@ client = wrap(openai_client, meter, customer_id="cust_123",
               fail_open=False, on_metering_error=metering_failed)
 ```
 
-The callback receives the original exception on non-streaming tracking failures,
-stream tracking failures, and stream reconciliation failures. A warning is always
-logged. For compatibility, the provider result remains available and callback
-exceptions are logged rather than replacing that result. Do not retry a provider
-call just because its metering failed: recover delivery of the original usage.
-`fail_open` controls admission failure behavior only. Checks create no hold;
-streaming guards may estimate tokens and do not guarantee zero overspend.
+The callback receives the original exception on non-streaming tracking failures
+and stream tracking failures. A warning is always logged. For compatibility, the
+provider result remains available and callback exceptions are logged rather than
+replacing that result. Do not retry a provider call just because its metering
+failed: recover delivery of the original usage.
+`fail_open` controls admission failure behavior only. `wrap()` reserves before
+every call (streaming and not) and attaches `reservationId` on track so Flink
+releases the hold at settlement. Do not call `reconcile` immediately after
+`/ingest`. Unused holds (provider failure) are released immediately.
