@@ -12,10 +12,12 @@ make demo
 # API:      http://localhost:8000
 ```
 
-Set a customer budget (admin key optional in demo):
+Set a customer budget. The body must be JSON (`balance_usd` as a query string returns 422):
 
 ```bash
-curl -X POST "http://localhost:8000/budget/cust_1?balance_usd=10"
+curl -sS -X POST http://localhost:8000/budget/cust_1 \
+  -H 'Content-Type: application/json' \
+  -d '{"balance_usd": 10}'
 ```
 
 Call OpenAI through the gateway:
@@ -23,7 +25,7 @@ Call OpenAI through the gateway:
 ```bash
 export OPENAI_API_KEY=sk-...
 
-curl -X POST http://localhost:8080/v1/chat/completions \
+curl -sS -X POST http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "X-FluxMeter-Customer-Id: cust_1" \
   -H "Authorization: Bearer $OPENAI_API_KEY" \
@@ -33,10 +35,18 @@ curl -X POST http://localhost:8080/v1/chat/completions \
   }'
 ```
 
-Verify usage (no SDK required):
+Without a provider key, meter a synthetic event instead (same customer as the budget above):
 
 ```bash
-curl http://localhost:8000/usage/cust_1
+curl -sS -X POST http://localhost:8000/ingest \
+  -H 'Content-Type: application/json' \
+  -d '{"eventId":"gw-qs-1","customerId":"cust_1","modelId":"gpt-4o-mini","inputTokens":12,"outputTokens":8}'
+```
+
+Verify usage. The path is `/usage/customer/{id}` (`/usage/{id}` returns 404). The customer exists only after Flink has projected at least one event (~10–15s); poll until HTTP 200:
+
+```bash
+curl -sS http://localhost:8000/usage/customer/cust_1
 ```
 
 Mock self-check (no OpenAI):

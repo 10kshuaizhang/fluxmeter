@@ -1,6 +1,6 @@
 # A complete local customer-usage trial
 
-Engine/API 4.8.4. No model-provider key is needed. Use a local development machine
+Engine/API 4.8.5. No model-provider key is needed. Use a local development machine
 with Git, Java 17, Docker + Docker Compose, and Python 3.10+ (`python3`). The demo
 runs Kafka, Flink, Redis, API, Gateway, and Grafana; allow memory for the full stack.
 

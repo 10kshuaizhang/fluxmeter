@@ -938,11 +938,12 @@ The API itself has no built-in rate limiting. The `/budget/{id}/check` endpoint 
 ### Python SDK
 
 ```bash
-pip install fluxmeter
+pip install "fluxmeter>=2.0.2"
+# DeliveryError requires >=2.0.2; do not use PyPI 1.5.0 for that import.
 ```
 
 ```python
-from fluxmeter import FluxMeter
+from fluxmeter import DeliveryError, FluxMeter
 
 meter = FluxMeter(
     api_url="http://localhost:8000",

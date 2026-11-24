@@ -65,7 +65,7 @@ Operational procedures for recovering billing state after infrastructure failure
 5. Verify counters match expected order-of-magnitude:
    ```bash
    curl http://localhost:8000/usage/global
-   curl http://localhost:8000/usage/cust_1
+   curl http://localhost:8000/usage/customer/cust_1
    ```
 
 **RTO target:** 15–30 minutes for full replay (depends on Kafka volume).

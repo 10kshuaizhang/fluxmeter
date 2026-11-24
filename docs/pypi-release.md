@@ -32,9 +32,10 @@ cd sdk/python
 pip install -e ".[dev]"
 pytest tests/ -v
 
-# 3. Build
+# 3. Build and check metadata (do not upload yet)
 python3 -m pip install --upgrade build twine
 python3 -m build
+python3 -m twine check dist/*
 
 # 4. TestPyPI (dry run)
 python3 -m twine upload --repository testpypi dist/*
@@ -69,9 +70,27 @@ Manual trigger: Actions → **Publish Python SDK to PyPI** → **Run workflow**.
 
 ## After release
 
-- Verify: `pip install fluxmeter==<version>`
+- Verify: `pip install fluxmeter==2.0.2` (or `pip install "fluxmeter>=2.0.2"`)
+- Confirm `from fluxmeter import DeliveryError` succeeds (requires >=2.0.2; 1.5.0 raises ImportError)
 - Update root `changLog.md` and `progress.md`
-- Confirm README `pip install fluxmeter` works for new users
+- Confirm README install commands work for new users
+
+Do not claim sub-10ms checks in `pyproject.toml` `description` or `sdk/python/README.md` (the PyPI long description). Check latency is deployment-dependent.
+
+## Publish command (2.0.2)
+
+Local (API token from PyPI → Account settings → API tokens; username is `__token__`):
+
+```bash
+cd sdk/python
+python3 -m pip install --upgrade build twine
+python3 -m build
+python3 -m twine check dist/*
+TWINE_USERNAME=__token__ TWINE_PASSWORD=pypi-<token> \
+  python3 -m twine upload dist/*
+```
+
+Or GitHub Actions Trusted Publisher: PyPI project → Publishing → pending publisher for owner/repo `10kshuaizhang/fluxmeter`, workflow `pypi-publish.yml`, then Actions → **Publish Python SDK to PyPI** → **Run workflow**, or publish a GitHub Release whose tag triggers that workflow. Do not commit tokens.
 
 ## Troubleshooting
 
