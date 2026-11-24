@@ -218,6 +218,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-11-24** — Java CI `gradle.yml` used invalid job key `continue-on-failure` (PR #6), so every `main` run failed at workflow parse with 0s duration. Replaced with `continue-on-error`; `dependency-graph-continue-on-failure` is unchanged. Engine version unchanged.
 - **2026-11-24** — **v4.8.5 runaway wow demo**: `make demo-runaway` runs the same $0.30 / $0.03-per-call agent loop twice on a warm stack with a local mock (no provider key) — unguarded vs FluxMeter Gateway — and prints calls, spend, budget, overspend/debt, and time to stop. Optional `demo-runaway.tape`. Uses the Gateway path.
 - **2026-11-24** — **v4.8.5 DX P0-2 install path** (rebased onto P0-1): removed 404 `npm install @fluxmeter/client` from README/SDK docs in favor of a local path; fixed `docs/gateway.md` budget JSON and `/usage/customer/{id}` curls; Python SDK **2.0.2** long description uses deployment-dependent check wording (`twine check`, no PyPI upload). `pip install "fluxmeter>=2.0.2"`; `DeliveryError` requires >=2.0.2.
 - **2026-11-24** — **v4.8.5 P0-1 budget interception**: Python `wrap(OpenAI())` reserves before non-streaming calls, HTTP reserve opens a named hold, ingest attaches `reservationId`, and reconcile after ingest no longer drops `held_usd` before Flink settlement. Python SDK **2.0.2**. Local wrap runaway ($0.30 / $0.03): tight 9 calls $0.27 debt $0.00 in 0.1s; 1/sec 9 calls $0.27 debt $0.00 in 9.1s.

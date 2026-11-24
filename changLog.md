@@ -6,6 +6,11 @@ Format: `[version] — date — summary`
 
 ---
 
+## [Unreleased]
+
+### Fixed
+- Java CI workflow parses again: job-level `continue-on-failure` (invalid GitHub Actions syntax since PR #6) is now `continue-on-error`, so Gradle CI can start. `dependency-submission` remains non-blocking. Engine and SDK versions are unchanged.
+
 ## [4.8.5] — 2026-11-24
 
 ### Fixed
