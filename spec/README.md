@@ -20,8 +20,8 @@ This layer is the **growth engine**: SDKs and integrations target these artifact
 
 | SDK | Path | Package |
 |-----|------|---------|
-| Python | [`../sdk/python/`](../../sdk/python/) | `pip install fluxmeter` |
-| JavaScript/TypeScript | [`../sdk/js/`](../../sdk/js/) | `npm install @fluxmeter/client` |
+| Python | [`../sdk/python/`](../../sdk/python/) | `pip install "fluxmeter>=2.0.2"` (`DeliveryError` requires >=2.0.2) |
+| JavaScript/TypeScript | [`../sdk/js/`](../../sdk/js/) | Not on npm yet. Local path after `cd sdk/js && npm install && npm run build` |
 
 ## Community extensions
 

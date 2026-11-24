@@ -48,7 +48,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Reserve → meter → kill → audit proof | Done — `make demo-proof`; live Gateway/Kafka/Flink/Redis/ClickHouse assertions, no provider key |
 | Public HTTP throughput evidence | Partial — the 35-minute independent-host Custody run accepted 18,063,140 events at 10,034.90 eps, p50 36ms / p99 173ms, with zero rejection/transport error. It passed the 50/200ms SLO but the strict verdict failed on 26,949 generator drops. Fixing benchmark Job parallelism from 2 to 12 raised a full-stack 60-second sample to 7,772 eps and left only 333 lag; a split-Redis A/B peaked at 9,197 eps but missed latency. The 100K batch stage reached 32,567 eps, so sustained full-pipeline gates remain open |
 | Pricing catalog + exporter maintenance | Ongoing |
-| Python SDK + JS npm publish | Partial — HTTP-only 2.0.0 packages ready for release |
+| Python SDK + JS npm publish | Partial — Python **2.0.2** sdist/wheel built and `twine check` passed locally; **not uploaded to PyPI** (index still 1.5.0 until a token/Trusted Publisher publish). JS `@fluxmeter/client` is pack-ready 2.0.0 and **not on npm**; docs now say local path install instead of a 404 `npm install` |
 | Phase G Gateway proxy (side track, non-blocking) | Done — `gateway_app.py` + `:8080` + docs/gateway.md |
 
 ## Foundation F4 Checklist (v2.8 complementary export) — **done**
@@ -217,6 +217,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-11-24** — **v4.8.5 DX P0-2 install path** (rebased onto P0-1): removed 404 `npm install @fluxmeter/client` from README/SDK docs in favor of a local path; fixed `docs/gateway.md` budget JSON and `/usage/customer/{id}` curls; Python SDK **2.0.2** long description uses deployment-dependent check wording (`twine check`, no PyPI upload). `pip install "fluxmeter>=2.0.2"`; `DeliveryError` requires >=2.0.2.
 - **2026-11-24** — **v4.8.5 P0-1 budget interception**: Python `wrap(OpenAI())` reserves before non-streaming calls, HTTP reserve opens a named hold, ingest attaches `reservationId`, and reconcile after ingest no longer drops `held_usd` before Flink settlement. Python SDK **2.0.2**. Local wrap runaway ($0.30 / $0.03): tight 9 calls $0.27 debt $0.00 in 0.1s; 1/sec 9 calls $0.27 debt $0.00 in 9.1s.
 - **2026-11-02** — Java CI `dependency-submission` now continues on Dependency graph disablement or submit failure (`continue-on-failure` + `dependency-graph-continue-on-failure`), so a green `build` / `local-trial` is no longer blocked. Engine version unchanged.
 - **2026-10-01** — Corrected the strategic positioning guide's unverified latency claim so the canonical source can pass the website deployment gate; clarified checks versus holds and estimated stream cutoff.

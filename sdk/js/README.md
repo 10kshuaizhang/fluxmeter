@@ -4,8 +4,21 @@ HTTP-only JavaScript/TypeScript SDK for [FluxMeter](https://fluxmeter.dev) token
 
 ## Install
 
+`@fluxmeter/client` is **not published on npm yet**. `npm install @fluxmeter/client` returns 404.
+
+Install from this repository after building:
+
 ```bash
-npm install @fluxmeter/client
+# From the engine repository
+cd sdk/js
+npm install
+npm run build
+```
+
+Then, from your application:
+
+```bash
+npm install /absolute/path/to/fluxmeter/sdk/js
 ```
 
 ## Usage

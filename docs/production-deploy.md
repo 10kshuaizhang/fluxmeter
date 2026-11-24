@@ -1,6 +1,6 @@
 # Production Deployment Guide
 
-Engine/API **4.8.4**. Use [the local trial](quickstart.md) first. The base Compose
+Engine/API **4.8.5**. Use [the local trial](quickstart.md) first. The base Compose
 stack and its production overlay are a single-host reference, not an HA deployment.
 The [Helm chart](../deploy/helm/README.md) deploys the API only; Kafka, Redis,
 Flink, and any optional Gateway/webhook worker must be provisioned separately.
@@ -22,12 +22,12 @@ From the repository root (Java 17 and Docker required):
 
 ```bash
 ./gradlew clean build shadowJar
-# Deployable JAR: build/libs/fluxmeter-4.8.4.jar
+# Deployable JAR: build/libs/fluxmeter-4.8.5.jar
 # Docker staging copy: build/docker/fluxmeter.jar
-# fluxmeter-4.8.4-plain.jar is the thin application artifact, not the Flink job.
-docker build -f api/Dockerfile -t your-registry/fluxmeter-api:4.8.4 .
-docker build -f api/Dockerfile.webhook -t your-registry/fluxmeter-webhook:4.8.4 .
-docker build -f flink/Dockerfile -t your-registry/fluxmeter-flink:4.8.4 .
+# fluxmeter-4.8.5-plain.jar is the thin application artifact, not the Flink job.
+docker build -f api/Dockerfile -t your-registry/fluxmeter-api:4.8.5 .
+docker build -f api/Dockerfile.webhook -t your-registry/fluxmeter-webhook:4.8.5 .
+docker build -f flink/Dockerfile -t your-registry/fluxmeter-flink:4.8.5 .
 ```
 
 Replace `your-registry` with your registry, push the built images there, and pin
@@ -103,7 +103,7 @@ kind: FlinkDeployment
 metadata:
   name: fluxmeter
 spec:
-  image: your-registry/fluxmeter-flink:4.8.4
+  image: your-registry/fluxmeter-flink:4.8.5
   flinkVersion: v1_18
   serviceAccount: flink
   flinkConfiguration:
@@ -175,7 +175,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: your-registry/fluxmeter-api:4.8.4
+          image: your-registry/fluxmeter-api:4.8.5
           ports:
             - containerPort: 8000
           env:

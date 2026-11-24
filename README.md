@@ -2,13 +2,13 @@
 
 **Website:** [fluxmeter.dev](https://fluxmeter.dev) · **Docs:** [fluxmeter.dev/docs](https://fluxmeter.dev/docs) · **Blog:** [Agent cost control](https://fluxmeter.dev/blog/stop-runaway-agent-costs)
 
-Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request. All public usage events enter through HTTP; `202` means Kafka acknowledged the event and FluxMeter finalized its tenant-scoped retry identity before Flink performs billing and aggregation. **v4.8.4** aligns the first trial, API contract, deployment examples, and capacity claims. Flink projection idempotency stays bounded to its crash-safety horizon rather than a second 30-day event registry.
+Open-source, self-hostable **real-time AI token metering and budget enforcement**. Call `GET /budget/{id}/check` before every LLM request. All public usage events enter through HTTP; `202` means Kafka acknowledged the event and FluxMeter finalized its tenant-scoped retry identity before Flink performs billing and aggregation. **v4.8.5** aligns the first trial, API contract, deployment examples, and capacity claims. Flink projection idempotency stays bounded to its crash-safety horizon rather than a second 30-day event registry.
 
 **When to use FluxMeter:** prepaid token wallets, agent loop cost control, self-hosted LLM metering, export to Stripe/Lago/Orb/Metronome.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v4.8.4** · **Open spec + HTTP SDKs** · **Synchronous budget admission** · **Multi-provider**
+**[fluxmeter.dev](https://fluxmeter.dev)** — overview, quick start, architecture · **v4.8.5** · **Open spec + HTTP SDKs** · **Synchronous budget admission** · **Multi-provider**
 
 **Links:** [Website](https://fluxmeter.dev) · [GitHub](https://github.com/10kshuaizhang/fluxmeter) · [PyPI](https://pypi.org/project/fluxmeter/) · [Docs](https://github.com/10kshuaizhang/fluxmeter/tree/main/docs) · [API reference](docs/api-reference.md) · [OpenAPI](spec/openapi/openapi.yaml)
 
@@ -95,9 +95,15 @@ Starts Kafka, Flink, Redis, and the API. Open:
 
 ## Integration
 
-**Python SDK** (HTTP, retry-safe event IDs):
+**Python SDK** (HTTP, retry-safe event IDs). Install **2.0.2 or newer**; `from fluxmeter import DeliveryError` is not in 1.5.0:
+
+```bash
+pip install "fluxmeter>=2.0.2"
+# or pin: pip install fluxmeter==2.0.2
+```
+
 ```python
-from fluxmeter import FluxMeter
+from fluxmeter import DeliveryError, FluxMeter
 
 meter = FluxMeter(api_url="http://localhost:8000")
 meter.track_openai("cust_123", openai_response, latency_ms=1200)
@@ -118,7 +124,14 @@ except BudgetExceededError:
 
 The wrapper logs a warning if post-call metering fails; use `on_metering_error` to route failures to your recovery/alerting path. `fail_open` controls admission failures, not metering delivery. See the [Python SDK](sdk/python/README.md).
 
-**JavaScript SDK** (HTTP):
+**JavaScript SDK** (HTTP). `@fluxmeter/client` is **not published on npm yet** (`npm install @fluxmeter/client` 404s). From a clone of this repository, build then install the local path:
+
+```bash
+cd sdk/js && npm install && npm run build
+# from your app:
+npm install /path/to/fluxmeter/sdk/js
+```
+
 ```typescript
 import { FluxMeter } from "@fluxmeter/client";
 const meter = new FluxMeter({ apiUrl: "http://localhost:8000" });

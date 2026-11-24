@@ -57,7 +57,7 @@ Some implementation details:
 
 - One deployment path: HTTP API + Kafka + Flink + Redis, `make demo`
 - SaaS-style control plane scaffold: `make start-saas`
-- HTTP-only Python SDK 2.0.1 in this checkout: `pip install ./sdk/python` (package-index publication not reverified)
+- HTTP-only Python SDK 2.0.2 in this checkout: `pip install "fluxmeter>=2.0.2"` (package-index publication not reverified; local path: `pip install ./sdk/python`)
 - HTTP-only JS SDK in repo
 - External pricing config via JSON + admin API
 - Microdollar precision using integer arithmetic

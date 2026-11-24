@@ -2,10 +2,25 @@
 
 HTTP-only Python SDK for [FluxMeter](https://fluxmeter.dev) token metering and budget enforcement.
 
+Budget checks are synchronous Redis reads. Latency is **deployment-dependent** (load, Redis, and network).
+
+Python SDK **2.0.2** is versioned separately from engine/API **4.8.5** and JS SDK
+**2.0.0**. Repository version does not confirm package-index publication.
+
 ## Install
 
+Requires **2.0.2 or newer**. PyPI 1.5.0 does not export `DeliveryError`;
+`from fluxmeter import DeliveryError` fails on that release.
+
 ```bash
-# From the engine repository root; installs this checkout
+pip install "fluxmeter>=2.0.2"
+# or pin:
+pip install fluxmeter==2.0.2
+```
+
+From a clone of this repository (before 2.0.2 is on PyPI, or to test a checkout):
+
+```bash
 pip install ./sdk/python
 ```
 
@@ -42,9 +57,6 @@ See the [API reference](../../../docs/api-reference.md) and [v4 migration guide]
 
 
 ## OpenAI wrapper: observe metering failures
-
-Python SDK **2.0.2** is versioned separately from engine/API **4.8.5** and JS SDK
-**2.0.0**. Repository version does not confirm package-index publication.
 
 ```python
 import logging
