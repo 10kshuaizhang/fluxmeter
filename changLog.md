@@ -8,6 +8,9 @@ Format: `[version] — date — summary`
 
 ## [Unreleased]
 
+### Added
+- `examples/wrap_runaway.py`: self-contained SDK `wrap(OpenAI())` runaway reproduction for the blog article. Local mock upstream (no provider key), script-owned $0.30 budget, depends on PyPI `fluxmeter>=2.0.2` plus `openai`. Engine and SDK code are unchanged.
+
 ### Fixed
 - Java CI workflow parses again: job-level `continue-on-failure` (invalid GitHub Actions syntax since PR #6) is now `continue-on-error`, so Gradle CI can start. `dependency-submission` remains non-blocking. Engine and SDK versions are unchanged.
 
