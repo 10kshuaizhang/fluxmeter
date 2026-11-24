@@ -8,9 +8,21 @@ Format: `[version] — date — summary`
 
 ## [Unreleased]
 
+## [4.8.5] — 2026-11-24
+
 ### Fixed
-- Java CI no longer fails the whole Gradle workflow when GitHub Dependency graph submission is disabled or otherwise errors; `build` and `local-trial` remain required. Engine and SDK versions are unchanged.
-- Correct the strategic positioning guide's unsupported budget-check latency promise and distinguish checks, reservations, and estimated stream cutoff. Documentation correction only; engine and SDK versions are unchanged.
+- Python `wrap(OpenAI())` now reserves before non-streaming calls as well as streaming ones, and attaches `reservationId` on ingest so Flink releases the hold at settlement instead of dropping it right after `/ingest`.
+- `POST /budget/{id}/reserve` opens a named hold; `POST /ingest` copies `reservationId` onto the trusted envelope; `POST /budget/{id}/reconcile` after ingest is a no-op for that hold (Flink still owns `held_usd`).
+- Documented the real reserve → ingest → Flink deduct-and-release order in `docs/api-reference.md`.
+- Java CI no longer fails the whole Gradle workflow when GitHub Dependency graph submission is disabled or otherwise errors; `build` and `local-trial` remain required.
+- Correct the strategic positioning guide's unsupported budget-check latency promise and distinguish checks, reservations, and estimated stream cutoff.
+
+### Added
+- Runaway-agent regression: wrap unit tests plus HTTP reserve/ingest/reconcile hold tests (mock upstream, no provider key).
+
+### Notes
+- Python SDK **2.0.2**. Engine/API **4.8.5**. JS SDK unchanged.
+- Local `make demo` wrap runaway ($0.30 budget, $0.03 estimate, mock OpenAI): tight loop admitted 9 calls / $0.27 / debt $0.00 / first deny 0.1s; 1 call/sec admitted 9 / $0.27 / debt $0.00 / first deny 9.1s.
 
 ## [4.8.4] — 2026-09-30
 

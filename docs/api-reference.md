@@ -67,13 +67,17 @@ The sole public usage-event entrance. FluxMeter authenticates the request, creat
   "parentSpanId": "span_parent_42",
   "sessionId": "sess_123",
   "latencyMs": 1340,
-  "environment": "production"
+  "environment": "production",
+  "reservationId": "c0ffee00-aaaa-bbbb-cccc-ddddeeeeffff",
+  "reservedUsd": 0.05
 }
 ```
 
 **Required fields:** `customerId`, `modelId`
 
-**Auto-generated if omitted:** `eventId` (UUID), `timestamp` (current time). An auto-generated ID is unique only to that HTTP attempt; supply a stable ID to make retries idempotent. FluxMeter SDKs and Gateway do this automatically.
+**Optional hold:** `reservationId` / `reservedUsd` from `POST /budget/{id}/reserve`. The server copies them onto the trusted envelope (not the billing payload) so Flink can release the hold when it deducts actual usage.
+
+**Auto-generated if omitted:** `eventId` (UUID), `timestamp` (current time). An auto-generated ID is unique only to that HTTP attempt; supply a stable ID to make retries idempotent. FluxMeter SDKs and Gateway do this automatically. When `reservationId` is set, custody uses the stable identity `res:{reservationId}`.
 
 **Response:** `202 Accepted`
 ```json
@@ -428,23 +432,24 @@ Uses **effective balance** = `balance_usd - held_usd`. Active streaming reserves
 
 ### Streaming billing flow (Module 6)
 
-Single-path deduction: **only the Flink Sink changes `balance_usd`**. Reserve/reconcile manage `held_usd` only.
+Single-path deduction: **only the Flink Sink changes `balance_usd`**. Reserve/reconcile manage `held_usd` only. Flink also releases the matching named hold when that window settles.
 
 ```
-Your app → GET /budget/cust_123/check (< 10ms)
-           → allowed: true → proceed with LLM call
+Your app → GET /budget/cust_123/check
+           → allowed: true → proceed
            → allowed: false → reject, return 402
 
-Streaming (optional):
-  POST /budget/cust_123/reserve  → holds estimate (balance unchanged)
-  → LLM stream → POST /ingest
-  → POST /budget/cust_123/reconcile → releases hold
-  (Flink Sink deducts actual cost in 10s windows — single path, no double-charge)
+Every LLM call (streaming and non-streaming):
+  POST /budget/cust_123/reserve  → named hold (balance unchanged); response includes reservation_id
+  → LLM call
+  → POST /ingest {..., reservationId, reservedUsd}
+  → Kafka → Flink (10s window) → Redis: deduct actual cost AND release that hold
 
-After each LLM call:
-Your app → POST /ingest {customerId, modelId, inputTokens, outputTokens}
-           → Kafka → Flink (10s window) → Redis (atomic deduction) → Kafka alert / webhook
+Abort only (provider failed, no usage ingested):
+  POST /budget/cust_123/reconcile?reservation_id=...  → releases the unused hold
 ```
+
+Do **not** call `reconcile` immediately after `/ingest`. That would drop `held_usd` before Flink deducts `balance_usd` and let a tight loop overspend. Python `wrap(OpenAI())` attaches `reservationId` on track and leaves the hold for Flink.
 
 **Do not** expect `balance_usd` to drop on `reserve` or rise on `reconcile`. Actual cost is applied when the aggregation window closes in `BudgetEnforcerSink`.
 
@@ -452,7 +457,7 @@ Your app → POST /ingest {customerId, modelId, inputTokens, outputTokens}
 
 ### `POST /budget/{customer_id}/reserve`
 
-Reserve budget **hold** for streaming responses. Increases `held_usd` only — does **not** deduct `balance_usd`.
+Open a named budget **hold** for the next LLM call (streaming or not). Increases `held_usd` only — does **not** deduct `balance_usd`. Returns `reservation_id`; pass it on the following `/ingest` so Flink can release the hold at settlement.
 
 **Auth:** Admin key
 
@@ -464,6 +469,7 @@ Reserve budget **hold** for streaming responses. Increases `held_usd` only — d
 ```json
 {
   "allowed": true,
+  "reservation_id": "c0ffee00-aaaa-bbbb-cccc-ddddeeeeffff",
   "balance_usd": 50.0,
   "held_usd": 0.50,
   "effective_balance_usd": 49.50,
@@ -489,13 +495,14 @@ If effective balance < estimate:
 
 ### `POST /budget/{customer_id}/reconcile`
 
-Release hold after streaming completes. Does **not** credit or debit `balance_usd` (Flink Sink already deducted actual usage).
+Release an **unused** hold (provider failed, or the call produced no ingest). Does **not** credit or debit `balance_usd`. After a successful `/ingest` with `reservationId`, this endpoint is a no-op for that hold: **Flink releases `held_usd` when it deducts actual usage**.
 
 **Auth:** Admin key
 
 **Query params:**
-- `reserved_usd` (float): Amount originally reserved (released from `held_usd`)
+- `reserved_usd` (float): Amount originally reserved
 - `actual_usd` (float, optional): Actual cost for your logs; not used to adjust balance
+- `reservation_id` (string, optional): Named hold to abort; ignored once that hold has been ingested
 - `parent_span_id` (string, optional): Release matching span hold when reserve used hierarchy
 
 **Response:** `200 OK`

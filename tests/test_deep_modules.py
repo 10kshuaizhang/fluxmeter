@@ -109,3 +109,51 @@ def test_reservation_settle_and_expire_are_idempotent():
     assert reservations.expire_due(now=60) == 1
     assert reservations.expire_due(now=60) == 0
     assert float(r.get("budget:c1:held_usd")) == 0
+
+
+def test_ingested_reservation_is_not_released_by_reconcile():
+    r = fakeredis.FakeRedis(decode_responses=True)
+    Budget(r, None, cache={}).configure("c1", 1.0)
+    reservations = Reservation(r, None, clock=lambda: 100)
+    opened = reservations.open("hold-1", customer_id="c1", estimated_cost_usd=0.30)
+    assert opened["allowed"] is True
+    assert float(r.get("budget:c1:held_usd")) == pytest.approx(0.30)
+
+    assert reservations.mark_ingested("hold-1") is True
+    result = reservations.reconcile("c1", 0.30, reservation_id="hold-1")
+    assert result["released_usd"] == pytest.approx(0.0)
+    assert result.get("deferred") is True
+    assert float(r.get("budget:c1:held_usd")) == pytest.approx(0.30)
+    assert r.exists("reservation:hold-1")
+
+    amount = reservations.reconcile("c1", 0.30)
+    assert amount["released_usd"] == pytest.approx(0.0)
+    assert float(r.get("budget:c1:held_usd")) == pytest.approx(0.30)
+
+
+def test_unused_named_hold_still_releases_on_reconcile():
+    r = fakeredis.FakeRedis(decode_responses=True)
+    Budget(r, None, cache={}).configure("c1", 1.0)
+    reservations = Reservation(r, None, clock=lambda: 100)
+    reservations.open("unused", customer_id="c1", estimated_cost_usd=0.30)
+    result = reservations.reconcile("c1", 0.30, reservation_id="unused")
+    assert result["released_usd"] == pytest.approx(0.30)
+    assert float(r.get("budget:c1:held_usd")) == pytest.approx(0.0)
+
+
+def test_named_holds_cap_a_runaway_reserve_loop():
+    r = fakeredis.FakeRedis(decode_responses=True)
+    Budget(r, None, cache={}).configure("runaway", 0.30)
+    reservations = Reservation(r, None, clock=lambda: 100)
+    admitted = 0
+    for i in range(50):
+        hold = reservations.open(
+            f"loop-{i}", customer_id="runaway", estimated_cost_usd=0.03
+        )
+        if not hold.get("allowed"):
+            break
+        admitted += 1
+    assert 9 <= admitted <= 10
+    assert hold["reason"] == "insufficient_balance"
+    assert admitted * 0.03 <= 0.30 + 1e-9
+    assert float(r.get("budget:runaway:held_usd")) <= 0.30 + 1e-9

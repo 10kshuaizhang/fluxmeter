@@ -2,7 +2,7 @@
 
 Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [changLog.md](changLog.md) for version history and [ROADMAP.md](ROADMAP.md) for forward-looking plan.
 
-**Current version:** 4.8.4 · Python SDK **2.0.1**
+**Current version:** 4.8.5 · Python SDK **2.0.2**
 **Current phase:** Metering custody/performance hardening (**active**) · Pillar B Intelligence (**complete/demand-gated**) · Phase G Gateway (**done**)
 **Design status:** APPROVED (2026-06-16) · Intelligence pivot APPROVED (2026-07-11)  
 **Research:** [docs/industry-billing-research-2026.md](docs/industry-billing-research-2026.md) · plan: [ROADMAP.md](ROADMAP.md) · pivot: [docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md](docs/superpowers/specs/2026-07-11-intelligence-pivot-design.md)
@@ -67,7 +67,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 | Item | Status |
 |------|--------|
 | Mid-stream kill demo (GIF + thin proxy/SDK path) | Done — `demos/path_activation_demo.py` (+ `--live`); StreamKilledError in wrap |
-| Wrap SDK `wrap(OpenAI())` fail-open (Python) | Done — SDK 1.4.0 `fluxmeter.wrap` on PyPI |
+| Wrap SDK `wrap(OpenAI())` fail-open (Python) | Done — SDK 2.0.2 reserves non-streaming and streaming; Flink releases the hold |
 | npm publish `@fluxmeter/client` | Pack-ready **1.3.0** + `.github/workflows/npm-publish.yml`; set repo secret `NPM_TOKEN` then run workflow |
 | Lite budget webhook (no Kafka dependency) | Done — `webhook_deliver` on Lite `/ingest` |
 | Light hierarchy caps (parent span/session at `check`) | Done — `POST /budget/{id}/cap` |
@@ -217,6 +217,7 @@ Tracks implementation status against [docs/DESIGN.md](docs/DESIGN.md). See [chan
 
 ## Recent Activity
 
+- **2026-11-24** — **v4.8.5 P0-1 budget interception**: Python `wrap(OpenAI())` reserves before non-streaming calls, HTTP reserve opens a named hold, ingest attaches `reservationId`, and reconcile after ingest no longer drops `held_usd` before Flink settlement. Python SDK **2.0.2**. Local wrap runaway ($0.30 / $0.03): tight 9 calls $0.27 debt $0.00 in 0.1s; 1/sec 9 calls $0.27 debt $0.00 in 9.1s.
 - **2026-11-02** — Java CI `dependency-submission` now continues on Dependency graph disablement or submit failure (`continue-on-failure` + `dependency-graph-continue-on-failure`), so a green `build` / `local-trial` is no longer blocked. Engine version unchanged.
 - **2026-10-01** — Corrected the strategic positioning guide's unverified latency claim so the canonical source can pass the website deployment gate; clarified checks versus holds and estimated stream cutoff.
 

@@ -38,12 +38,14 @@ def test_wrap_denies_when_budget_exhausted():
         client.chat.completions.create(model="gpt-4o-mini", messages=[])
     assert ei.value.gate["reason"] == "budget_exhausted"
     original.assert_not_called()
+    meter.reserve.assert_not_called()
 
 
 def test_wrap_fail_open_on_check_error():
     meter = MagicMock()
     meter._api_url = "http://x"
     meter.check.side_effect = RuntimeError("down")
+    meter.reserve.side_effect = RuntimeError("down")
     meter.track_openai = MagicMock()
 
     create = MagicMock(return_value=SimpleNamespace(id="1", model="gpt-4o-mini", usage=SimpleNamespace(
@@ -56,11 +58,59 @@ def test_wrap_fail_open_on_check_error():
     meter.track_openai.assert_called_once()
 
 
+def test_wrap_non_stream_reserves_and_does_not_reconcile_after_track():
+    meter = MagicMock()
+    meter._api_url = "http://x"
+    meter.check.return_value = {"allowed": True}
+    meter.reserve.return_value = {
+        "allowed": True,
+        "reserved_usd": 0.05,
+        "reservation_id": "res-1",
+    }
+    meter.track_openai = MagicMock()
+    response = SimpleNamespace(id="cmpl-1")
+    original = MagicMock(return_value=response)
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=original)))
+    wrap(client, meter, "cust", fail_open=False, estimated_cost_usd=0.05)
+
+    assert client.chat.completions.create(model="gpt-4o", messages=[]) is response
+    meter.reserve.assert_called_once()
+    meter.track_openai.assert_called_once()
+    kwargs = meter.track_openai.call_args.kwargs
+    assert kwargs["reservation_id"] == "res-1"
+    assert kwargs["reserved_usd"] == 0.05
+    meter.reconcile.assert_not_called()
+
+
+def test_wrap_releases_unused_hold_when_provider_fails():
+    meter = MagicMock()
+    meter._api_url = "http://x"
+    meter.check.return_value = {"allowed": True}
+    meter.reserve.return_value = {
+        "allowed": True,
+        "reserved_usd": 0.05,
+        "reservation_id": "res-fail",
+    }
+    original = MagicMock(side_effect=RuntimeError("upstream down"))
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=original)))
+    wrap(client, meter, "cust", fail_open=False, estimated_cost_usd=0.05)
+
+    with pytest.raises(RuntimeError, match="upstream down"):
+        client.chat.completions.create(model="gpt-4o", messages=[])
+    meter.reconcile.assert_called_once()
+    assert meter.reconcile.call_args.kwargs["reservation_id"] == "res-fail"
+    meter.track_openai.assert_not_called()
+
+
 def test_killable_stream_raises_when_over_reserve():
     meter = MagicMock()
     meter._api_url = "http://x"
     meter.check.return_value = {"allowed": True}
-    meter.reserve.return_value = {"allowed": True, "reserved_usd": 0.00001}
+    meter.reserve.return_value = {
+        "allowed": True,
+        "reserved_usd": 0.00001,
+        "reservation_id": "res-stream",
+    }
 
     # Long content → many est tokens → exceed tiny reserve
     chunk = SimpleNamespace(
@@ -87,7 +137,10 @@ def test_killable_stream_raises_when_over_reserve():
     with pytest.raises(StreamKilledError):
         for _ in stream:
             pass
-    meter.reconcile.assert_called()
+    meter.track.assert_called()
+    kwargs = meter.track.call_args.kwargs
+    assert kwargs["reservation_id"] == "res-stream"
+    meter.reconcile.assert_not_called()
 
 
 @pytest.mark.parametrize("callback_fails", [False, True])
@@ -98,7 +151,9 @@ def test_wrap_warns_and_reports_delivery_error_without_repeating_provider(caplog
     original = MagicMock(return_value=response)
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=original)))
     meter = MagicMock()
+    meter._api_url = "http://x"
     meter.check.return_value = {"allowed": True}
+    meter.reserve.return_value = {"allowed": True, "reserved_usd": 0.05, "reservation_id": "r"}
     error = DeliveryError("stable-event-id", "delivery failed")
     meter.track_openai.side_effect = error
     callback = MagicMock(side_effect=RuntimeError("callback unavailable") if callback_fails else None)
@@ -110,11 +165,14 @@ def test_wrap_warns_and_reports_delivery_error_without_repeating_provider(caplog
     assert "FluxMeter metering failed (DeliveryError)" in caplog.text
     if callback_fails:
         assert "callback failed" in caplog.text
+    meter.reconcile.assert_not_called()
 
 
 def test_wrap_metering_failure_is_visible_without_callback(caplog):
     meter = MagicMock()
+    meter._api_url = "http://x"
     meter.check.return_value = {"allowed": True}
+    meter.reserve.return_value = {"allowed": True, "reserved_usd": 0.05, "reservation_id": "r"}
     meter.track_openai.side_effect = RuntimeError("private payload must not be logged")
     original = MagicMock(return_value=object())
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=original)))
@@ -124,14 +182,12 @@ def test_wrap_metering_failure_is_visible_without_callback(caplog):
     assert "private payload" not in caplog.text
 
 
-def test_stream_reports_tracking_and_reconciliation_failures_once(caplog):
+def test_stream_reports_tracking_failures_once(caplog):
     meter = MagicMock()
     meter._api_url = "http://x"
     meter.check.return_value = {"allowed": True}
-    meter.reserve.return_value = {"allowed": True, "reserved_usd": 1}
-    reconcile_error = RuntimeError("reconcile failed")
+    meter.reserve.return_value = {"allowed": True, "reserved_usd": 1, "reservation_id": "r"}
     track_error = RuntimeError("track failed")
-    meter.reconcile.side_effect = reconcile_error
     meter.track.side_effect = track_error
     chunk = SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="hello"))], usage=None)
     original = MagicMock(return_value=iter([chunk]))
@@ -141,5 +197,6 @@ def test_stream_reports_tracking_and_reconciliation_failures_once(caplog):
     stream = client.chat.completions.create(model="m", stream=True)
     assert list(stream) == [chunk]
     assert list(stream) == []
-    assert errors == [reconcile_error, track_error]
-    assert caplog.text.count("FluxMeter metering failed") == 2
+    assert errors == [track_error]
+    assert caplog.text.count("FluxMeter metering failed") == 1
+    meter.reconcile.assert_not_called()

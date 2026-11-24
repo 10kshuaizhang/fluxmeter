@@ -138,7 +138,7 @@ class FluxMeter:
         *,
         parent_span_id: Optional[str] = None,
     ) -> dict:
-        """Hold estimated cost for streaming. Requires an admin-capable API key."""
+        """Open a named hold. Flink releases it after settlement; reconcile only unused holds."""
         query: dict[str, object] = {"estimated_cost_usd": estimated_cost_usd}
         if parent_span_id:
             query["parent_span_id"] = parent_span_id
@@ -155,10 +155,14 @@ class FluxMeter:
         actual_usd: float = 0.0,
         *,
         parent_span_id: Optional[str] = None,
+        reservation_id: Optional[str] = None,
     ) -> dict:
+        """Release an unused hold. After ingest, Flink settles the matching reservation."""
         query: dict[str, object] = {"reserved_usd": reserved_usd, "actual_usd": actual_usd}
         if parent_span_id:
             query["parent_span_id"] = parent_span_id
+        if reservation_id:
+            query["reservation_id"] = reservation_id
         return self._http_json(
             "POST",
             f"/budget/{urllib.parse.quote(customer_id, safe='')}/reconcile",
@@ -184,6 +188,8 @@ class FluxMeter:
         latency_ms: int = 0,
         environment: Optional[str] = None,
         metadata: Optional[dict[str, str]] = None,
+        reservation_id: Optional[str] = None,
+        reserved_usd: float = 0.0,
     ) -> TokenEvent:
         """Track a single LLM API call's token usage.
 
@@ -203,6 +209,8 @@ class FluxMeter:
             latency_ms: Provider response time in milliseconds.
             environment: Override instance-level environment.
             metadata: Arbitrary key-value pairs.
+            reservation_id: Named hold to attach so Flink releases it at settlement.
+            reserved_usd: Amount originally reserved with ``reservation_id``.
 
         Returns:
             The TokenEvent that was sent.
@@ -224,6 +232,8 @@ class FluxMeter:
             latency_ms=latency_ms,
             environment=environment or self._environment,
             metadata=metadata,
+            reservation_id=reservation_id,
+            reserved_usd=reserved_usd,
         )
         self._send(event)
         return event
@@ -238,6 +248,8 @@ class FluxMeter:
         parent_span_id: Optional[str] = None,
         latency_ms: int = 0,
         environment: Optional[str] = None,
+        reservation_id: Optional[str] = None,
+        reserved_usd: float = 0.0,
     ) -> TokenEvent:
         """Track usage from an OpenAI ChatCompletion response object.
 
@@ -262,6 +274,8 @@ class FluxMeter:
             session_id=session_id,
             latency_ms=latency_ms,
             environment=environment,
+            reservation_id=reservation_id,
+            reserved_usd=reserved_usd,
             **parsed,
         )
 

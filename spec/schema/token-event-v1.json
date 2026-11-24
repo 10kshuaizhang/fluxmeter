@@ -96,6 +96,15 @@
       "type": "object",
       "additionalProperties": { "type": "string" },
       "description": "Arbitrary string key-value context."
+    },
+    "reservationId": {
+      "type": "string",
+      "description": "Named hold from POST /budget/{id}/reserve. HTTP ingest only; stripped from the Kafka payload and copied onto the trusted envelope so Flink can release the hold at settlement."
+    },
+    "reservedUsd": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Amount originally reserved with reservationId. HTTP ingest only; copied onto the trusted envelope, not billed from this field."
     }
   }
 }

@@ -59,7 +59,7 @@ from ingestion import (
 app = FastAPI(
     title="FluxMeter API",
     description="Real-time token usage and budget queries",
-    version="4.8.4",
+    version="4.8.5",
 )
 
 logger = logging.getLogger(__name__)
@@ -417,6 +417,8 @@ class IngestEvent(BaseModel):
     environment: Optional[str] = None
     timestamp: Optional[int] = None
     metadata: Optional[dict[str, str]] = None
+    reservationId: Optional[str] = None
+    reservedUsd: Optional[float] = None
 
 
 class ApiKeyBudgetRequest(BaseModel):
@@ -448,13 +450,19 @@ async def ingest_event(
         event_dict["metadata"] = validated_meta
     if "eventId" not in event_dict:
         event_dict["eventId"] = str(uuid.uuid4())
+    reservation_id = event_dict.pop("reservationId", None)
+    reserved_usd = float(event_dict.pop("reservedUsd", 0) or 0)
 
+    tenant_id = resolve_tenant_from_key(x_api_key)
     _, key_id = resolve_key_context(x_api_key)
     try:
         result = await get_custody_batcher().accept(
             event_dict,
             CustodyContext(
-                tenant_id=resolve_tenant_from_key(x_api_key), api_key_id=key_id
+                tenant_id=tenant_id,
+                api_key_id=key_id,
+                reservation_id=reservation_id,
+                reserved_usd=reserved_usd,
             ),
         )
     except redis.RedisError as exc:
@@ -503,6 +511,8 @@ async def ingest_event(
     body = {"status": "accepted" if status == "accepted" else status, "eventId": result["eventId"]}
     if result.get("idempotent"):
         body["idempotent"] = True
+    if reservation_id and status in ("accepted", "quarantined"):
+        Reservation(get_redis(), tenant_id).mark_ingested(reservation_id)
     return body
 
 
@@ -1073,9 +1083,11 @@ def reserve_budget(
     parent_span_id: Optional[str] = None,
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
-    """Reserve budget hold for streaming (does not deduct balance — Sink deducts actual).
+    """Open a named hold (does not deduct balance — Flink Sink deducts actual).
 
-    Flow: reserve(estimate) → LLM call → track(actual) → reconcile(estimate)
+    Flow: reserve(estimate) → LLM call → POST /ingest with reservationId.
+    Flink deducts actual cost and releases the hold when the window closes.
+    Call reconcile only for unused holds (provider failed, no ingest).
     Optional parent_span_id: also reserve against span cap (requires POST /budget/{id}/cap).
     """
     if estimated_cost_usd <= 0:
@@ -1085,8 +1097,11 @@ def reserve_budget(
     budget_key = budget_prefix_for_read(r, tenant_id, customer_id)
     if not r.exists(f"{budget_key}:balance_usd"):
         raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
-    return Reservation(r, tenant_id).reserve(
-        customer_id, estimated_cost_usd, parent_span_id=parent_span_id
+    return Reservation(r, tenant_id).open(
+        str(uuid.uuid4()),
+        customer_id=customer_id,
+        estimated_cost_usd=estimated_cost_usd,
+        parent_span_id=parent_span_id,
     )
 
 
@@ -1096,16 +1111,20 @@ def reconcile_budget(
     reserved_usd: float,
     actual_usd: float = 0.0,
     parent_span_id: Optional[str] = None,
+    reservation_id: Optional[str] = None,
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),
 ):
-    """Release hold after streaming. Balance unchanged (Flink Sink deducted actual)."""
+    """Release an unused hold. Ingested reservations stay held until Flink settles."""
     r = get_redis()
     tenant_id = resolve_tenant_from_key(x_api_key)
     budget_key = budget_prefix_for_read(r, tenant_id, customer_id)
     if not r.exists(f"{budget_key}:balance_usd"):
         raise HTTPException(status_code=404, detail=f"No budget set for {customer_id}")
     result = Reservation(r, tenant_id).reconcile(
-        customer_id, reserved_usd, parent_span_id=parent_span_id
+        customer_id,
+        reserved_usd,
+        parent_span_id=parent_span_id,
+        reservation_id=reservation_id,
     )
     result["actual_usd"] = actual_usd
     return result

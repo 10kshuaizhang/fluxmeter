@@ -41,6 +41,7 @@ def test_optional_fields_excluded():
     assert "sessionId" not in d
     assert "environment" not in d
     assert "metadata" not in d
+    assert "reservationId" not in d
 
 
 def test_optional_fields_included():
