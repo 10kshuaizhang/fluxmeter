@@ -76,7 +76,7 @@ jobs:
   # Enable Dependency graph in repo settings if you want alerts.
   dependency-submission:
     runs-on: ubuntu-latest
-    continue-on-failure: true
+    continue-on-error: true
     permissions:
       contents: write
 
